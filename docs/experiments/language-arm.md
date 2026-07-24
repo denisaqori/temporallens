@@ -225,8 +225,10 @@ subject shift is a genuine result, and possibly this arm's most interesting one 
 arm's value, if any, is more likely to appear in calibration and failure behaviour than in clean
 accuracy.
 
-Blocked on the same change noted in README §6: the robustness configs currently hard-code the
-encoder checkpoint and must take checkpoint and model type as parameters.
+To evaluate them, add `l2_frozen_llm`, `l3_random_transformer`, and `l4_text_summary` to
+[`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml)
+(already listed) — each becomes active the moment its checkpoint exists. See README §6 for the
+target registry and the checkpoint contract; no per-perturbation config change is needed.
 
 ---
 

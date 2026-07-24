@@ -195,7 +195,12 @@ encoder. The question is whether accuracy bought with synthetic data survives re
 test-time shift — augmentation that improves clean accuracy while degrading robustness has not
 solved the deployment problem it claims to address.
 
-Blocked on the same parameterization noted in README §6.
+The `g3_augmented_decoder` target is already listed in
+[`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml).
+Unlike the encoder and adapter targets it is **run-shaped, not file-shaped**: G3 trains
+per-subject decoders on the fly, so the target points at a `run_dir` rather than a single
+`best.pt`, and the runner treats it as not-present until that directory is populated. See
+README §6.
 
 ---
 

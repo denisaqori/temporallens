@@ -1,0 +1,40 @@
+# Robustness target registry (D2).
+#
+# Single source of truth for WHICH trained models get the robustness suite. Each F3/F4/F5
+# perturbation is evaluated against every target listed here whose checkpoint exists; targets
+# without a checkpoint yet are skipped by scripts/evaluate.py with a clear log line, so the
+# suite is runnable incrementally as each arm lands (F1 first, the adapters later).
+#
+# This file is shared infrastructure, not an ablation — hence it sits at the experiment root,
+# beside foundation/, generation/, language/, rather than inside any one of them.
+#
+# CHECKPOINT CONTRACT: every training run saves best.pt as {model_state, model_config}, so a
+# consumer rebuilds the exact architecture from the checkpoint alone. That is why a target is
+# just (name, checkpoint) with NO model_type — the old model_type field could not describe the
+# adapter stacks (encoder + projector + backbone + head) and is gone.
+
+targets:
+  # --- Foundation ---
+  - name: f1_encoder
+    arm: foundation
+    checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+
+  # --- Language arm (D2: robustness on the adapter stacks, not only the encoder) ---
+  - name: l2_frozen_llm
+    arm: language
+    checkpoint: checkpoints/adapter_llama3b_subject_split/best.pt
+  - name: l3_random_transformer
+    arm: language
+    checkpoint: checkpoints/adapter_random_transformer/best.pt
+  - name: l4_text_summary
+    arm: language
+    checkpoint: checkpoints/adapter_text_summary_only/best.pt
+
+  # --- Generative arm ---
+  # G3 does not produce a single best.pt: it trains per-subject decoders on the fly under the
+  # real_plus_synthetic strategy. Its robustness target is therefore a RUN, not a static file,
+  # so it uses `run_dir` instead of `checkpoint`. Deferred until the generative arm exists; the
+  # runner treats a run_dir target as "not present" until that directory is populated.
+  - name: g3_augmented_decoder
+    arm: generation
+    run_dir: results/runs/gen_personalization_efficiency/latest

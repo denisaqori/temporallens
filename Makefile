@@ -2,7 +2,12 @@ UV ?= uv
 PYTHON := .venv/bin/python
 
 .PHONY: setup setup-cloud kernel verify test format lint debug train-baseline \
-	debug-adapter smoke-1b train-adapter-cloud eval-noise report
+	debug-adapter smoke-1b train-adapter-cloud eval-noise eval-robustness report
+
+ROBUSTNESS_CONFIGS := \
+	configs/experiment/foundation/robustness_noise.yaml \
+	configs/experiment/foundation/robustness_channel_dropout.yaml \
+	configs/experiment/foundation/robustness_amplitude_scaling.yaml
 
 setup:
 	$(UV) sync --python 3.11 --extra dev
@@ -51,6 +56,11 @@ train-adapter-cloud:
 
 eval-noise:
 	$(PYTHON) scripts/evaluate.py --config configs/experiment/foundation/robustness_noise.yaml
+
+eval-robustness:
+	@for cfg in $(ROBUSTNESS_CONFIGS); do \
+		$(PYTHON) scripts/evaluate.py --config $$cfg || exit $$?; \
+	done
 
 report:
 	$(PYTHON) scripts/make_report.py --run-dir results/runs/latest

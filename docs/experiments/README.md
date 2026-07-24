@@ -229,10 +229,23 @@ the F1 encoder, on the language-arm models, and on the generative arm's augmente
 augmentation preserves that robustness — and whether augmentation buys accuracy at the cost of
 robustness is exactly the question a reviewer asks.
 
-**Implication, not yet done:** the three robustness configs currently hard-code
-`checkpoint.path: checkpoints/baseline_cnn_subject_split/best.pt`. To run against all arms they
-must take the checkpoint and model type as parameters. Until that change lands, D2 is specified
-but not executable.
+**How this is wired.** The perturbation acts on the input window and is target-agnostic, so the
+two axes are separate files. Each `robustness_*.yaml` describes only the perturbation and carries
+no checkpoint. The models to evaluate live in one shared registry,
+[`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml),
+and `scripts/evaluate.py` evaluates the perturbation against every registry target whose
+checkpoint exists — skipping the rest with a log line. The suite therefore runs incrementally:
+today it resolves to F1 only (and F1's checkpoint appears once F1 is trained); the language and
+generative targets light up as those arms land, with no config change.
+
+A target is just `(name, checkpoint)` — no `model_type`. That relies on the **checkpoint
+contract**: every training run saves `best.pt` as `{model_state, model_config}`, so any consumer
+rebuilds the architecture from the checkpoint alone. This matters for the adapter stacks
+(encoder + projector + backbone + head), which a single `model_type` string could not describe.
+F1's trainer is the first code to honor this contract.
+
+The evaluation logic itself (data loader, perturbation transforms, metrics) is Milestone-0 work
+and not written yet; `scripts/evaluate.py` currently resolves and reports the plan.
 
 ### Arms
 
