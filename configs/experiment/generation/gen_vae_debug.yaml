@@ -1,0 +1,51 @@
+# G0 — Generator plumbing check. Verifies the conditional VAE trains at all: latents load,
+# class/subject conditioning accept their inputs, ELBO decreases, samples return the right
+# shape. Not a measurement — a decreasing ELBO proves optimization, not usefulness. Check
+# that reconstructions are not the dataset mean and that changing the class label changes
+# the sample. Spec: docs/experiments/generative-arm.md, G0.
+experiment:
+  name: gen_vae_debug
+  seed: 42
+  mode: debug
+tracking:
+  json_logging: true
+  wandb_mode: disabled
+dataset:
+  name: ninapro_db2
+  data_dir: data/processed/ninapro_db2
+  exercise: B
+  split: subject_independent
+  max_subjects: 3
+  max_windows_per_subject: 50
+  held_out_subjects: [3]
+  window_size: 400
+  stride: 200
+  input_channels: 12
+  num_classes: 18
+  normalize: per_subject_train_stats
+encoder:
+  checkpoint: null           # plumbing test only; L0-equivalent, do not copy to G1
+  freeze: false
+  type: cnn1d
+  embedding_dim: 64
+generator:
+  type: conditional_vae
+  latent_space: encoder      # operates on encoder latents, not raw signal
+  latent_dim: 16
+  hidden_dim: 64
+  class_conditioning: true
+  subject_conditioning: population_only
+training:
+  loss: elbo
+  kl_warmup_epochs: 1        # never apply full KL weight from step 0 (posterior collapse)
+  batch_size: 8
+  epochs: 2
+  learning_rate: 0.001
+  num_workers: 0
+  device: auto
+  save_checkpoint: false
+evaluation:
+  metrics: [elbo, reconstruction_error, kl_divergence]
+  checks:
+    - reconstruction_is_not_dataset_mean
+    - class_label_changes_sample

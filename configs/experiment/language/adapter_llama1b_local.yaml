@@ -1,0 +1,51 @@
+# L1 — Real Llama 1B smoke test, local on MPS. Proves the genuine embedding-injection path works
+# (real tokenizer, real embedding table, real inputs_embeds assembly) BEFORE renting a GPU.
+#
+# THIS IS NOT A RESULT — 4 subjects, 100 windows each, one epoch. Never report a number from it.
+# Llama weights are gated: `hf auth login` and Meta licence acceptance come first. If loss is
+# NaN under float16 on MPS, test in float32 before blaming the adapter. 1B and 3B have DIFFERENT
+# hidden sizes, which is exactly why adapter.output_dim is auto_from_llm_config.
+# Spec: docs/experiments/language-arm.md, L1.
+experiment:
+  name: adapter_llama1b_local
+  seed: 42
+  mode: debug
+tracking:
+  json_logging: true
+  wandb_mode: offline
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  max_subjects: 4
+  max_windows_per_subject: 100
+  held_out_subjects: [4]
+  window_size: 400
+  stride: 200
+  input_channels: 12
+  num_classes: 18
+  normalize: per_subject_train_stats
+encoder:
+  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  freeze: true
+  embedding_dim: 256
+adapter:
+  type: mlp_projector
+  input_dim: 256
+  num_soft_tokens: 8
+  output_dim: auto_from_llm_config
+llm:
+  name: meta-llama/Llama-3.2-1B
+  freeze: true
+  torch_dtype: float16
+  load_in_4bit: false
+  device: mps
+training:
+  target: class_label
+  loss: cross_entropy
+  batch_size: 2
+  gradient_accumulation_steps: 8
+  epochs: 1
+  learning_rate: 0.0001
+  num_workers: 0
+  device: mps

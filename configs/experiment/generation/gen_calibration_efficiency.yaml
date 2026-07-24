@@ -1,0 +1,47 @@
+# G4 — Calibration efficiency. Expected calibration error and overconfidence-on-wrong against
+# k, for the same three strategies as G3. NOTE the collision of terms: this measures
+# PROBABILITY calibration over a SUBJECT-CALIBRATION axis (README section 2).
+#
+# Exists because augmentation could raise accuracy while making the model confidently wrong,
+# which for a wearable interface is a poor trade. ECE is binning-sensitive: the bin count is
+# fixed below and must be reported. Per-subject ECE on a small test set is high-variance, so
+# the headline ECE is pooled and per-subject values are shown separately.
+# Spec: docs/experiments/generative-arm.md, G4.
+experiment:
+  name: gen_calibration_efficiency
+  seed: 42
+  mode: evaluate
+tracking:
+  json_logging: true
+  wandb_mode: offline
+checkpoint:
+  generator: checkpoints/gen_vae_train/best.pt
+  encoder: checkpoints/baseline_cnn_subject_split/best.pt
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+personalization:
+  calibration_samples: [0, 5, 10, 20, 50]
+  k_scope: per_subject
+  draws_per_cell: 5
+  calibration_strategy:
+    - real_only
+    - real_plus_synthetic
+    - real_plus_adaptation
+evaluation:
+  fixed_evaluation_set: true
+  ece_bins: 15                 # fixed and reported — ECE is sensitive to binning
+  report_per_subject: true
+  metrics:
+    - expected_calibration_error
+    - overconfidence_error
+    - ece_vs_k_curve
+    - per_subject_expected_calibration_error
+  save_predictions: true

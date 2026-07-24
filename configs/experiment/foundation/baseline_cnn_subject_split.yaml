@@ -1,0 +1,47 @@
+# F1 — THE REFERENCE ROW. 1-D CNN encoder + classifier head, subject-independent split over 8
+# held-out subjects. Answers "is the encoder alone sufficient?" and every other experiment in
+# the project is measured against it. It also produces the frozen encoder checkpoint that BOTH
+# arms load, so nothing else can start until this is done and its accuracy honestly recorded.
+# Expect modest, variable cross-subject accuracy — that is the point, not a bug.
+# Spec: docs/experiments/README.md, section 6 (Foundation).
+experiment:
+  name: baseline_cnn_subject_split
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: offline
+dataset:
+  name: ninapro_db2
+  data_dir: data/processed/ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+model:
+  type: cnn1d
+  input_channels: 12
+  hidden_dim: 128
+  embedding_dim: 256
+  num_classes: 18
+  dropout: 0.2
+training:
+  batch_size: 64
+  epochs: 30
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  num_workers: 2
+  device: auto
+  save_checkpoint: true
+evaluation:
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - confusion_matrix
+    - expected_calibration_error
+  save_predictions: true

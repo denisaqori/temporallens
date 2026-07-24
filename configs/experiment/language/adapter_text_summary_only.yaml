@@ -1,0 +1,82 @@
+# Rigor baseline. Mirrors adapter_llama3b_subject_split.yaml except the learned
+# embedding path is removed: each window is reduced to engineered scalar features,
+# rendered as text, and prompted into the same frozen Llama. Isolates the effect
+# of the soft-prefix projector from the effect of prompt engineering.
+#
+# NOTE: `encoder` and `adapter` are deliberately absent — this baseline has no
+# projector and no soft prefix; features enter the frozen LLM purely as text.
+# The only trainable module is the classifier head below (see `head:`).
+experiment:
+  name: adapter_text_summary_only
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: online
+baseline:
+  type: text_summary_only
+  feature_scope: per_channel   # each feature computed per channel: 12 x 6 = 72 scalars/window
+  # `rms` is deliberately EXCLUDED: rms = sqrt(mean^2 + sd^2) exactly, so given mean and
+  # standard_deviation it carries zero information. waveform_length and zero_crossings are
+  # included because mean/sd/min/max are all permutation-invariant — without a temporal
+  # feature this baseline would see no ordering information at all, confounding
+  # "soft prefix vs. text" with "temporal structure vs. none". See docs/experiments/
+  # language-arm.md, L4.
+  summary_features:
+    - mean
+    - standard_deviation
+    - minimum
+    - maximum
+    - waveform_length          # sum |x[i+1] - x[i]| — temporal
+    - zero_crossings           # temporal
+  features_on: normalized_signal   # same train_subjects_global_stats as the encoder path
+  prompt:
+    # The template is a hyperparameter: freeze it, version it, and record it verbatim in
+    # run.json. If it drifts between runs, L4 is not comparable to itself.
+    number_format: "%.2f"          # fixed-point; NEVER scientific notation (tokenizes badly)
+    layout: one_labelled_line_per_channel
+    example: "ch01 mean=-0.12 sd=0.98 min=-3.41 max=3.02 wl=41.70 zc=88"
+llm:
+  name: meta-llama/Llama-3.2-3B
+  freeze: true
+  torch_dtype: bfloat16
+  load_in_4bit: false
+head:
+  # The only trainable module in this baseline. A lightweight MLP on the frozen
+  # LLM's final hidden state, so the comparison isolates prompt engineering rather
+  # than measuring the frozen LLM's zero-shot readout.
+  type: mlp
+  pooling: last_token            # Llama is causal — classify from the final token position
+  input_dim: auto_from_llm_config  # LLM hidden size, read from the model config (never hard-coded)
+  hidden_dim: 256
+  dropout: 0.1
+  num_classes: 18
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+training:
+  target: class_label
+  loss: cross_entropy
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  epochs: 5
+  learning_rate: 0.0001
+  num_workers: 4
+  device: cuda
+  save_checkpoint: true
+evaluation:
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - confusion_matrix
+    - expected_calibration_error
+    - overconfidence_error
+  save_predictions: true

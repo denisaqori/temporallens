@@ -1,0 +1,71 @@
+# Rigor baseline. Mirrors adapter_llama3b_subject_split.yaml exactly, except the
+# frozen Llama is replaced by a matched-size, randomly initialized transformer.
+# Isolates the effect of language pretraining from the effect of model size.
+#
+# "Matched" is a real constraint, not a label: same architecture, hidden size, layer count and
+# head count as baseline.match_model — instantiate from that model's CONFIG with random weights,
+# never a differently-shaped stand-in. It is frozen, exactly like L2; a trainable random
+# transformer is a different experiment. Seed matters more than usual here (the features are a
+# draw from an initialization distribution) — if L2 and L3 land close, re-run across seeds
+# before concluding. A null (L2 ~ L3) is the GOOD outcome for rigor: report it plainly.
+# Spec: docs/experiments/language-arm.md, L3.
+experiment:
+  name: adapter_random_transformer
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: online
+baseline:
+  type: random_initialized_transformer
+  match_model: meta-llama/Llama-3.2-3B  # architecture + hidden size copied; weights random
+  freeze: true
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+encoder:
+  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  freeze: true
+  embedding_dim: 256
+adapter:
+  type: mlp_projector
+  input_dim: 256
+  num_soft_tokens: 8
+  output_dim: auto_from_llm_config  # read hidden_size from baseline.match_model's config
+head:
+  # Discriminative readout. Held IDENTICAL across all three language-arm configs
+  # so the only cross-arm difference is the input path, never the readout. This
+  # baseline REQUIRES a trainable head: a random-init model has no usable LM head,
+  # which is why discriminative readout is the one choice all three arms can share.
+  type: mlp
+  pooling: last_token
+  input_dim: auto_from_llm_config  # hidden size from baseline.match_model's config
+  hidden_dim: 256
+  dropout: 0.1
+  num_classes: 18
+training:
+  target: class_label
+  loss: cross_entropy
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  epochs: 5
+  learning_rate: 0.0001
+  num_workers: 4
+  device: cuda
+  save_checkpoint: true
+evaluation:
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - confusion_matrix
+    - expected_calibration_error
+    - overconfidence_error
+  save_predictions: true

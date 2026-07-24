@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "temporallens"
+version = "0.1.0"
+description = "Reducing cross-subject calibration burden in EMG decoding via generative augmentation, and testing language-model conditioning."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }  # code; paper/figures are CC BY-NC-SA 4.0 (LICENSE-DOCS)
+authors = [{ name = "Denisa Qori McDonald" }]
+keywords = [
+  "emg",
+  "electromyography",
+  "time-series",
+  "representation-learning",
+  "wearables",
+  "generative-augmentation",
+  "cross-subject-generalization",
+]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: Apache Software License",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core runtime. NOTE on PyTorch: on Apple Silicon the default wheel is MPS-enabled,
+# so a plain install works locally. On a CUDA machine, install the CUDA build of
+# torch/torchvision/torchaudio via the official PyTorch selector FIRST; the loose
+# version pin below will then be satisfied without reinstalling.
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pandas>=2.1",
+  "scikit-learn>=1.3",
+  "matplotlib>=3.8",
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "torchaudio>=2.2",
+  "transformers>=4.44",
+  "accelerate>=0.33",
+  "datasets>=2.20",
+  "safetensors>=0.4",
+  "sentencepiece>=0.2",
+  "einops>=0.8",
+  "pyyaml>=6.0",
+  "tqdm>=4.66",
+  "rich>=13.7",
+  "typer>=0.12",
+  "pydantic>=2.7",
+  "wandb>=0.17",
+  "gradio>=4.44",
+]
+
+[project.optional-dependencies]
+# Cloud (CUDA) extras for the frozen-LLM and generative runs.
+cloud = [
+  "peft>=0.11",
+  "bitsandbytes>=0.43",   # CUDA-only; optional even on cloud (bfloat16 works without it)
+]
+# Developer tooling.
+dev = [
+  "pytest>=8.2",
+  "black>=24.4",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "jupyter>=1.0",
+  "ipykernel>=6.29",
+]
+
+[project.urls]
+Homepage = "https://github.com/denisaqori/temporallens"
+Repository = "https://github.com/denisaqori/temporallens"
+
+# ---- src layout ----
+[tool.hatch.build.targets.wheel]
+packages = ["src/temporallens"]
+
+# ---- Ruff (lint) ----
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length is handled by the formatter
+
+# ---- Black (format) ----
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# ---- pytest ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+# ---- mypy ----
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true

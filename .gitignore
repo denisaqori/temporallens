@@ -1,0 +1,53 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- Virtual environments (uv) ----
+.venv/
+venv/
+env/
+# NOTE: keep uv.lock tracked (do NOT ignore it) for reproducible installs.
+
+# ---- Secrets / credentials ----
+.env
+*.key
+*.pem
+
+# ---- Model weights & checkpoints (large) ----
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# ---- Data: NinaPro is NOT redistributed; download it under its own terms ----
+data/raw/
+data/processed/
+*.mat
+
+# ---- Experiment outputs ----
+results/runs/
+results/metrics/
+results/scorecards/
+wandb/
+# results/figures/ is intentionally TRACKED — the README displays a figure from it.
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+# Trailing comments do NOT work in .gitignore — '#' only starts a comment at the
+# start of a line. Keep these patterns bare.
+.idea/
+.vscode/
+*.swp
+*~

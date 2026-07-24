@@ -1,0 +1,50 @@
+# G2 — Synthetic quality by discrimination. THIS IS A GATE, NOT A METRIC: it runs before G3
+# is interpreted, and if it fails, G3 is not reported. A classifier two-sample test trains a
+# discriminator to separate real encoder latents from generated ones; AUC near 0.5 indicates
+# a realistic synthetic distribution.
+#
+# Both failure directions matter. AUC ~1.0 means the generator is unrealistic. AUC ~0.5 from a
+# WEAK discriminator means nothing — hence the sanity_generator below, which the discriminator
+# must score near 1.0. Fidelity is also not diversity: a generator reproducing ten real samples
+# scores near chance and is useless, so nearest-neighbour distance is reported alongside.
+# Spec: docs/experiments/generative-arm.md, G2.
+experiment:
+  name: gen_synthetic_quality
+  seed: 42
+  mode: evaluate
+tracking:
+  json_logging: true
+  wandb_mode: offline
+checkpoint:
+  generator: checkpoints/gen_vae_train/best.pt
+  encoder: checkpoints/baseline_cnn_subject_split/best.pt
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+discriminator:
+  type: mlp
+  hidden_dim: 128
+  dropout: 0.1
+  epochs: 20
+  learning_rate: 0.001
+  evaluate_on: held_out_real   # never the real data the generator trained on
+  # Calibrates the test: the discriminator MUST score near 1.0 against this deliberately
+  # poor generator, otherwise a near-chance AUC on real synthetic data is meaningless.
+  sanity_generator: gaussian_matched_moments
+evaluation:
+  per_class: true              # a pooled AUC hides a generator that fails on rare movements
+  metrics:
+    - discriminator_auc
+    - discriminator_auc_confidence_interval
+    - nearest_neighbour_distance   # memorization / diversity check
+    - per_class_discriminator_auc
+  gate:
+    pass_if_auc_within: [0.45, 0.55]
+    sanity_generator_auc_above: 0.90

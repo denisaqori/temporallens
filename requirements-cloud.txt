@@ -1,0 +1,3 @@
+# On a CUDA host, install the correct PyTorch build for that host first.
+# bitsandbytes is intentionally cloud-only and remains optional at runtime.
+-e .[dev,cloud]

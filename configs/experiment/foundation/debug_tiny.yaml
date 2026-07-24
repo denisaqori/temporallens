@@ -1,0 +1,41 @@
+# F0 — Pipeline smoke test. Validates the entire local path end to end on 3 subjects: .mat
+# loading, windowing, subject-independent split, forward pass, loss, metrics, JSON logging.
+# Run this first; it is minutes on the Mac. Not a measurement — never report a number from it.
+# Spec: docs/experiments/README.md, section 6 (Foundation).
+experiment:
+  name: debug_tiny
+  seed: 42
+  mode: debug
+tracking:
+  json_logging: true
+  wandb_mode: disabled
+dataset:
+  name: ninapro_db2
+  data_dir: data/processed/ninapro_db2
+  exercise: B
+  split: subject_independent
+  max_subjects: 3
+  max_windows_per_subject: 50
+  held_out_subjects: [3]
+  window_size: 400
+  stride: 200
+  input_channels: 12
+  num_classes: 18
+  normalize: per_subject_train_stats
+model:
+  type: cnn1d
+  input_channels: 12
+  hidden_dim: 32
+  embedding_dim: 64
+  num_classes: 18
+  dropout: 0.1
+training:
+  batch_size: 8
+  epochs: 2
+  learning_rate: 0.001
+  num_workers: 0
+  device: auto
+  save_checkpoint: false
+evaluation:
+  metrics: [accuracy, macro_f1, confusion_matrix]
+  save_predictions: true

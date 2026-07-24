@@ -1,0 +1,34 @@
+# F3 — Robustness under additive sensor noise, applied zero-shot at test time. Measures whether
+# the representation survives realistic shift, reported as robustness_drop (clean -> perturbed).
+#
+# D2: this must run against EVERY arm, not just the encoder — whether soft-prefix conditioning
+# or synthetic augmentation preserves robustness is itself a result. The checkpoint below is
+# still hard-coded to the F1 encoder; parameterizing checkpoint + model_type is REQUIRED before
+# D2 is executable. Spec: docs/experiments/README.md, section 6.
+experiment:
+  name: robustness_noise
+  seed: 42
+  mode: evaluate
+tracking:
+  json_logging: true
+  wandb_mode: offline
+checkpoint:
+  path: checkpoints/baseline_cnn_subject_split/best.pt
+  model_type: cnn1d
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  window_size: 400
+  stride: 100
+perturbation:
+  type: additive_noise
+  levels: [0.01, 0.05, 0.10, 0.20]
+evaluation:
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - expected_calibration_error
+    - robustness_drop
+  save_predictions: true

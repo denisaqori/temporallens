@@ -1,0 +1,41 @@
+# F2 — LEAKAGE DEMONSTRATION, NOT A RESULT. Identical to F1 except windows are shuffled without
+# regard to subject. Windows from one subject are highly correlated, so a random split puts
+# near-duplicates on both sides and inflates accuracy dramatically. This number exists ONLY to
+# quantify that inflation. Reporting it without labelling it as the leakage demo is a serious
+# error. Spec: docs/experiments/README.md, sections 3.2 and 6.
+experiment:
+  name: baseline_cnn_random_split
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: offline
+dataset:
+  name: ninapro_db2
+  data_dir: data/processed/ninapro_db2
+  exercise: B
+  split: random_window
+  test_fraction: 0.2
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_split_global_stats
+model:
+  type: cnn1d
+  input_channels: 12
+  hidden_dim: 128
+  embedding_dim: 256
+  num_classes: 18
+  dropout: 0.2
+training:
+  batch_size: 64
+  epochs: 30
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  num_workers: 2
+  device: auto
+  save_checkpoint: true
+evaluation:
+  metrics: [accuracy, macro_f1, confusion_matrix, expected_calibration_error]
+  save_predictions: true

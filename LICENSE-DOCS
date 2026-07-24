@@ -1,0 +1,65 @@
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+(CC BY-NC-SA 4.0)
+
+Copyright 2026 Denisa Qori McDonald (https://www.denisa-qori-mcdonald.com/)
+
+--------------------------------------------------------------------------------
+
+SCOPE
+
+This license applies to the NON-SOFTWARE content of this repository:
+
+  - the paper / preprint and any manuscript drafts
+  - figures, plots, and diagrams (including results/figures/)
+  - documentation, README prose, and notebook narrative text
+
+It does NOT apply to:
+
+  - the source code, which is licensed under the Apache License, Version 2.0
+    — see LICENSE and NOTICE
+  - the NinaPro dataset, which is not redistributed here and remains subject
+    to its own terms of use
+
+--------------------------------------------------------------------------------
+
+SUMMARY (not a substitute for the license)
+
+You are free to:
+
+  Share  — copy and redistribute the material in any medium or format
+  Adapt  — remix, transform, and build upon the material
+
+Under the following terms:
+
+  Attribution   — You must give appropriate credit, provide a link to the
+                  license, and indicate if changes were made. You may do so in
+                  any reasonable manner, but not in any way that suggests the
+                  licensor endorses you or your use.
+
+  NonCommercial — You may not use the material for commercial purposes.
+
+  ShareAlike    — If you remix, transform, or build upon the material, you must
+                  distribute your contributions under the same license as the
+                  original.
+
+  No additional restrictions — You may not apply legal terms or technological
+  measures that legally restrict others from doing anything the license permits.
+
+--------------------------------------------------------------------------------
+
+FULL LEGAL CODE
+
+The complete, binding text of the CC BY-NC-SA 4.0 license is available at:
+
+  https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+Human-readable summary:
+
+  https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+--------------------------------------------------------------------------------
+
+SUGGESTED ATTRIBUTION
+
+  "TemporalLens" by Denisa Qori McDonald, licensed under CC BY-NC-SA 4.0.
+  https://github.com/USERNAME/temporallens

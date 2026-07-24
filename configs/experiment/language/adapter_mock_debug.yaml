@@ -1,0 +1,51 @@
+# L0 — Mock-LLM plumbing check. Verifies shapes line up end to end: encoder -> projector -> N
+# soft-prefix vectors -> concat with prompt embeddings -> backbone -> pooled hidden state ->
+# head -> 18 logits -> loss -> backward. No Llama weights, no tokenizer, no network.
+#
+# mock_llm.embedding_dim MUST equal adapter.output_dim — this is the one config where output_dim
+# is a literal rather than auto_from_llm_config, because there is no model config to read from.
+# The encoder is NOT frozen here; that is a plumbing shortcut, do not copy it into L1-L4.
+# Passing proves shapes, not correctness: a projector emitting constants also passes.
+# Spec: docs/experiments/language-arm.md, L0.
+experiment:
+  name: adapter_mock_debug
+  seed: 42
+  mode: debug
+tracking:
+  json_logging: true
+  wandb_mode: disabled
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  max_subjects: 3
+  max_windows_per_subject: 50
+  held_out_subjects: [3]
+  window_size: 400
+  stride: 200
+  input_channels: 12
+  num_classes: 18
+  normalize: per_subject_train_stats
+encoder:
+  checkpoint: null
+  freeze: false
+  type: cnn1d
+  input_channels: 12
+  embedding_dim: 64
+adapter:
+  type: mlp_projector
+  input_dim: 64
+  output_dim: 128
+  num_soft_tokens: 4
+mock_llm:
+  enabled: true
+  embedding_dim: 128
+  hidden_dim: 128
+training:
+  target: class_label
+  loss: cross_entropy
+  batch_size: 8
+  epochs: 2
+  learning_rate: 0.001
+  num_workers: 0
+  device: auto

@@ -1,0 +1,52 @@
+# G1 — Conditional VAE over the FROZEN encoder's latent space, conditioned on gesture class
+# and a subject/calibration embedding. Trained on TRAINING SUBJECTS ONLY (leakage rule 1).
+# The subject embedding must be computable for an unseen subject from k samples at inference,
+# so it cannot be a learned per-subject lookup indexed by subject ID. Watch the KL term
+# separately: KL -> 0 means posterior collapse and the decoder is ignoring the latent.
+# Spec: docs/experiments/generative-arm.md, G1.
+experiment:
+  name: gen_vae_train
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: online
+dataset:
+  name: ninapro_db2
+  data_dir: data/processed/ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+encoder:
+  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  freeze: true
+  embedding_dim: 256
+generator:
+  type: conditional_vae
+  latent_space: encoder
+  latent_dim: 32
+  hidden_dim: 256
+  class_conditioning: true
+  subject_conditioning: calibration_derived   # computable from k samples for an unseen subject
+  subject_embedding_dim: 16
+training:
+  loss: elbo
+  kl_warmup_epochs: 5
+  batch_size: 64
+  epochs: 60
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  num_workers: 4
+  device: cuda
+  save_checkpoint: true
+evaluation:
+  metrics: [elbo, reconstruction_error, kl_divergence]
+  checks:
+    - kl_term_not_collapsed
+    - class_label_changes_sample
+    - trained_on_training_subjects_only

@@ -1,0 +1,78 @@
+# L2 — THE METHOD. Soft-prefix conditioning of a frozen, PRETRAINED Llama 3.2 3B, evaluated
+# subject-independently. Asks whether LLM conditioning improves decoding, calibration, or
+# overconfidence beyond the encoder alone.
+#
+# NEVER READ THIS ROW ALONE. It is meaningful only as the triple (L2, L3, L4) against the F1
+# reference; L2 vs F1 without L3 invites the immediate objection that any gain came from
+# parameter count. The encoder is frozen and loaded from F1 — if it trains here this stops
+# being an adapter study. adapter.output_dim is auto_from_llm_config: hard-coding the hidden
+# size is the most likely cause of "worked locally, failed on the pod".
+#
+# head.pooling: last_token assumes RIGHT-padding. Under left-padding the pooled vector is a pad
+# embedding — training still runs and loss still falls, so this fails SILENTLY. Pin the
+# tokenizer or pool the true last non-pad index, and assert it.
+#
+# Effective batch = batch_size x gradient_accumulation_steps = 32. Changing batch_size alone to
+# fit memory silently changes the optimization, not just the memory profile.
+# Spec: docs/experiments/language-arm.md, L2.
+experiment:
+  name: adapter_llama3b_subject_split
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: online
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split: subject_independent
+  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subjects_global_stats
+encoder:
+  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  freeze: true
+  embedding_dim: 256
+adapter:
+  type: mlp_projector
+  input_dim: 256
+  num_soft_tokens: 8
+  output_dim: auto_from_llm_config
+llm:
+  name: meta-llama/Llama-3.2-3B
+  freeze: true
+  torch_dtype: bfloat16
+  load_in_4bit: false
+head:
+  # Discriminative readout. Held IDENTICAL across all three language-arm configs
+  # (this one, adapter_random_transformer, adapter_text_summary_only) so the only
+  # cross-arm difference is the input path, never the readout. Changing it here
+  # without changing it there invalidates the ablation.
+  type: mlp
+  pooling: last_token            # Llama is causal — classify from the final token position
+  input_dim: auto_from_llm_config  # LLM hidden size, read from the model config (never hard-coded)
+  hidden_dim: 256
+  dropout: 0.1
+  num_classes: 18
+training:
+  target: class_label
+  loss: cross_entropy
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  epochs: 5
+  learning_rate: 0.0001
+  num_workers: 4
+  device: cuda
+  save_checkpoint: true
+evaluation:
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - confusion_matrix
+    - expected_calibration_error
+    - overconfidence_error
+  save_predictions: true
