@@ -69,7 +69,27 @@ what is done, what remains, which branch, and the next concrete step.
    reported correctly launched from the repository. Claude desktop remains unverified: run the
    session handshake there and re-root its project folder to this repository if needed.
 2. **P0 — Freeze the split** (train/val/test subjects and repetitions) and the headline statistic.
-   Everything downstream depends on it.
+   Everything downstream depends on it: numbers computed on different splits are not comparable, and
+   the whole language arm rests on comparing L2 against the F1 reference row. Freeze once, record as
+   *data* (a committed manifest the loader asserts against), never revise.
+
+   **Findings — three things are genuinely undefined today** (analysis only; the decisions are open):
+   - **No validation set exists anywhere.** The spec fixes test subjects `[5, 10, 15, 20, 25, 30, 35,
+     40]` and nothing else — no val subjects in `docs/experiments/README.md` §3.2 or any config. But
+     `save_checkpoint: true` implies model selection, so `best.pt` currently has **no defined
+     criterion**. The only options without a val set are selecting on test (invalid) or not selecting
+     at all. This is the substantive gap, not a detail.
+   - **Repetitions are never mentioned.** DB2 has 6 repetitions per movement per subject; the string
+     "repetition" appears nowhere in `docs/experiments/` or `configs/`. Undefined: do held-out
+     subjects contribute all 6 to test, and do repetitions constrain anything within training
+     subjects? (Standard NinaPro splits *by* repetition; this project splits by subject instead, so
+     the interaction needs an explicit answer.)
+   - **Inferential unit unspecified.** Per-window vs. per-subject changes every confidence interval.
+     Subjects are the independent sampling unit; treating windows as independent inflates
+     significance badly. §3.4 asks for per-subject spread but never fixes the unit for CIs.
+
+   **Deliverable:** a committed split manifest (e.g. `configs/splits/subject_independent_v1.yaml`)
+   listing exact subject IDs per role, plus a hash the loader asserts, so the split cannot drift.
 3. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
    encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline.
 4. **P1 — Honor the checkpoint contract** in the F1 trainer (`{model_state, model_config}`).
