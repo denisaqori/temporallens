@@ -20,6 +20,8 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 </p>
 
 > **Status.** Actively under development. The repository is organized in phases (see [Roadmap](#roadmap)); results tables and figures are populated as each phase completes. Sections marked _(pending)_ are scaffolded but not yet filled.
+>
+> **Working on the project?** [`docs/project/STATUS.md`](docs/project/STATUS.md) is the single source of truth for current state, latest changes, and the next task to pick up.
 
 ---
 

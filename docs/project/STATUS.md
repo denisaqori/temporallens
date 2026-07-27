@@ -1,11 +1,30 @@
-# STATUS
+# STATUS — start here
 
-Live project state. The single human-readable answer to "what is done, what is in progress, what is
-next." Update it in the same change that moves the work. Decision *provenance* lives in
-[DECISIONS.md](DECISIONS.md); technical rationale for protocol decisions lives in
-[../experiments/README.md](../experiments/README.md).
+**This is the single source of truth for the state of the repository.** Every agent and person
+starts here to see what is done, what changed most recently, and what to pick up next — and updates
+it in the same change that moves the work.
 
-_Last updated: 2026-07-27 · main @ 8087c5d_
+**Scope: this file holds _work_ and is mutable** — items enter, move, and leave. *Choices* (what was
+decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technical rationale lives in
+[../experiments/README.md](../experiments/README.md). Reference a decision by ID here; never restate
+its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
+agreement**.
+
+> 👉 **Next to pick up:** verify or re-root Claude desktop on the repo (remaining P0), then
+> freeze the split (P0). See [Next up](#next-up-priority-order).
+
+_Last updated: 2026-07-27 · main @ 505c92f_
+
+## Latest changes
+
+**Commits only** — one line per commit, newest first. No entry without a hash: uncommitted state is
+what `git status` is for, and hand-copied inventories are stale the moment they are written.
+In-flight work belongs in [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight).
+Full history: `git log --oneline`.
+
+- `505c92f` — Tier-1 governance added (AGENTS, CLAUDE, STATUS, DECISIONS).
+- `8087c5d` — robustness evaluation decoupled from the target model (D2).
+- `c1d3868` — initial commit: environment, experiment specifications, and configs.
 
 ## Phase
 
@@ -27,14 +46,28 @@ started.
 
 ## In progress
 
+Claim here **before** starting; commit and push the claim immediately (an unpushed claim does not
+exist). Release the row when the work lands.
+
 | Task | Owner | Branch |
 |---|---|---|
-| _(claim work here before starting — see AGENTS.md concurrency protocol)_ | — | — |
+| _(none — claim work here before starting)_ | — | — |
+
+## Paused / mid-flight
+
+Work that is started but not finished. Each entry must be resumable cold by a different agent:
+what is done, what remains, which branch, and the next concrete step.
+
+| Item | Owner | Branch | Done so far → next step |
+|---|---|---|---|
+| _(none)_ | — | — | — |
 
 ## Next up (priority order)
 
-1. **P0 — Re-root both agents** on `…/temporallens` (Codex: open the real repo; Claude: point the
-   desktop project at the repo folder). Parity + safety.
+1. **P0 — Finish agent re-rooting.** This Codex desktop task now uses the primary checkout, the
+   invalid ChatGPT-project mirror task is being retired as a work surface, and the Claude CLI was
+   reported correctly launched from the repository. Claude desktop remains unverified: run the
+   session handshake there and re-root its project folder to this repository if needed.
 2. **P0 — Freeze the split** (train/val/test subjects and repetitions) and the headline statistic.
    Everything downstream depends on it.
 3. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN

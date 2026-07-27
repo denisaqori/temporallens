@@ -1,0 +1,7 @@
+# Project-memory files are edited concurrently by multiple agents/worktrees. Union merge keeps
+# BOTH sides of a concurrent edit instead of raising a conflict, which works because every entry
+# in these files is a self-contained single line. After a merge, re-read the affected section and
+# remove duplicates or reorder — union merge is conflict-avoidance, not judgement.
+# See AGENTS.md, "Working agreement — STATUS and DECISIONS".
+docs/project/STATUS.md      merge=union
+docs/project/DECISIONS.md   merge=union
