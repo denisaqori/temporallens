@@ -65,7 +65,7 @@ exist). Release the row when the work lands.
 
 | Task | Owner | Branch |
 |---|---|---|
-| smoke | denisa | `denisa/smoke` |
+| _(none — claim work here before starting)_ | — | — |
 
 ## Paused / mid-flight
 
