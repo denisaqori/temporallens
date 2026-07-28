@@ -13,7 +13,7 @@ agreement**.
 > 👉 **Next to pick up:** verify or re-root Claude desktop on the repo (remaining P0), then
 > freeze the split (P0). See [Next up](#next-up-priority-order).
 
-_Last updated: 2026-07-27 · main @ 505c92f_
+_Last updated: 2026-07-28_
 
 ## Latest changes
 
@@ -22,6 +22,21 @@ what `git status` is for, and hand-copied inventories are stale the moment they 
 In-flight work belongs in [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight).
 Full history: `git log --oneline`.
 
+**This is a curated highlight list, not a mirror of `git log`.** Two consequences, both intended:
+
+- **It lags** — the commit that edits this file cannot contain its own hash, and claim/release
+  commits touch STATUS without adding an entry. Do not chase either with follow-up commits.
+- **Coordination commits are deliberately omitted.** `Claim …`/`Release … in STATUS` are workflow
+  bookkeeping, not changes to the project; listing them would bury the real entries. `git log`
+  remains the complete record — this list exists to answer "what actually changed lately?" at a
+  glance, not to be diffed against the history.
+
+There is deliberately no "current HEAD" field here: `git rev-parse --short HEAD` answers that, and a
+copy of it would only ever be wrong.
+
+- `925b433` — split-freeze findings recorded (no validation set, repetitions undefined,
+  inferential unit unspecified).
+- `081492f` — STATUS/DECISIONS working agreement; union-merge on project memory.
 - `505c92f` — Tier-1 governance added (AGENTS, CLAUDE, STATUS, DECISIONS).
 - `8087c5d` — robustness evaluation decoupled from the target model (D2).
 - `c1d3868` — initial commit: environment, experiment specifications, and configs.
@@ -65,8 +80,7 @@ what is done, what remains, which branch, and the next concrete step.
 ## Next up (priority order)
 
 1. **P0 — Finish agent re-rooting.** This Codex desktop task now uses the primary checkout, the
-   invalid ChatGPT-project mirror task is being retired as a work surface, and the Claude CLI was
-   reported correctly launched from the repository. Claude desktop remains unverified: run the
+   invalid ChatGPT-project mirror task is being retired as a work surface, and the Claude CLI was reported correctly launched from the repository. Claude desktop remains unverified: run the
    session handshake there and re-root its project folder to this repository if needed.
 2. **P0 — Freeze the split** (train/val/test subjects and repetitions) and the headline statistic.
    Everything downstream depends on it: numbers computed on different splits are not comparable, and

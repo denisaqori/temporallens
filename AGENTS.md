@@ -56,6 +56,7 @@ make verify     # env + MPS check
 make test       # pytest
 make lint       # ruff + mypy
 make format     # black + ruff --fix
+make test-worktree  # integration tests for scripts/worktree.sh (slower; run when it changes)
 ```
 
 Interface-only — the scripts they call are not written yet (`train_encoder.py`, `train_adapter.py`,
@@ -159,24 +160,142 @@ edit is invisible to the other until it is committed and pulled. The discipline 
 Codex and Claude share this repository. To avoid clobbering each other:
 
 - **One agent per working copy.** Never let two agents edit the same working tree at once.
-- For parallel work, give each agent an isolated checkout over the shared history:
-  `git worktree add ../temporallens-<task> -b <branch>`.
-- **Each worktree needs its own venv.** `temporallens` is installed editable, so a venv resolves
-  `import temporallens` to the source tree it was created from. Sharing one venv across worktrees
-  silently tests the *wrong* files. Run `make setup` inside every new worktree (fast — uv hardlinks
-  from its cache).
+- **The primary checkout always stays on `main`.** This is the invariant everything else rests on:
+  `main` is the coordination channel, so there must always be a working copy sitting on it, ready to
+  accept a claim or release commit. Never check a task branch out in the primary checkout — if you
+  want a branch, you want a worktree; they come together.
 - **Claim work in `docs/project/STATUS.md`** ("In progress": task · owner · branch) *before* starting.
 - Small, focused commits. Reference the decision or task they implement.
+
+### Two paths, chosen by whether anyone else is working
+
+| | Sequential (you are the only agent) | Concurrent (another agent is active) |
+|---|---|---|
+| Where | Primary checkout, directly on `main` | A worktree on `<owner>/<task>` |
+| Branch | none | yes |
+| Claim/release | not needed | required, on `main`, before the branch exists |
+| Setup | already done | `scripts/worktree.sh new …` |
+
+There is no third mode. "Task branch checked out in the primary checkout" is the one combination to
+avoid: it breaks the invariant above, and `scripts/worktree.sh done` will refuse to release the claim
+because the primary checkout is no longer on `main`.
+
+### What may be committed to `main`
+
+`main` is both the integration branch **and the coordination channel**. Two kinds of commit are
+allowed directly on it:
+
+1. **Coordination commits** — STATUS claim/release rows, and only those. These *must* go on `main`:
+   a claim committed on a feature branch is invisible to every other agent, which defeats claiming
+   entirely. Commit and push immediately; an unpushed claim does not exist.
+2. **Sequential implementation work**, when only one agent is active.
+
+**Concurrent implementation work never goes on `main`** — it goes on a `<owner>/<task>` branch in its
+own worktree, and reaches `main` by merge. `scripts/worktree.sh` handles the coordination commits for
+you; do not hand-edit STATUS claims while a worktree flow is in progress.
+
+### The concurrent workflow, start to finish
+
+```bash
+# 1-4. pull-check main → claim in STATUS → push the claim → branch from main → venv
+scripts/worktree.sh new claude/f1-baseline
+
+# 5. work
+cd ../temporallens-claude-f1-baseline
+#    ... implement; make verify && make test && make lint; update STATUS/DECISIONS ...
+
+# 5a. catch up with main BEFORE merging — other agents' claims have landed there.
+git merge main            # resolve here, in your worktree, not on main
+
+# 6. integrate (from the primary checkout, which is on main)
+git -C ../temporallens merge claude/f1-baseline
+
+# 7. remove worktree, delete the merged branch, release the claim on main
+scripts/worktree.sh done claude/f1-baseline
+```
+
+Step **5a is not optional**: `main` moves while you work, and merging it into your branch first means
+conflicts surface in your worktree instead of on the shared branch. Step **6 must precede step 7** —
+`done` checks `git branch --merged main` and will keep an unmerged branch rather than delete work.
+
+**Who owns the claim row.** Exactly one writer, at exactly two moments:
+
+| | Adds/removes the "In progress" row |
+|---|---|
+| `scripts/worktree.sh new` | adds it, on `main`, before the branch exists |
+| `scripts/worktree.sh done` | removes it, on `main`, after the merge succeeds |
+| **A task branch** | **never touches the In progress table** |
+
+A branch that edits the In progress table creates a second writer and a merge duplicate. Branches
+*do* update the rest of STATUS (Latest changes, Done, Paused) per Definition of Done — just not that
+table. With this rule the union merge has nothing to duplicate; if you ever do see two identical
+rows, someone broke it — delete the extra and check what edited it.
+
+### Creating a worktree
+
+Use the helper — it performs the venv step that correctness depends on:
+
+```bash
+scripts/worktree.sh new claude/f1-baseline   # worktree + branch + its own venv (~3 s)
+scripts/worktree.sh list
+scripts/worktree.sh done claude/f1-baseline  # remove worktree + merged branch
+```
+
+Conventions it enforces:
+
+| | Convention |
+|---|---|
+| Branch | `<owner>/<task>` — `claude/f1-baseline`, `codex/loader`, `denisa/…`. Owner: `[a-z0-9._]`, **no hyphen**; task: `[a-z0-9._-]`. The owner restriction keeps branch ↔ directory a bijection (otherwise `claude/foo-bar` and `claude-foo/bar` collide). |
+| Directory | `../temporallens-<owner>-<task>` (sibling of the repo, never nested inside it) |
+| `main` | Stays checked out in the primary checkout; it is the integration branch and the coordination channel (see above for what may be committed to it). |
+| Base | Every task branch is cut from an up-to-date `main`, explicitly — never from the caller's HEAD. |
+
+**Each worktree gets its own venv — this is correctness, not tidiness.** `temporallens` is installed
+editable, so a venv resolves `import temporallens` to the source tree it was created from. Using
+another worktree's venv silently imports and tests the *wrong files* while every command appears to
+succeed. Verified: with the main venv used from inside a worktree, an edit made in the worktree is
+invisible — the import still resolves to the primary checkout. `make setup` in each worktree costs
+~3 s because uv hardlinks from its cache on the same volume.
+
+### Which agent drives it
+
+**Every agent and person uses `scripts/worktree.sh`. One mechanism, no exceptions.**
+
+- **Codex:** do **not** use the app's native worktree feature for this repository. Per Codex's own
+  documentation it is a separate lifecycle — worktrees are created under `$CODEX_HOME/worktrees`
+  rather than beside the repo, they start in **detached HEAD** rather than on a named branch, and
+  dependency setup requires configuring a separate local-environment setup script. None of that
+  matches the conventions above, and a second lifecycle would put worktrees, branch names, and venv
+  bootstrapping in two different places.
+- **Claude, and humans:** the same script.
+
+The script is what enforces the three things that fail *silently* when done by hand: the claim
+reaching `main` before the branch exists, the branch being cut from an up-to-date `main`, and the
+per-worktree venv. A second mechanism that skips any of them reintroduces the bug it was written to
+prevent.
+
+One rulebook, one tool. A second mechanism would inevitably diverge on branch naming, directory
+layout, or the venv step — which is the divergence this section exists to prevent.
+
+### Teardown
+
+`scripts/worktree.sh done <owner>/<task>` — after the merge (step 6 above). It removes the worktree,
+deletes the branch **only if merged**, and releases the STATUS claim on `main`. It refuses to touch a
+worktree with uncommitted changes. Both `new` and `done` require the primary checkout to be clean and
+on `main`; that is the invariant, not an inconvenience.
 
 ## Definition of done
 
 A change is done when:
 
 1. `make verify && make test && make lint` all pass.
-2. If configs changed, `docs/experiments/` is updated and the 1:1 config↔spec mapping holds.
-3. **`docs/project/STATUS.md` is updated** per the working agreement above — Latest changes, In
+2. **If `scripts/worktree.sh`, `tests/test_worktree.sh`, or the concurrency workflow changed,
+   `make test-worktree` must also pass.** It is excluded from `make test` for speed, not because it
+   is optional — that script commits and pushes to `main`, so it is the least forgiving code here.
+3. If configs changed, `docs/experiments/` is updated and the 1:1 config↔spec mapping holds.
+4. **`docs/project/STATUS.md` is updated** per the working agreement above — Latest changes, In
    progress, and Next up reflect reality; any new decision is logged in `DECISIONS.md`. This step is
    not optional: STATUS is the one file everyone reads, so a change that doesn't update it is not
    done.
-4. The change was reported in the conversation (which files, what changed).
-5. Nothing ignored (data, checkpoints, secrets) is staged.
+5. The change was reported in the conversation (which files, what changed).
+6. Nothing ignored (data, checkpoints, secrets) is staged.

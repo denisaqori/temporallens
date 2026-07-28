@@ -1,7 +1,7 @@
 UV ?= uv
 PYTHON := .venv/bin/python
 
-.PHONY: setup setup-cloud kernel verify test format lint debug train-baseline \
+.PHONY: setup setup-cloud kernel verify test test-worktree format lint debug train-baseline \
 	debug-adapter smoke-1b train-adapter-cloud eval-noise eval-robustness report
 
 ROBUSTNESS_CONFIGS := \
@@ -26,6 +26,11 @@ verify:
 
 test:
 	$(PYTHON) -m pytest tests/
+
+# Integration tests for scripts/worktree.sh. Not in `test`: drives git end to end
+# (clones, branches, pushes to a throwaway local remote) and is slower.
+test-worktree:
+	bash tests/test_worktree.sh
 
 format:
 	$(PYTHON) -m black src scripts tests
