@@ -34,6 +34,8 @@ Full history: `git log --oneline`.
 There is deliberately no "current HEAD" field here: `git rev-parse --short HEAD` answers that, and a
 copy of it would only ever be wrong.
 
+- `3920b7d` — worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh`
+  (`make test-worktree`); claim-on-`main` coordination, atomic create/teardown.
 - `925b433` — split-freeze findings recorded (no validation set, repetitions undefined,
   inferential unit unspecified).
 - `081492f` — STATUS/DECISIONS working agreement; union-merge on project memory.
@@ -58,6 +60,9 @@ started.
 - Robustness evaluation decoupled from the target model (D2): shared `robustness_targets.yaml`,
   `scripts/evaluate.py` stub, `eval-robustness` target.
 - Governance Tier-1: `AGENTS.md`, `CLAUDE.md`, this file, `DECISIONS.md`.
+- Concurrency mechanism: `scripts/worktree.sh` (single tool for every agent), the
+  primary-stays-on-`main` invariant, and `tests/test_worktree.sh` covering its mutating paths.
+  Hardened across four review rounds with Codex; see DECISIONS.
 
 ## In progress
 
