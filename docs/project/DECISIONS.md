@@ -25,7 +25,7 @@ Detail and rationale: [../experiments/README.md](../experiments/README.md) §7 a
 | Decision | Recommended by | Decided by | Date | Status |
 |----------|----------------|------------|------|--------|
 | Keep `planning-documents/` as a separate **sibling git repo, no remote** (not nested + gitignored) | Claude | Denisa | 2026-07-27 | Accepted |
-| Both agents rooted on `…/temporallens`; never the parent or a ChatGPT mirror | Codex; Claude | Denisa | 2026-07-27 | In progress — terminal CLI installed (`brew`, launch from repo); desktop-app project folder still parent-rooted |
+| Both agents rooted on `…/temporallens`; never the parent or a ChatGPT mirror | Codex; Claude | Denisa | 2026-07-27 | **Adopted** — closed 2026-07-28: all four surfaces verified (Codex desktop on the primary checkout, ChatGPT-project mirror retired, Claude terminal CLI launched from the repo, Claude desktop handshake resolves to the repo root, confirmed by Denisa) |
 | `docs/project/STATUS.md` is the **single source of truth** for repo state; every agent/person reads it first and updates it as part of Definition of Done (wired from README + AGENTS) | Denisa; Claude | Denisa | 2026-07-27 | Adopted |
 | Concurrent agents use **git worktrees / separate branches**, never one shared working copy | Codex; Claude | Denisa | 2026-07-27 | Adopted (AGENTS.md) |
 | ~~Worktree mechanism (first version); Codex may use native worktrees under the same conventions~~ | Claude | Denisa | 2026-07-27 | **Superseded** by the worktree-mechanism row below — Codex native worktrees are *not* used (separate lifecycle: `$CODEX_HOME/worktrees`, detached HEAD, separate setup script) |
