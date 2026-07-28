@@ -17,31 +17,23 @@ _Last updated: 2026-07-28_
 
 ## Latest changes
 
-**Commits only** — one line per commit, newest first. No entry without a hash: uncommitted state is
-what `git status` is for, and hand-copied inventories are stale the moment they are written.
-In-flight work belongs in [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight).
-Full history: `git log --oneline`.
+**A curated highlight list of shipped work, newest first — deliberately no commit hashes.** `git
+log --oneline` is the complete, live record; duplicating hashes here only creates bookkeeping that
+goes stale. This list answers "what actually changed lately?" in prose, at a glance.
 
-**This is a curated highlight list, not a mirror of `git log`.** Two consequences, both intended:
+Entries are added when work lands. Coordination commits (`Claim …` / `Release … in STATUS`) are
+omitted — they are workflow bookkeeping, not changes to the project, and listing them would bury
+the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
+[In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
-- **It lags** — the commit that edits this file cannot contain its own hash, and claim/release
-  commits touch STATUS without adding an entry. Do not chase either with follow-up commits.
-- **Coordination commits are deliberately omitted.** `Claim …`/`Release … in STATUS` are workflow
-  bookkeeping, not changes to the project; listing them would bury the real entries. `git log`
-  remains the complete record — this list exists to answer "what actually changed lately?" at a
-  glance, not to be diffed against the history.
-
-There is deliberately no "current HEAD" field here: `git rev-parse --short HEAD` answers that, and a
-copy of it would only ever be wrong.
-
-- `3920b7d` — worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh`
-  (`make test-worktree`); claim-on-`main` coordination, atomic create/teardown.
-- `925b433` — split-freeze findings recorded (no validation set, repetitions undefined,
-  inferential unit unspecified).
-- `081492f` — STATUS/DECISIONS working agreement; union-merge on project memory.
-- `505c92f` — Tier-1 governance added (AGENTS, CLAUDE, STATUS, DECISIONS).
-- `8087c5d` — robustness evaluation decoupled from the target model (D2).
-- `c1d3868` — initial commit: environment, experiment specifications, and configs.
+- Worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh` (`make test-worktree`);
+  claim-on-`main` coordination, atomic create/teardown.
+- Split-freeze findings recorded: no validation set, repetitions undefined, inferential unit
+  unspecified.
+- STATUS/DECISIONS working agreement; union-merge on project memory.
+- Governance Tier-1 added: `AGENTS.md`, `CLAUDE.md`, STATUS, DECISIONS.
+- Robustness evaluation decoupled from the target model (D2).
+- Initial commit: environment, experiment specifications, and configs.
 
 ## Phase
 

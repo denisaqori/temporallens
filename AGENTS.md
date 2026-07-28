@@ -106,8 +106,9 @@ must not restate its rationale — that lives in DECISIONS and `docs/experiments
 inventories, branch lists, file listings, installed versions — anything a command answers in a
 second — is stale the moment it is written and contradicts its own source. Record *decisions* and
 *progress*; let `git status`, `git log`, and `git worktree list` report state. Concretely:
-**Latest changes** takes commits only (a line without a hash does not belong there), and anything
-in flight goes to **In progress** or **Paused / mid-flight**, never into the changelog.
+**Latest changes** carries shipped work in prose and **no commit hashes** — `git log --oneline` is
+the live record, and a copied hash is bookkeeping that goes stale. Anything in flight goes to
+**In progress** or **Paused / mid-flight**, never into the changelog.
 
 ### Who may update them — two tiers
 
