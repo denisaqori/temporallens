@@ -5,9 +5,9 @@ embedding space improve decoding, calibration, or failure reporting beyond a wel
 encoder alone?
 
 **The expected answer is "little, for raw accuracy."** That is not a failure mode. A clean
-negative, properly isolated by L3 and L4, is a publishable finding and is more interesting than
-an unisolated positive. This arm is written so that a null result is as defensible as a
-positive one — which is only true if the controls are airtight.
+negative, properly isolated by L3 and L4, is publishable, and more interesting than a positive
+nobody can attribute. This arm is built so a null result stands up as well as a positive one,
+which holds only while the controls stay airtight.
 
 Read [README.md](README.md) first: §2 (vocabulary), §3 (shared protocol), §4 (the readout rule)
 are assumed throughout and are not repeated here.
@@ -30,15 +30,14 @@ training-set size. See README §5.1.
 | **L3** | soft prefix | matched-size, **random init** | projector + head | `adapter_random_transformer` |
 | **L4** | engineered text | Llama 3.2 3B, **pretrained** | head only | `adapter_text_summary_only` |
 
-Two differences, each isolated by exactly one comparison:
+Two differences, one comparison each:
 
-- **L2 vs. L3** — identical size, identical readout, identical input path; the *only* difference
-  is whether the weights are pretrained. This is what licenses any claim about **language
-  pretraining**. If L2 ≈ L3, the effect was model capacity, not language.
-- **L2 vs. L4** — identical backbone, identical readout; the only difference is whether the
-  signal arrives as a *learned soft prefix* or as *engineered text*. This is what licenses any
-  claim about the **projector**. If L2 ≈ L4, a prompt of numbers was enough and the learned
-  path bought nothing.
+- **L2 vs. L3** — size, readout, and input path all held constant; the weights are pretrained in
+  one and random in the other. Any claim about **language pretraining** rests on this row. If
+  L2 ≈ L3, what helped was model capacity rather than language.
+- **L2 vs. L4** — same backbone and same readout, but the signal arrives either as a *learned
+  soft prefix* or as *engineered text*. That difference is what licenses a claim about the
+  **projector**. If L2 ≈ L4, a prompt of numbers was enough and the learned path bought nothing.
 
 Both comparisons are void if the readout differs across rows. See README §4.
 
@@ -85,7 +84,7 @@ recurring cost, and discovering an injection bug there is the expensive way to f
   test in float32 before assuming the adapter is wrong.
 - `llm.device: mps` and `training.device: mps` are hard-coded here on purpose — this config is
   local-only by design. The 3B config uses `cuda` for the same reason.
-- 1B and 3B have **different hidden sizes**. This is exactly why `adapter.output_dim` is
+- 1B and 3B have **different hidden sizes**. This is why `adapter.output_dim` is
   `auto_from_llm_config`; a value hard-coded to pass here fails on the 3B run.
 
 ---
@@ -97,9 +96,9 @@ recurring cost, and discovering an injection bug there is the expensive way to f
 **What it measures.** Whether soft-prefix conditioning of a frozen, *pretrained* language model
 improves held-out-subject decoding, calibration, or overconfidence beyond the encoder alone.
 
-**Why it exists.** It is the secondary hypothesis of the whole project. It is also the piece
-that demonstrates wiring a modality into a frozen LLM's embedding space — the transferable
-skill — independently of whether the result is positive.
+**Why it exists.** This is the project's secondary hypothesis, and also the piece that
+demonstrates how to wire a modality into a frozen LLM's embedding space. That skill transfers
+whether or not the result comes out positive.
 
 **How to read it.** Never alone. L2 is meaningful only as the triple (L2, L3, L4) plus the F1
 reference. Reporting L2 against F1 without L3 invites the immediate objection that any gain came
@@ -109,7 +108,7 @@ from parameter count.
 - The encoder is **frozen** and loaded from F1. If it trains here, this stops being an adapter
   study and becomes a bigger-model study.
 - `adapter.output_dim: auto_from_llm_config` — read `hidden_size` from the model config at
-  runtime. Hard-coding is the single most likely cause of "worked locally, failed on the pod."
+  runtime. Hard-coding it is the likeliest cause of "worked locally, failed on the pod."
 - **Padding side.** `head.pooling: last_token` with a causal model assumes right-padding. Under
   left-padding the pooled vector is a pad embedding; training still runs and loss still falls,
   so this fails *silently*. Pin the tokenizer or pool the true last non-pad index, and assert it.
@@ -127,23 +126,22 @@ from parameter count.
 **What it measures.** Whether the effect in L2 is attributable to **language pretraining** or
 merely to routing signals through a large fixed transformer.
 
-**Why it exists.** It is the first question a strong reviewer asks, and without it no claim
-about "language" survives contact. A frozen random transformer is still a high-dimensional
-non-linear feature transform, and those can help on their own.
+**Why it exists.** A strong reviewer will raise it immediately, and no claim about "language"
+holds up without it. A frozen random transformer is still a high-dimensional non-linear feature
+transform, and those help on their own.
 
 **Easily missed.**
 - **"Matched" is a real constraint,** not a label. Same architecture, hidden size, layer count,
   and head count as `baseline.match_model` — instantiate from the *config* of
   `meta-llama/Llama-3.2-3B` with random weights, never a differently-shaped stand-in. If sizes
   differ, this controls for nothing.
-- It is **frozen**, exactly like L2. A trainable random transformer is a completely different
-  experiment.
+- It is **frozen**, as L2 is. A trainable random transformer would be a different experiment.
 - This row is *why* the readout is discriminative (README §4): a random model has no usable LM
   head, so a generative readout cannot be run here at all.
 - Seed matters more than usual — the "features" are a draw from an initialization distribution.
   If L2 and L3 land close, re-run L3 across several seeds before concluding anything.
-- **A null here is the good outcome for rigor.** If L2 ≈ L3, report that plainly: the honest
-  conclusion is that language pretraining did not help, and that is the finding.
+- **A null here is the good outcome for rigor.** If L2 ≈ L3, say so plainly: language
+  pretraining did not help, and that is the result.
 
 ---
 
@@ -174,13 +172,13 @@ for both population and sample SD at N = 400). Given `mean` and `standard_deviat
 **zero** additional information. Including it wastes tokens and misrepresents the baseline as
 richer than it is.
 
-**Why two temporal features were added — this is the important one.** `mean`, `sd`, `min`,
-`max` (and `rms`) are all **permutation-invariant**: shuffle the samples within a window and
-every one of them is unchanged. A baseline built only from those receives *no temporal
-information at all*, while L2's encoder path runs a 1-D CNN over the ordered signal. Any L2 − L4
-gap would then be partly **temporal structure vs. none**, not **soft prefix vs. text** — a
-confound living inside the control whose whole purpose is to remove confounds. Waveform length
-and zero crossings are standard Hudgins time-domain sEMG features and restore ordering
+**Why two temporal features were added.** This is the more serious of the two problems. `mean`,
+`sd`, `min`, `max` (and `rms`) are all **permutation-invariant**: shuffle the samples within a
+window and none of them move. A baseline built only from those receives *no temporal information
+at all*, while L2's encoder path runs a 1-D CNN over the ordered signal. Any L2 − L4 gap would
+then be measuring **temporal structure vs. none** as much as **soft prefix vs. text**, which
+plants a confound inside the very control meant to rule confounds out. Waveform length and zero
+crossings are standard Hudgins time-domain sEMG features, and they restore the ordering
 information.
 
 ### Prompt formatting (decision D4)
@@ -199,11 +197,11 @@ Budget ≈ 200–250 prompt tokens per window.
 
 **Easily missed.**
 - **No projector and no encoder** — deliberately. `adapter:` and `encoder:` are absent, and the
-  head is the only trainable module. That absence *is* the experiment; it is not an oversight.
+  head is the only trainable module. The absence *is* the experiment, not an oversight.
 - The backbone must be the **same** frozen pretrained model as L2. Comparing L4 on 1B against L2
   on 3B measures model size.
-- Features are computed on the normalized signal, not raw mV — otherwise L2 and L4 see different
-  preprocessing and the comparison is unfair before it starts.
+- Features are computed on the normalized signal, not raw mV. Otherwise L2 and L4 see different
+  preprocessing, and the comparison is already compromised.
 
 ---
 

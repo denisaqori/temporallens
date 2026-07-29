@@ -95,10 +95,11 @@ not required for the headline claim.
 encoder latents from generated ones. Discrimination near chance (AUC ≈ 0.5) indicates the
 synthetic distribution is close to the real one.
 
-**Why it exists — this is a gate, not a metric.** It runs *before* G3 is interpreted. Without
-it, a personalization "gain" could come from a degenerate generator — one emitting near-copies
-of a few training examples, or class-typical blobs that happen to be linearly separable. That
-would be an artifact, not a result. G2 is what makes the headline claim defensible.
+**Why it exists — it is a gate, not a metric.** It runs *before* G3 is interpreted. Without it,
+a personalization "gain" could come from a degenerate generator: one emitting near-copies of a
+few training examples, or class-typical blobs that happen to be linearly separable. Either
+produces an artifact rather than a result, which is why G2 has to pass before the headline claim
+means anything.
 
 **Easily missed.**
 - **Both failure directions matter.** AUC ≈ 1.0 means the generator is unrealistic. AUC ≈ 0.5
@@ -110,8 +111,8 @@ would be an artifact, not a result. G2 is what makes the headline claim defensib
   distance from each synthetic sample to its closest real training sample will expose
   memorization, which is both a quality failure *and* a privacy consideration.
 - **Test on held-out real data**, not on the real data the generator trained on.
-- **Evaluate per class.** A generator can be excellent for rest and useless for rare movements;
-  a pooled AUC hides that completely.
+- **Evaluate per class.** A generator can be excellent for rest and useless for rare movements,
+  and a pooled AUC hides that.
 - Report AUC with a confidence interval. A single number near 0.5 with a wide interval is not
   evidence of anything.
 
@@ -150,11 +151,11 @@ the first line of code. Bolted on afterwards it means rewriting the loop.
   variance at *k* = 5. Repeat each (subject, *k*) cell over several draws with fixed seeds and
   report the spread. A single draw per cell produces a curve made largely of noise.
 - **Class coverage at small *k*.** With 18 classes and *k* = 5, most classes have **zero**
-  calibration samples. Decide and document explicitly: is *k* per class or per subject? These
-  are wildly different experiments. *(Per subject is the realistic deployment framing — a new
-  user provides a handful of examples total, not five per gesture.)*
-- **Report per-subject curves, not only the mean.** A mean over eight held-out subjects can hide
-  one subject at chance. Per-subject variance is a headline finding in its own right.
+  calibration samples. Decide and document explicitly: is *k* per class or per subject? The two
+  are very different experiments. *(Per subject is the realistic deployment framing — a new user
+  provides a handful of examples total, not five per gesture.)*
+- **Report per-subject curves, not only the mean.** A mean over eight held-out subjects can
+  conceal one stuck at chance, and the variance between subjects is a finding in its own right.
 - **Matched budgets.** When comparing `real_only` at *k* = 50 against `real_plus_synthetic` at
   *k* = 10, state clearly what is held constant — real samples, total samples, or compute. The
   claim is about *real* samples; say so explicitly rather than leaving it inferred.
@@ -168,11 +169,11 @@ the first line of code. Bolted on afterwards it means rewriting the loop.
 
 **What it measures.** Expected calibration error and overconfidence-on-wrong-predictions as a
 function of *k*, for the same three strategies as G3. This is *probability* calibration, over a
-*subject-calibration* axis — README §2 warns about exactly this collision of terms.
+*subject-calibration* axis — the collision of terms README §2 warns about.
 
 **Why it exists.** Augmentation could raise accuracy while making the model confidently wrong,
-which for a wearable interface is a poor trade. A method that improves both is a materially
-stronger claim than one that improves accuracy alone.
+which for a wearable interface is a poor trade. Improving both makes for a much stronger claim
+than improving accuracy alone.
 
 **Easily missed.** ECE is sensitive to binning; fix the bin count and report it. ECE computed on
 a small per-subject test set is high-variance — pool across subjects for the headline ECE and

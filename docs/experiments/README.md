@@ -389,8 +389,8 @@ shared discriminative readout, or if the structured-report demo is needed for ou
 ### D4 — Text-summary feature set and numeric formatting (L4)
 
 Two problems with the feature list as specified, both of which weaken the baseline. This baseline
-exists to be *hard to beat*, so a weak version does active damage: it manufactures a win for the
-soft prefix that a reviewer will discount.
+exists to be *hard to beat*, so a weak version does active damage: it hands the soft prefix a
+victory that a reviewer will discount.
 
 **Problem 1: `rms` is provably redundant.** For any window,
 `rms = sqrt(mean² + sd²)` exactly (verified numerically to ~1e-16, for both population and
@@ -401,8 +401,8 @@ specified five features are really four.
 `mean`, `sd`, `rms`, `min`, `max` are all unchanged if you shuffle the samples within a window.
 The text baseline therefore receives **no temporal information whatsoever**, while the encoder
 path sees a 1-D CNN over the ordered signal. Any gap between them would then be partly
-attributable to *temporal structure vs. none* rather than to *soft prefix vs. text* — a
-confound sitting inside the control that is supposed to remove confounds.
+attributable to *temporal structure vs. none* rather than to *soft prefix vs. text*, so the
+control would carry a confound of its own.
 
 **Recommended feature set** — drop `rms`, add two standard time-domain EMG features that
 capture ordering:
