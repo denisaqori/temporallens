@@ -102,10 +102,25 @@ logs. Any statistic that touches a held-out subject's data is a leak.
 | `accuracy` | Overall correctness | Baseline readability; misleading alone under class imbalance |
 | `macro_f1` | Mean per-class F1, unweighted | Rest is over-represented; macro-F1 stops a model from coasting on it |
 | `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** Cross-subject variance is the actual story; a good mean over 8 subjects can hide one at chance |
+| `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Isolates classes the model over-predicts |
+| `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Isolates classes it silently misses — invisible in accuracy, and averaged away by macro-F1 |
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
 | `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
+
+**Where each metric is computed (D6).** The metric set is identical in cross-validation and in
+testing — the same code path, run twice — so the two are directly comparable:
+
+- **Per fold**, each of the 8 fold models is evaluated on the held-out test subjects, and the
+  fold values are **averaged across the 8 folds**. This is extended analysis.
+- **The refit model** is evaluated on the same test subjects. Its numbers are the reported
+  result and the F1 reference row.
+
+**Easily missed — average fold confusion matrices, never sum them.** All 8 fold models are
+evaluated on the *same* test subjects, so summing counts represents every test window eight
+times and implies eight times the data. Take the element-wise mean, which keeps the matrix on
+the scale of a single evaluation. The same reasoning applies to any count-based metric.
 
 ### 3.5 Reproducibility
 

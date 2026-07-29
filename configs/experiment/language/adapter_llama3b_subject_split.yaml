@@ -72,6 +72,8 @@ evaluation:
     - accuracy
     - macro_f1
     - per_subject_accuracy
+    - per_class_precision
+    - per_class_recall
     - confusion_matrix
     - expected_calibration_error
     - overconfidence_error

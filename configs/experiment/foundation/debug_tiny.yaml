@@ -37,5 +37,5 @@ training:
   device: auto
   save_checkpoint: false
 evaluation:
-  metrics: [accuracy, macro_f1, confusion_matrix]
+  metrics: [accuracy, macro_f1, per_class_precision, per_class_recall, confusion_matrix]
   save_predictions: true

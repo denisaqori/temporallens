@@ -26,6 +26,9 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Metric set settled (D8): per-class precision and recall added beside the confusion matrix on the
+  six classification configs; spec §3.4 now states that cross-validation and testing run the same
+  metric set, and that fold confusion matrices are averaged element-wise rather than summed.
 - Checkpoint naming split in two (D7): `refit.pt` is the one artifact downstream consumers read;
   per-fold checkpoints moved to `folds/fold{k}/best.pt`. Swept through the robustness registry, the
   language and generation configs, all three spec documents, and `evaluate.py`; spec §5.1 defines
