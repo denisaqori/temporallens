@@ -26,6 +26,12 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Evaluation protocol reconciled against the group's published method (D9–D11): epoch selection is
+  the smoothed validation peak, not a raw best epoch or a fixed budget (§5.2); the refit is
+  cross-checked against the eight fold-model test scores (§5.3); confusion matrices are reported for
+  cross-validation as well as test; class imbalance is handled by weighted loss, never resampling,
+  and the test set is never balanced (§3.6). The three foundation configs declared no `loss` at all
+  and now do.
 - Metric set settled (D8): per-class precision and recall added beside the confusion matrix on the
   six classification configs; spec §3.4 now states that cross-validation and testing run the same
   metric set, and that fold confusion matrices are averaged element-wise rather than summed.

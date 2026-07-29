@@ -63,7 +63,7 @@ dataset:
   normalize: train_subjects_global_stats
 training:
   target: class_label
-  loss: cross_entropy
+  loss: class_weighted_cross_entropy
   batch_size: 4
   gradient_accumulation_steps: 8
   epochs: 5

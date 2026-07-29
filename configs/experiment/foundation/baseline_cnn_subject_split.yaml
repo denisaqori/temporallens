@@ -30,6 +30,7 @@ model:
   num_classes: 18
   dropout: 0.2
 training:
+  loss: class_weighted_cross_entropy
   batch_size: 64
   epochs: 30
   learning_rate: 0.0003

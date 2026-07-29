@@ -117,6 +117,10 @@ testing — the same code path, run twice — so the two are directly comparable
 - **The refit model** is evaluated on the same test subjects. Its numbers are the reported
   result and the F1 reference row.
 
+**Report the confusion matrix for both**, not only for the test evaluation. The cross-validation
+matrix is what shows whether a confusion is stable across folds or an artifact of one — a pair of
+gestures that collide in every fold is a finding; a pair that collides in one is noise.
+
 **Easily missed — average fold confusion matrices, never sum them.** All 8 fold models are
 evaluated on the *same* test subjects, so summing counts represents every test window eight
 times and implies eight times the data. Take the element-wise mean, which keeps the matrix on
@@ -131,6 +135,28 @@ offline by default; nothing may depend on a network service to be reproducible.
 **Easily missed:** seeding Python/NumPy/PyTorch does not make MPS and CUDA produce identical
 results. Do not compare a local MPS number against a cloud CUDA number and call the difference
 an effect. Cross-device comparisons need the same device.
+
+### 3.6 Class imbalance
+
+Rest is over-represented in DB2 Exercise B. Imbalance is handled **in the loss, never by
+resampling**:
+
+| | Rule |
+|---|---|
+| Training | `class_weighted_cross_entropy` — weights inversely proportional to class frequency in the training split |
+| Resampling | **Never.** No oversampling, no undersampling, on any split |
+| Test set | **Never balanced.** A balanced test set does not estimate deployment performance |
+
+**Why not oversample, when the group's [prior work](https://arxiv.org/abs/2303.10336) does.**
+That work oversamples within each subject to equalize classes, which is safe for discrete trials.
+It is not safe here. Windows are 400 samples at stride 100, so they already overlap by 75%;
+duplicating a window puts near-identical copies of the same signal in the same batch. That is
+the window-correlation hazard §3.2 and §3.3 both warn about, reintroduced through the back door.
+Class weighting achieves the same rebalancing without duplicating any window.
+
+**Do not do both.** With macro-F1 already reported and the loss already weighted, resampling
+would address the same imbalance a third time while making `accuracy` uninterpretable — it would
+no longer describe the class distribution the model actually meets.
 
 ---
 
@@ -224,14 +250,60 @@ purpose, because they are selected differently and used differently.
 | Path | What it is | Who reads it |
 |---|---|---|
 | `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every downstream consumer** — the adapters, the generator, the robustness registry |
-| `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model, **best epoch by validation macro-F1** within that fold | Extended analysis only — never consumed by another run |
+| `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model at the **smoothed validation peak** (§5.2) | Extended analysis only — never consumed by another run |
 
 **Why the refit artifact is not called `best`.** Inside a fold, `best` has its ordinary meaning:
 the epoch that scored highest on that fold's validation subjects. The refit has *no* validation
 set — every training subject is used for training — so it is trained for a fixed epoch count
-(the median of the per-fold best epochs, rounded up) with no early stopping. Calling both files
-`best.pt` would give one word two meanings that differ in exactly the way that matters. Both
-still satisfy the checkpoint contract: `{model_state, model_config}`.
+(§5.2) with no early stopping. Calling both files `best.pt` would give one word two meanings
+that differ in exactly the way that matters. Both still satisfy the checkpoint contract:
+`{model_state, model_config}`.
+
+### 5.2 Epoch selection: the smoothed validation peak
+
+**No metric ever comes from a single epoch.** Within each fold, take a trailing moving average
+(window 10–20 epochs) of validation macro-F1, and select the epoch that maximizes the *smoothed*
+curve. The fold's reported metrics are the smoothed values at that epoch. The refit then trains
+for a fixed budget: the **median of the per-fold selected epochs, rounded up**, with no early
+stopping — it has no validation set to stop on.
+
+**Why smoothed rather than either extreme.** Two simpler rules both fail, in opposite directions:
+
+- **Raw best epoch.** Validation macro-F1 is noisy across epochs, especially with only 4
+  validation subjects. Taking the single highest point selects partly for noise, and the metric
+  reported at that epoch is biased upward by the same noise that chose it.
+- **Fixed budget, average the last N epochs.** This is what [the group's prior
+  work](https://arxiv.org/abs/2303.10336) does, and its instinct — never trust one epoch — is
+  the correct one. But it measures wherever the run happened to end. If the model overfits at
+  epoch 800 of 2000, the trailing average faithfully reports the overfit state.
+
+Smoothing keeps the first rule's principle (stop where validation actually peaks) and the
+second's protection (the number is an average over a window, never a lucky epoch).
+
+**Easily missed:** the smoothing window is a protocol constant, not a tuning knob. Fix it once
+and use the same window everywhere, or fold metrics stop being comparable across runs.
+
+### 5.3 Sanity check: the refit against the fold distribution
+
+The 8×8 matrix (§3.4) yields eight fold-model test scores. The refit trains on all 32 training
+subjects; each fold model trains on 28. **That is 14% more subjects, and in subject-independent
+EMG the number of training subjects is the binding constraint — so the refit is *expected* to
+score at or above the fold mean.** The check is therefore one-sided, not a containment test:
+
+| Outcome | Reading |
+|---|---|
+| Refit ≥ fold mean | **Expected.** Not a flag. The size of the gap is itself a result — see below |
+| Refit < fold mean | **Red flag.** The refit strictly dominates every fold model in training data, so underperforming points at a defect: the epoch budget transferring badly from 28 subjects to 32, a class-weight computed on the wrong split, or a bug in the refit path |
+| Refit far above the fold maximum | **Soft flag.** Larger than four extra subjects can plausibly explain. Not automatically wrong, but check for leakage before reporting |
+
+Report the refit score beside the fold mean and range so the comparison is visible rather than
+assumed.
+
+**The gap is a result, not just a diagnostic.** Refit-minus-fold-mean estimates what four
+additional training subjects buy in accuracy. That is a direct empirical read on the marginal
+value of subject data — the same quantity the generative arm's personalization-efficiency curve
+attacks from the other direction (§6, `real_samples_saved`). Record it rather than discarding it
+once the check passes.
 
 ---
 

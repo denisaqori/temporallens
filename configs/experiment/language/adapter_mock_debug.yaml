@@ -43,7 +43,7 @@ mock_llm:
   hidden_dim: 128
 training:
   target: class_label
-  loss: cross_entropy
+  loss: class_weighted_cross_entropy
   batch_size: 8
   epochs: 2
   learning_rate: 0.001
