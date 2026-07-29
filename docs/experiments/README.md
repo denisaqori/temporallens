@@ -1,9 +1,9 @@
 # TemporalLens — Experiment & Ablation Specification
 
-This directory is the **authority** on what each experiment measures, why it exists, and what
-is easy to get wrong. Every config file in `configs/` maps to exactly one experiment specified
-here. If a config and this document disagree, this document is wrong until someone fixes it —
-that is the only way the mapping stays honest.
+This directory is the **authority** on what each experiment measures and where it can go wrong.
+Every config file in `configs/` maps to one experiment specified here. If a config and this
+document disagree, the config is wrong until someone fixes it; without that rule the mapping
+drifts and nobody notices.
 
 It exists because shorthand ("the adapter", "the LLM test", "generative") had already started
 to mean different things in different places. Section 2 fixes the vocabulary. **Use the exact
@@ -17,10 +17,10 @@ terms from Section 2 in configs, code, commit messages, and the paper.**
 
 ---
 
-## 1. The two arms, and what each is actually claiming
+## 1. The two arms and what each claims
 
-The project has one shared temporal encoder and two independent research questions. They are
-evaluated separately and can succeed or fail independently.
+The project has one shared temporal encoder and two research questions that do not depend on
+each other. They are evaluated separately, and either can succeed while the other fails.
 
 **Generative arm (headline).** *How many real calibration samples does a new, unseen subject
 need to reach a target accuracy, and can synthetic data replace some of them?* The deliverable
@@ -101,30 +101,28 @@ logs. Any statistic that touches a held-out subject's data is a leak.
 |---|---|---|
 | `accuracy` | Overall correctness | Baseline readability; misleading alone under class imbalance |
 | `macro_f1` | Mean per-class F1, unweighted | Rest is over-represented; macro-F1 stops a model from coasting on it |
-| `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** Cross-subject variance is the actual story; a good mean over 8 subjects can hide one at chance |
-| `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Isolates classes the model over-predicts |
-| `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Isolates classes it silently misses — invisible in accuracy, and averaged away by macro-F1 |
+| `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance |
+| `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts |
+| `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away |
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
 | `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
-**Where each metric is computed (D6).** The metric set is identical in cross-validation and in
-testing — the same code path, run twice — so the two are directly comparable:
+**Where each metric is computed (D6).** Cross-validation and testing run the same metric set
+through the same code path, which is what makes them comparable. Each of the 8 fold models is
+evaluated on the held-out test subjects and those values are averaged over the folds; that is
+the extended analysis. The refit model is evaluated on the same test subjects, and its numbers
+are the ones reported, including the F1 reference row.
 
-- **Per fold**, each of the 8 fold models is evaluated on the held-out test subjects, and the
-  fold values are **averaged across the 8 folds**. This is extended analysis.
-- **The refit model** is evaluated on the same test subjects. Its numbers are the reported
-  result and the F1 reference row.
-
-**Report the confusion matrix for both**, not only for the test evaluation. The cross-validation
-matrix is what shows whether a confusion is stable across folds or an artifact of one — a pair of
-gestures that collide in every fold is a finding; a pair that collides in one is noise.
+Produce the confusion matrix for the cross-validation as well as the test evaluation. The
+cross-validation matrix tells you whether a confusion holds up across folds. Two gestures that
+collide in all eight are worth writing about; two that collide in one fold are probably noise.
 
 **Easily missed — average fold confusion matrices, never sum them.** All 8 fold models are
-evaluated on the *same* test subjects, so summing counts represents every test window eight
-times and implies eight times the data. Take the element-wise mean, which keeps the matrix on
-the scale of a single evaluation. The same reasoning applies to any count-based metric.
+evaluated on the *same* test subjects, so summing counts every test window eight times and
+implies eight times the data. Take the element-wise mean instead, which leaves the matrix on the
+scale of one evaluation. Same goes for any other count-based metric.
 
 ### 3.5 Reproducibility
 
@@ -138,8 +136,7 @@ an effect. Cross-device comparisons need the same device.
 
 ### 3.6 Class imbalance
 
-Rest is over-represented in DB2 Exercise B. Imbalance is handled **in the loss, never by
-resampling**:
+Rest is over-represented in DB2 Exercise B. Handle that in the loss, never by resampling:
 
 | | Rule |
 |---|---|
@@ -147,16 +144,16 @@ resampling**:
 | Resampling | **Never.** No oversampling, no undersampling, on any split |
 | Test set | **Never balanced.** A balanced test set does not estimate deployment performance |
 
-**Why not oversample, when the group's [prior work](https://arxiv.org/abs/2303.10336) does.**
-That work oversamples within each subject to equalize classes, which is safe for discrete trials.
-It is not safe here. Windows are 400 samples at stride 100, so they already overlap by 75%;
-duplicating a window puts near-identical copies of the same signal in the same batch. That is
-the window-correlation hazard §3.2 and §3.3 both warn about, reintroduced through the back door.
-Class weighting achieves the same rebalancing without duplicating any window.
+The group's [prior work](https://arxiv.org/abs/2303.10336) oversamples within each subject to
+equalize classes. That is fine for discrete trials, but not for this data. Windows are 400
+samples at stride 100, so they already overlap by 75%, and duplicating one drops near-identical
+copies of the same signal into a batch. §3.2 and §3.3 both warn against that correlation;
+oversampling would let it back in. Weighting the loss rebalances the classes without duplicating
+anything.
 
-**Do not do both.** With macro-F1 already reported and the loss already weighted, resampling
-would address the same imbalance a third time while making `accuracy` uninterpretable — it would
-no longer describe the class distribution the model actually meets.
+Do not do both. Macro-F1 already accounts for the imbalance and the weighted loss already
+corrects for it. Resampling on top would leave `accuracy` describing a class distribution the
+model never meets in deployment.
 
 ---
 
@@ -175,8 +172,8 @@ uses. Conflating the two is what motivated this document.
 > **One readout, held identical across every config in a comparison.**
 
 If the method used a generative readout and a control used a discriminative one, any observed
-difference could be caused by the readout rather than by the thing under test — which destroys
-the control's entire purpose.
+difference could be caused by the readout rather than by the thing under test, which defeats the
+control's purpose.
 
 **Decision: the discriminative readout is primary for the language arm.** Three reasons:
 
@@ -244,41 +241,38 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 
 ### 5.1 The two checkpoint kinds
 
-A training run produces checkpoints of two different kinds. They are named differently on
-purpose, because they are selected differently and used differently.
+A training run produces two kinds of checkpoint. The names differ because the selection rule and
+the intended reader differ.
 
 | Path | What it is | Who reads it |
 |---|---|---|
 | `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every downstream consumer** — the adapters, the generator, the robustness registry |
 | `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model at the **smoothed validation peak** (§5.2) | Extended analysis only — never consumed by another run |
 
-**Why the refit artifact is not called `best`.** Inside a fold, `best` has its ordinary meaning:
-the epoch that scored highest on that fold's validation subjects. The refit has *no* validation
-set — every training subject is used for training — so it is trained for a fixed epoch count
-(§5.2) with no early stopping. Calling both files `best.pt` would give one word two meanings
-that differ in exactly the way that matters. Both still satisfy the checkpoint contract:
-`{model_state, model_config}`.
+**Why the refit artifact is not called `best`.** Within a fold, `best` carries its ordinary
+sense: the epoch that scored highest on that fold's validation subjects. The refit has no
+validation set at all, since every training subject goes into training, so it runs to a fixed
+epoch count (§5.2) without early stopping. Giving both files the same name would leave `best`
+meaning two different things, and the difference is one a reader needs to see. Both satisfy the
+checkpoint contract: `{model_state, model_config}`.
 
 ### 5.2 Epoch selection: the smoothed validation peak
 
-**No metric ever comes from a single epoch.** Within each fold, take a trailing moving average
-(window 10–20 epochs) of validation macro-F1, and select the epoch that maximizes the *smoothed*
-curve. The fold's reported metrics are the smoothed values at that epoch. The refit then trains
-for a fixed budget: the **median of the per-fold selected epochs, rounded up**, with no early
-stopping — it has no validation set to stop on.
+No metric should come from a single epoch. Within each fold, take a trailing moving average
+(window 10–20 epochs) of validation macro-F1 and select the epoch where the smoothed curve
+peaks. The fold's reported metrics are the smoothed values at that epoch. The refit then runs to
+a fixed budget — the median of the per-fold selected epochs, rounded up — and does not early
+stop, having no validation set to stop on.
 
-**Why smoothed rather than either extreme.** Two simpler rules both fail, in opposite directions:
+Two simpler rules suggest themselves, and both fail. Picking the raw best epoch
+selects partly for noise: validation macro-F1 jumps around from epoch to epoch, especially with
+only 4 validation subjects, and whatever noise pushed one epoch to the top also inflates the
+number you then report from it. Training to a fixed budget and averaging the last N epochs, which
+is what [the group's prior work](https://arxiv.org/abs/2303.10336) does, avoids that problem, and
+the instinct behind it is sound. But it measures wherever the run happened to stop. A model that
+has overfit by epoch 800 of 2000 still gets read off at epoch 2000.
 
-- **Raw best epoch.** Validation macro-F1 is noisy across epochs, especially with only 4
-  validation subjects. Taking the single highest point selects partly for noise, and the metric
-  reported at that epoch is biased upward by the same noise that chose it.
-- **Fixed budget, average the last N epochs.** This is what [the group's prior
-  work](https://arxiv.org/abs/2303.10336) does, and its instinct — never trust one epoch — is
-  the correct one. But it measures wherever the run happened to end. If the model overfits at
-  epoch 800 of 2000, the trailing average faithfully reports the overfit state.
-
-Smoothing keeps the first rule's principle (stop where validation actually peaks) and the
-second's protection (the number is an average over a window, never a lucky epoch).
+Smoothing takes the peak from the first rule and the averaging from the second.
 
 **Easily missed:** the smoothing window is a protocol constant, not a tuning knob. Fix it once
 and use the same window everywhere, or fold metrics stop being comparable across runs.
@@ -286,9 +280,10 @@ and use the same window everywhere, or fold metrics stop being comparable across
 ### 5.3 Sanity check: the refit against the fold distribution
 
 The 8×8 matrix (§3.4) yields eight fold-model test scores. The refit trains on all 32 training
-subjects; each fold model trains on 28. **That is 14% more subjects, and in subject-independent
-EMG the number of training subjects is the binding constraint — so the refit is *expected* to
-score at or above the fold mean.** The check is therefore one-sided, not a containment test:
+subjects while each fold model trains on 28. Those four extra subjects are worth something: in
+subject-independent EMG the number of training subjects is the binding constraint, so **the
+refit should land at or above the fold mean.** That is why the check is one-sided rather than a
+containment test:
 
 | Outcome | Reading |
 |---|---|
@@ -296,14 +291,13 @@ score at or above the fold mean.** The check is therefore one-sided, not a conta
 | Refit < fold mean | **Red flag.** The refit strictly dominates every fold model in training data, so underperforming points at a defect: the epoch budget transferring badly from 28 subjects to 32, a class-weight computed on the wrong split, or a bug in the refit path |
 | Refit far above the fold maximum | **Soft flag.** Larger than four extra subjects can plausibly explain. Not automatically wrong, but check for leakage before reporting |
 
-Report the refit score beside the fold mean and range so the comparison is visible rather than
-assumed.
+Report the refit score beside the fold mean and range, so a reader can check this rather than
+take it on trust.
 
-**The gap is a result, not just a diagnostic.** Refit-minus-fold-mean estimates what four
-additional training subjects buy in accuracy. That is a direct empirical read on the marginal
-value of subject data — the same quantity the generative arm's personalization-efficiency curve
-attacks from the other direction (§6, `real_samples_saved`). Record it rather than discarding it
-once the check passes.
+The gap itself is worth keeping. Refit-minus-fold-mean estimates what four more training subjects
+buy in accuracy, which is a direct read on the marginal value of subject data — the quantity the
+generative arm's personalization-efficiency curve approaches from the other side (§6,
+`real_samples_saved`). Record it once the check passes instead of throwing it away.
 
 ---
 
@@ -325,13 +319,13 @@ Config paths below are relative to `configs/experiment/` (D1 layout, now in plac
 | F5 | Robustness — amplitude scaling | `foundation/robustness_amplitude_scaling.yaml` |
 
 F1 produces the frozen encoder checkpoint that **both arms depend on**. Neither arm can start
-until F1 is done and its accuracy is honestly recorded.
+until F1 is done and its accuracy is written down as measured.
 
 **F3–F5 run against every arm, not just the encoder (D2).** Each perturbation is evaluated on
 the F1 encoder, on the language-arm models, and on the generative arm's augmented decoders.
 "The encoder is robust" says nothing about whether soft-prefix conditioning or synthetic
 augmentation preserves that robustness — and whether augmentation buys accuracy at the cost of
-robustness is exactly the question a reviewer asks.
+robustness is the first question a reviewer will ask.
 
 **How this is wired.** The perturbation acts on the input window and is target-agnostic, so the
 two axes are separate files. Each `robustness_*.yaml` describes only the perturbation and carries
@@ -344,8 +338,8 @@ generative targets light up as those arms land, with no config change.
 
 A target is just `(name, checkpoint)` — no `model_type`. That relies on the **checkpoint
 contract**: every checkpoint is saved as `{model_state, model_config}`, so any consumer rebuilds
-the architecture from the checkpoint alone. This matters for the adapter stacks
-(encoder + projector + backbone + head), which a single `model_type` string could not describe.
+the architecture from the checkpoint alone. That matters for the adapter stacks
+(encoder + projector + backbone + head), which no single `model_type` string could describe.
 F1's trainer is the first code to honor this contract.
 
 Targets point at **`refit.pt`** — see §5 for the two checkpoint kinds and why the refit artifact
@@ -394,9 +388,9 @@ shared discriminative readout, or if the structured-report demo is needed for ou
 
 ### D4 — Text-summary feature set and numeric formatting (L4)
 
-Two problems with the feature list as specified, both of which weaken the baseline. Since this
-baseline exists to be *hard to beat*, a weak version is worse than useless — it manufactures a
-win for the soft prefix that a reviewer will immediately discount.
+Two problems with the feature list as specified, both of which weaken the baseline. This baseline
+exists to be *hard to beat*, so a weak version does active damage: it manufactures a win for the
+soft prefix that a reviewer will discount.
 
 **Problem 1: `rms` is provably redundant.** For any window,
 `rms = sqrt(mean² + sd²)` exactly (verified numerically to ~1e-16, for both population and
