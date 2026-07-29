@@ -13,9 +13,13 @@ live in separate files:
 The runner resolves (perturbation x present targets), skipping targets whose checkpoint does not
 exist yet, so the suite runs incrementally as each arm is trained.
 
-CHECKPOINT CONTRACT: training saves best.pt as {"model_state": ..., "model_config": ...}. A
+CHECKPOINT CONTRACT: every checkpoint is saved as {"model_state": ..., "model_config": ...}. A
 consumer rebuilds the architecture from "model_config" and loads "model_state" — no external
 model_type is needed. This is why registry targets are just (name, checkpoint/run_dir).
+
+WHICH checkpoint: targets point at refit.pt, the model refit on the full training-subject set
+with the cross-validated hyperparameters. Per-fold checkpoints (folds/fold{k}/best.pt) are for
+extended analysis and are never consumed here. See docs/experiments/README.md §5.1.
 
 The evaluation logic itself is not implemented yet (no data loader or models exist). This module
 defines and enforces the interface; run_target() is the single place the real evaluation will

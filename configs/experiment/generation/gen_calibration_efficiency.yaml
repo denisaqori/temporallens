@@ -15,8 +15,8 @@ tracking:
   json_logging: true
   wandb_mode: offline
 checkpoint:
-  generator: checkpoints/gen_vae_train/best.pt
-  encoder: checkpoints/baseline_cnn_subject_split/best.pt
+  generator: checkpoints/gen_vae_train/refit.pt
+  encoder: checkpoints/baseline_cnn_subject_split/refit.pt
 dataset:
   name: ninapro_db2
   exercise: B

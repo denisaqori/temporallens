@@ -26,7 +26,7 @@ dataset:
   num_classes: 18
   normalize: per_subject_train_stats
 encoder:
-  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
   freeze: true
   embedding_dim: 256
 adapter:

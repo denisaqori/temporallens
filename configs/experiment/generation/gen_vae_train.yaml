@@ -23,7 +23,7 @@ dataset:
   num_classes: 18
   normalize: train_subjects_global_stats
 encoder:
-  checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+  checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
   freeze: true
   embedding_dim: 256
 generator:

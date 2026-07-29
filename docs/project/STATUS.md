@@ -13,7 +13,7 @@ agreement**.
 > 👉 **Next to pick up:** freeze the split (P0) — subjects, repetitions, and the headline statistic.
 > See [Next up](#next-up-priority-order).
 
-_Last updated: 2026-07-28_
+_Last updated: 2026-07-29_
 
 ## Latest changes
 
@@ -26,6 +26,11 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Checkpoint naming split in two (D7): `refit.pt` is the one artifact downstream consumers read;
+  per-fold checkpoints moved to `folds/fold{k}/best.pt`. Swept through the robustness registry, the
+  language and generation configs, all three spec documents, and `evaluate.py`; spec §5.1 defines
+  the distinction.
+- Validation scheme settled (D6): 8-fold CV over the training subjects, refit on all 32 downstream.
 - Worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh` (`make test-worktree`);
   claim-on-`main` coordination, atomic create/teardown.
 - Split-freeze findings recorded: no validation set, repetitions undefined, inferential unit
@@ -83,23 +88,26 @@ what is done, what remains, which branch, and the next concrete step.
    the whole language arm rests on comparing L2 against the F1 reference row. Freeze once, record as
    *data* (a committed manifest the loader asserts against), never revise.
 
-   **Findings — three things are genuinely undefined today** (analysis only; the decisions are open):
-   - **No validation set exists anywhere.** The spec fixes test subjects `[5, 10, 15, 20, 25, 30, 35,
-     40]` and nothing else — no val subjects in `docs/experiments/README.md` §3.2 or any config. But
-     `save_checkpoint: true` implies model selection, so `best.pt` currently has **no defined
-     criterion**. The only options without a val set are selecting on test (invalid) or not selecting
-     at all. This is the substantive gap, not a detail.
-   - **Repetitions are never mentioned.** DB2 has 6 repetitions per movement per subject; the string
-     "repetition" appears nowhere in `docs/experiments/` or `configs/`. Undefined: do held-out
-     subjects contribute all 6 to test, and do repetitions constrain anything within training
-     subjects? (Standard NinaPro splits *by* repetition; this project splits by subject instead, so
-     the interaction needs an explicit answer.)
-   - **Inferential unit unspecified.** Per-window vs. per-subject changes every confidence interval.
-     Subjects are the independent sampling unit; treating windows as independent inflates
-     significance badly. §3.4 asks for per-subject spread but never fixes the unit for CIs.
+   **Settled — the validation scheme (D6, D7).** 8-fold CV over the 32 training subjects, 4
+   validation subjects per fold; the 8×8 fold×test-subject matrix is extended analysis only; the
+   downstream model is refit on all 32 at the median per-fold best epoch, and its test score is the
+   F1 reference row. Checkpoints named accordingly (`refit.pt` vs `folds/fold{k}/best.pt`), already
+   swept through configs and specs.
+
+   **Still blocking the manifest** — four unmade choices, all tracked in DECISIONS → Pending:
+   - **Repetition policy.** DB2 has 6 repetitions per movement per subject; the string "repetition"
+     appears nowhere in `docs/experiments/` or `configs/`. Sharpest for D5: which repetitions supply
+     the k calibration examples vs. the evaluation windows, or the adaptation baseline leaks.
+   - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
+     8×8 matrix adds a second axis — fold variance and subject variance must stay separate.
+   - **ECE binning.** Bin count and equal-width vs. equal-mass are unspecified; unfixed, the same
+     model yields different numbers and runs are not comparable.
+   - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
+     metrics; the language arm's headline claim rests on this one.
 
    **Deliverable:** a committed split manifest (e.g. `configs/splits/subject_independent_v1.yaml`)
-   listing exact subject IDs per role, plus a hash the loader asserts, so the split cannot drift.
+   listing exact subject IDs per role and per fold, plus a hash the loader asserts, so the split
+   cannot drift.
 2. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
    encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline.
 3. **P1 — Honor the checkpoint contract** in the F1 trainer (`{model_state, model_config}`).

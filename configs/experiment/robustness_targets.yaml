@@ -8,30 +8,36 @@
 # This file is shared infrastructure, not an ablation — hence it sits at the experiment root,
 # beside foundation/, generation/, language/, rather than inside any one of them.
 #
-# CHECKPOINT CONTRACT: every training run saves best.pt as {model_state, model_config}, so a
-# consumer rebuilds the exact architecture from the checkpoint alone. That is why a target is
-# just (name, checkpoint) with NO model_type — the old model_type field could not describe the
+# CHECKPOINT CONTRACT: every checkpoint is saved as {model_state, model_config}, so a consumer
+# rebuilds the exact architecture from the checkpoint alone. That is why a target is just
+# (name, checkpoint) with NO model_type — the old model_type field could not describe the
 # adapter stacks (encoder + projector + backbone + head) and is gone.
+#
+# WHICH checkpoint: targets point at refit.pt — the model refit on the full training-subject set
+# using the cross-validated hyperparameters. It is the only checkpoint any downstream consumer
+# reads. The per-fold checkpoints (folds/fold{k}/best.pt) are for extended analysis, never for
+# consumption; "best" means best-epoch-by-validation within a fold, which is why the refit
+# artifact carries a different name instead of overloading that word.
 
 targets:
   # --- Foundation ---
   - name: f1_encoder
     arm: foundation
-    checkpoint: checkpoints/baseline_cnn_subject_split/best.pt
+    checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
 
   # --- Language arm (D2: robustness on the adapter stacks, not only the encoder) ---
   - name: l2_frozen_llm
     arm: language
-    checkpoint: checkpoints/adapter_llama3b_subject_split/best.pt
+    checkpoint: checkpoints/adapter_llama3b_subject_split/refit.pt
   - name: l3_random_transformer
     arm: language
-    checkpoint: checkpoints/adapter_random_transformer/best.pt
+    checkpoint: checkpoints/adapter_random_transformer/refit.pt
   - name: l4_text_summary
     arm: language
-    checkpoint: checkpoints/adapter_text_summary_only/best.pt
+    checkpoint: checkpoints/adapter_text_summary_only/refit.pt
 
   # --- Generative arm ---
-  # G3 does not produce a single best.pt: it trains per-subject decoders on the fly under the
+  # G3 does not produce a single refit.pt: it trains per-subject decoders on the fly under the
   # real_plus_synthetic strategy. Its robustness target is therefore a RUN, not a static file,
   # so it uses `run_dir` instead of `checkpoint`. Deferred until the generative arm exists; the
   # runner treats a run_dir target as "not present" until that directory is populated.

@@ -13,8 +13,11 @@ Read [README.md](README.md) first: §2 (vocabulary), §3 (shared protocol), §4 
 are assumed throughout and are not repeated here.
 
 **Prerequisite:** F1 must be complete. Every L-series run loads the frozen encoder checkpoint
-`checkpoints/baseline_cnn_subject_split/best.pt` and reports against F1's held-out-subject
-accuracy as the reference row.
+`checkpoints/baseline_cnn_subject_split/refit.pt` and reports against F1's held-out-subject
+accuracy as the reference row. That reference row is the **refit** model's test score, not the
+cross-validation mean — a cross-validated fold model trains on fewer subjects, so comparing an
+adapter built on the refit encoder against a fold-mean baseline would confound the comparison
+with training-set size. See README §5.1.
 
 ---
 

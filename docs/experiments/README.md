@@ -197,9 +197,26 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | | `batch_size`, `gradient_accumulation_steps` | Effective batch = product |
 | | `epochs`, `learning_rate`, `weight_decay` | Optimization |
 | | `device` | `auto` (portable) \| `mps` (local-only) \| `cuda` (cloud-only) |
-| | `save_checkpoint` | Writes to `checkpoints/<name>/best.pt` |
+| | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (consumed downstream) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only) |
 | `evaluation` | `metrics` | See §3.4 |
 | | `save_predictions` | Persist per-window predictions for later analysis |
+
+### 5.1 The two checkpoint kinds
+
+A training run produces checkpoints of two different kinds. They are named differently on
+purpose, because they are selected differently and used differently.
+
+| Path | What it is | Who reads it |
+|---|---|---|
+| `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every downstream consumer** — the adapters, the generator, the robustness registry |
+| `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model, **best epoch by validation macro-F1** within that fold | Extended analysis only — never consumed by another run |
+
+**Why the refit artifact is not called `best`.** Inside a fold, `best` has its ordinary meaning:
+the epoch that scored highest on that fold's validation subjects. The refit has *no* validation
+set — every training subject is used for training — so it is trained for a fixed epoch count
+(the median of the per-fold best epochs, rounded up) with no early stopping. Calling both files
+`best.pt` would give one word two meanings that differ in exactly the way that matters. Both
+still satisfy the checkpoint contract: `{model_state, model_config}`.
 
 ---
 
@@ -239,10 +256,13 @@ today it resolves to F1 only (and F1's checkpoint appears once F1 is trained); t
 generative targets light up as those arms land, with no config change.
 
 A target is just `(name, checkpoint)` — no `model_type`. That relies on the **checkpoint
-contract**: every training run saves `best.pt` as `{model_state, model_config}`, so any consumer
-rebuilds the architecture from the checkpoint alone. This matters for the adapter stacks
+contract**: every checkpoint is saved as `{model_state, model_config}`, so any consumer rebuilds
+the architecture from the checkpoint alone. This matters for the adapter stacks
 (encoder + projector + backbone + head), which a single `model_type` string could not describe.
 F1's trainer is the first code to honor this contract.
+
+Targets point at **`refit.pt`** — see §5 for the two checkpoint kinds and why the refit artifact
+does not reuse the name `best`.
 
 The evaluation logic itself (data loader, perturbation transforms, metrics) is Milestone-0 work
 and not written yet; `scripts/evaluate.py` currently resolves and reports the plan.
