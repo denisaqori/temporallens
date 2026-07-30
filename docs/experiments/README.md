@@ -67,6 +67,29 @@ this repository; it is downloaded under its own terms into `data/raw/`.
 The reduced class set is deliberate: cross-subject decoding over the full 49+rest set lands
 near chance and produces illegible curves. The full set is a later extension.
 
+**Labels come from `restimulus` and `rerepetition`. Never `stimulus` or `repetition`.** The DB2
+files carry both. `stimulus` is the label the acquisition software *prompted*, and the
+[data descriptor](https://doi.org/10.1038/sdata.2014.53) is explicit that it does not describe
+what the subject did: movements "may not perfectly match with the stimuli proposed by our
+software due to human reaction times and experimental conditions." The dataset authors corrected
+this offline with a generalized likelihood ratio algorithm that "realigns the movement boundaries
+by maximizing the likelihood of a rest-movement-rest sequence", and shipped the result as
+`restimulus`. `rerepetition` is the matching repetition index.
+
+**Easily missed — this fails silently, and it fails worst exactly where it matters.** Loading
+`stimulus` mislabels every movement onset by the subject's reaction time: windows tagged as a
+gesture while the arm is still at rest, and rest windows tagged as gesture at the far end.
+Training runs, loss falls, accuracy looks plausible. Onset is also the region a real-time
+decoder has to get right, so the damage lands on the most important windows. Assert on load that
+the label column is `restimulus`.
+
+**No baseline subtraction.** The dataset authors do not subtract a rest level, and neither do we.
+Rest is one of the 18 classes, so removing the rest level would erase the signal that defines it.
+The only filtering DB2 receives is theirs: a Hampel filter for 50 Hz power-line interference and
+its harmonics. (The 1 Hz Butterworth low-pass described in the descriptor applies to database 1
+only, whose Otto Bock electrodes emit an already RMS-rectified envelope. DB2's Delsys signal is
+raw.) Normalization is handled separately and per §3.3.
+
 ### 3.2 Splits
 
 | `split` value | What it does | Role |
@@ -77,6 +100,27 @@ near chance and produces illegible curves. The full set is a later extension.
 **Easily missed:** windows from a single subject are highly correlated. A random split puts
 near-duplicate windows on both sides and inflates accuracy dramatically. Reporting a
 `random_window` number without labelling it as the leakage demonstration is a serious error.
+
+#### Repetitions
+
+DB2 records **6 repetitions** of every movement by every subject. The rule is short: **the
+subject is the split unit, so all 6 repetitions follow their subject.** A held-out subject
+contributes all six to test; a training subject contributes all six to training. Repetitions are
+never divided across the train/validation/test boundary.
+
+This is a deliberate departure from the dataset's own benchmark, which splits *by repetition
+within* subject — "repetition 2 and 5 in database 2" to test, the rest to training. That measures
+how well a decoder generalizes to a new session from the same person. We measure generalization
+to a new person, which is the deployment question for a wearable and the harder of the two. **Our
+numbers are therefore not comparable to theirs**, and the ~75% they report for DB2 is a different
+task (50 movements, within subject), not a target to beat.
+
+**Why the rule needs stating rather than assuming.** The descriptor measured amplitude drift
+across repetitions and found "a significant (P<0.05) dependence on the repetition ... in 12.5%
+(database 2) of the subjects", warning that "attention should be paid to it while splitting
+movement repetitions into training set and test set." Keeping whole subjects on one side means
+that drift never straddles a split boundary here. It does resurface in subject calibration, where
+repetitions *are* the natural unit — see [generative-arm.md](generative-arm.md), G3.
 
 ### 3.3 Windowing and normalization
 

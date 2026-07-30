@@ -146,6 +146,28 @@ fine-tuning and test-time adaptation are follow-ups.
 **Design requirement.** `calibration_strategy` must be a **pluggable axis** in the runner from
 the first line of code. Bolted on afterwards it means rewriting the loop.
 
+### Which repetitions calibrate, and which evaluate
+
+Calibration draws from **repetitions {1, 4}**; evaluation uses **{2, 3, 5, 6}**. The two sets are
+disjoint, which is what leakage rule 3 requires — the *k* permitted samples cannot overlap the
+windows the method is scored on.
+
+The reason the calibration set is `{1, 4}` rather than `{1, 2}` is drift. The DB2 descriptor
+reports "a significant (P<0.05) dependence on the repetition ... in 12.5% (database 2) of the
+subjects": for roughly one subject in eight, sEMG amplitude moves systematically across the six
+repetitions, from fatigue or electrode shift. Calibrating on the first two repetitions and scoring
+on the last four would then measure adaptation to that drift rather than adaptation to the
+subject, in those subjects. Spanning early and late keeps the calibration set representative of
+the session it is meant to represent.
+
+Repetition indices come from `rerepetition` (README §3.1), not `repetition`.
+
+**Easily missed — a repetition is not a sample.** One repetition is 5 s at 2 kHz, so at
+`window_size: 400`, `stride: 100` it yields roughly 97 windows. *k* = 5 windows and *k* = 5
+repetitions are different experiments by nearly two orders of magnitude, and only the second is
+something a user can actually be asked for ("perform this gesture once"). The unit for *k* is
+still open — see the class-coverage note below, which it interacts with.
+
 **Easily missed.**
 - **Which *k* samples?** Sampling *k* windows from a subject is itself a random choice with real
   variance at *k* = 5. Repeat each (subject, *k*) cell over several draws with fixed seeds and

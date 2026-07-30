@@ -32,6 +32,10 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   cross-validation as well as test; class imbalance is handled by weighted loss, never resampling,
   and the test set is never balanced (§3.6). The three foundation configs declared no `loss` at all
   and now do.
+- Data-loading and repetition rules taken from the DB2 descriptor (D12, D13): `restimulus` /
+  `rerepetition` as the binding label columns with an assert on load, no baseline subtraction, all
+  of a subject's repetitions on one side of the split, and disjoint calibration/evaluation
+  repetitions chosen to span the drift the descriptor measured. Spec §3.1, §3.2, generative-arm G3.
 - Metric set settled (D8): per-class precision and recall added beside the confusion matrix on the
   six classification configs; spec §3.4 now states that cross-validation and testing run the same
   metric set, and that fold confusion matrices are averaged element-wise rather than summed.
@@ -103,12 +107,19 @@ what is done, what remains, which branch, and the next concrete step.
    F1 reference row. Checkpoints named accordingly (`refit.pt` vs `folds/fold{k}/best.pt`), already
    swept through configs and specs.
 
-   **Still blocking the manifest** — four unmade choices, all tracked in DECISIONS → Pending:
-   - **Repetition policy.** DB2 has 6 repetitions per movement per subject; the string "repetition"
-     appears nowhere in `docs/experiments/` or `configs/`. Sharpest for D5: which repetitions supply
-     the k calibration examples vs. the evaluation windows, or the adaptation baseline leaks.
+   **Settled — data loading and repetitions (D12, D13), from the DB2 descriptor.** Labels come from
+   `restimulus`/`rerepetition`, never `stimulus`/`repetition`; no baseline subtraction, since rest is
+   a class. All 6 of a subject's repetitions follow that subject across the split; subject
+   calibration draws from repetitions {1, 4} and evaluates on {2, 3, 5, 6}. **The manifest is now
+   writable** — the remaining open items below affect the headline statistic and the eval code, not
+   the split itself.
+
+   **Still open** — tracked in DECISIONS → Pending:
    - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
      8×8 matrix adds a second axis — fold variance and subject variance must stay separate.
+     Deferred by Denisa on 2026-07-30 pending further discussion.
+   - **The unit of *k*.** Windows or repetitions; ~97 windows per repetition, so the two differ by
+     two orders of magnitude. Decide with the *k*-per-class vs. *k*-per-subject question.
    - **ECE binning.** Bin count and equal-width vs. equal-mass are unspecified; unfixed, the same
      model yields different numbers and runs are not comparable.
    - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
