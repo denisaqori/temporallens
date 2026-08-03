@@ -22,9 +22,9 @@ terms from Section 2 in configs, code, commit messages, and the paper.**
 The project has one shared temporal encoder and two research questions that do not depend on
 each other. They are evaluated separately, and either can succeed while the other fails.
 
-**Generative arm (headline).** *How many real calibration samples does a new, unseen subject
-need to reach a target accuracy, and can synthetic data replace some of them?* The deliverable
-is a curve, not a single number.
+**Generative arm (headline).** *How many real calibration gesture trials does a new, unseen
+subject need to reach a target accuracy, and can synthetic data replace some of them?* The
+deliverable is a curve, not a single number.
 
 **Language arm (secondary).** *Does mapping signal embeddings into a frozen language model's
 embedding space improve decoding, calibration, or failure reporting beyond a well-trained
@@ -49,7 +49,7 @@ These words were being used loosely. They are now defined, and the definitions a
 | **Frozen** | `requires_grad=False` on every parameter of that module, and the module in `eval()` mode. The encoder and the language model are frozen; the projector and head are not. | "Not updated this step" |
 | **Readout** | *How* a class prediction is extracted. **Discriminative** = trainable head on a pooled hidden state. **Generative** = the model's own LM head emits a label token. See Section 4. | The input path |
 | **Input path** | *What* the model receives: soft-prefix embeddings, or engineered text, or nothing (encoder-only). Orthogonal to readout. | The readout |
-| **Calibration** (two senses!) | (a) **Subject calibration** — the *k* real labelled samples a new user provides. (b) **Probability calibration** — whether predicted confidence matches accuracy (ECE). Always qualify which. | each other |
+| **Calibration** (two senses!) | (a) **Subject calibration** — the *k* complete labelled gesture trials a new user provides in total; all contained windows are derived training examples, not additional calibration units. (b) **Probability calibration** — whether predicted confidence matches accuracy (ECE). Always qualify which. | each other |
 | **Generative** (two senses!) | (a) The **generative arm** — the conditional VAE synthesizing EMG. (b) A **generative readout** — reading a class out of an LM head. Unrelated. Always qualify. | each other |
 
 ---
@@ -105,8 +105,10 @@ near-duplicate windows on both sides and inflates accuracy dramatically. Reporti
 
 DB2 records **6 repetitions** of every movement by every subject. The rule is short: **the
 subject is the split unit, so all 6 repetitions follow their subject.** A held-out subject
-contributes all six to test; a training subject contributes all six to training. Repetitions are
-never divided across the train/validation/test boundary.
+contributes all six to the held-out pool; a training subject contributes all six to training.
+Repetitions never cross the subject-level train/validation/test boundary. F1 evaluates on the full
+held-out pool; G3/G4 make the D13 within-subject partition, using repetitions `{1, 4}` only for
+subject calibration and `{2, 3, 5, 6}` only for evaluation.
 
 This is a deliberate departure from the dataset's own benchmark, which splits *by repetition
 within* subject — "repetition 2 and 5 in database 2" to test, the rest to training. That measures
@@ -120,7 +122,8 @@ across repetitions and found "a significant (P<0.05) dependence on the repetitio
 (database 2) of the subjects", warning that "attention should be paid to it while splitting
 movement repetitions into training set and test set." Keeping whole subjects on one side means
 that drift never straddles a split boundary here. It does resurface in subject calibration, where
-repetitions *are* the natural unit — see [generative-arm.md](generative-arm.md), G3.
+complete per-gesture trials indexed by `rerepetition` are the natural unit — see
+[generative-arm.md](generative-arm.md), G3.
 
 ### 3.3 Windowing and normalization
 
@@ -133,11 +136,13 @@ overlapping windows).
 | `per_subject_train_stats` | Each subject's own training windows | Debug configs |
 | `train_split_global_stats` | The training split only | Random-window runs |
 
-**Easily missed — this is the most common silent leak in the whole project.** Normalization
-statistics must be computed on **training data only** and then applied unchanged to
-validation and test. Computing mean/std over the full dataset before splitting leaks test
-distribution into training and inflates every downstream number. It leaves no trace in the
-logs. Any statistic that touches a held-out subject's data is a leak.
+**Easily missed — this is the most common silent leak in the whole project.** Normalization and
+other preprocessing statistics must be computed on **training data only** and then applied
+unchanged to validation and test. Computing mean/std over the full dataset before splitting leaks
+test distribution into training and inflates every downstream number. It leaves no trace in the
+logs. G3's subject-conditioning embedding is the explicit exception: at *k*>0 it may use only the
+windows contained in the selected *k* trials, as defined by the generative-arm leakage rules; this
+never permits subject-specific normalization.
 
 ### 3.4 Metrics
 
@@ -341,7 +346,7 @@ take it on trust.
 The gap itself is worth keeping. Refit-minus-fold-mean estimates what four more training subjects
 buy in accuracy, which is a direct read on the marginal value of subject data — the quantity the
 generative arm's personalization-efficiency curve approaches from the other side (§6,
-`real_samples_saved`). Record it once the check passes instead of throwing it away.
+`real_gesture_trials_saved`). Record it once the check passes instead of throwing it away.
 
 ---
 
@@ -424,7 +429,16 @@ shared discriminative readout, or if the structured-report demo is needed for ou
 **D4 — Text-summary feature set and formatting (L4).** Confirmed as specified below.
 
 **D5 — The adaptation baseline is in v1**, scoped to head-only fine-tuning, implemented as a
-`calibration_strategy` on the shared personalization harness. Details below.
+`calibration_strategy` on the shared personalization harness. D15 amends its strategy names and
+matched-training semantics. Details below.
+
+**D14 — G3's subject-calibration unit is a complete gesture trial, total per held-out subject.**
+The trial budget, grid, acquisition schedule, and class-coverage reporting are specified in
+[generative-arm.md](generative-arm.md), G3.
+
+**D15 — G3 uses matched F1-head adaptation strategies.** The population reference is not adapted;
+`real_adaptation` and `real_plus_synthetic_adaptation` share initialization, trainable surface,
+optimizer schedule, and optimizer-step budget for *k*>0. See G3 and D5 below.
 
 ---
 
@@ -480,20 +494,26 @@ Budget: roughly 200–250 prompt tokens per window.
 
 ### D5 — Adaptation baseline scope
 
-**In v1 — it is much cheaper than it looks, provided one design choice is made up
-front.** The spec already argues it "would sharpen the contribution considerably," and it is the
-first question any reviewer asks about the headline: *why synthesize data instead of just
-fine-tuning on the k real samples?*
+**In v1.** It is the first question any reviewer asks about the headline: *why synthesize data
+instead of just fine-tuning on the real calibration trials already acquired?*
 
-Scope it as **head-only fine-tuning on the k real calibration samples** for each held-out
-subject. Not full fine-tuning, not test-time adaptation (entropy minimization, BN-stat updates)
-— those are a follow-up. Head-only keeps the trainable surface identical to the augmented arm,
-which is what makes the comparison fair.
+The adaptation baseline is `real_adaptation`: start from the F1 population head and perform
+**head-only fine-tuning on every valid window contained in the selected *k* real gesture trials**
+for that held-out subject. The encoder stays frozen. Full fine-tuning, test-time adaptation
+(entropy minimization or normalization-stat updates), and a fresh randomly initialized head are
+follow-ups, not v1 alternatives.
 
-The cost is low because it is a *third curve on the same axes*, reusing the entire
-personalization-efficiency harness — the held-out-subject loop, the k-selection, the evaluation.
-It needs no generator at all, so it is strictly less machinery than the augmented arm.
+For *k*>0, its matched synthetic counterpart, `real_plus_synthetic_adaptation`, starts from the
+same F1 head and trains the same head parameters with the same optimizer schedule and
+optimizer-step budget; the treatment difference is adding subject-conditioned synthetic latent
+windows. Exact batch composition, real-window exposure, synthetic weighting, and the numerical
+step budget remain Pending. The unchanged F1 head is retained as `population_no_adaptation`, a
+horizontal population reference. At *k*=0, `real_adaptation` is the same no-op reference, while
+the synthetic arm may update the head using population-conditioned synthetic windows because no
+subject-specific information exists. That synthetic-only point is a diagnostic, not a matched
+treatment comparison.
 
-**The design choice that keeps it cheap:** build the personalization runner with a pluggable
-`calibration_strategy` axis (`real_only` | `real_plus_synthetic` | `real_plus_adaptation`) from
-the first line of code. Bolted on afterwards, it means rewriting the loop.
+Build the personalization runner with a pluggable `calibration_strategy` axis
+(`population_no_adaptation` | `real_adaptation` | `real_plus_synthetic_adaptation`) from the first
+line of code. These names replace the ambiguous prior labels, under which `real_only` and
+`real_plus_adaptation` could describe the same operation.

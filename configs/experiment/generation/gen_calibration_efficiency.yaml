@@ -1,12 +1,21 @@
 # G4 — Calibration efficiency. Expected calibration error and overconfidence-on-wrong against
-# k, for the same three strategies as G3. NOTE the collision of terms: this measures
+# k complete gesture trials per held-out subject, for the same three strategies as G3. NOTE the
+# collision of terms: this measures
 # PROBABILITY calibration over a SUBJECT-CALIBRATION axis (README section 2).
 #
 # Exists because augmentation could raise accuracy while making the model confidently wrong,
-# which for a wearable interface is a poor trade. ECE is binning-sensitive: the bin count is
-# fixed below and must be reported. Per-subject ECE on a small test set is high-variance, so
-# the headline ECE is pooled and per-subject values are shown separately.
+# which for a wearable interface is a poor trade. ECE binning and the overconfidence-error
+# definition remain pending decisions; this config records that state and must fail closed until
+# they are settled.
 # Spec: docs/experiments/generative-arm.md, G4.
+protocol:
+  # The eventual runner must reject any status other than ready; pending values never get defaults.
+  status: blocked_pending_decisions
+  blocked_on:
+    - personalization.rest_calibration_policy
+    - personalization.adaptation.training_budget
+    - evaluation.ece_binning
+    - evaluation.overconfidence_error_definition
 experiment:
   name: gen_calibration_efficiency
   seed: 42
@@ -28,16 +37,51 @@ dataset:
   num_classes: 18
   normalize: train_subjects_global_stats
 personalization:
-  calibration_samples: [0, 5, 10, 20, 50]
+  calibration_trials: [0, 1, 2, 5, 10, 17, 20, 34]
+  k_unit: complete_active_gesture_trial
   k_scope: per_subject
-  draws_per_cell: 5
+  eligible_repetitions: [1, 4]
+  schedules_per_subject: 5
+  trial_selection:
+    select_before_windowing: true
+    include_all_contained_windows: true
+    forbid_boundary_crossing_windows: true
+    schedule: nested_class_aware_prefix
+    first_pass: one_trial_per_gesture
+    second_pass: other_eligible_repetition
+    seed_derivation: sha256_64bit_experiment_seed_subject_schedule
+    first_pass_repetition_assignment: alternating_8_9_flip_by_subject_plus_schedule_parity
+    shared_across_strategies: true
+  rest_calibration_policy: pending_mat_inspection
   calibration_strategy:
-    - real_only
-    - real_plus_synthetic
-    - real_plus_adaptation
+    - population_no_adaptation
+    - real_adaptation
+    - real_plus_synthetic_adaptation
+  synthetic:
+    windows_per_class: 50
+    class_scope: all_output_classes
+    conditioning_at_k0: population_embedding
+    conditioning_at_k: calibration_derived_from_k_only
+  adaptation:
+    type: head_only_finetune
+    initialization: f1_population_head
+    matched_optimizer_steps_at_k_gt_0: true
+    training_budget:
+      status: pending_decision
+      optimizer_steps: null
+      batch_size: null
+      real_synthetic_batch_mix: null
+      synthetic_loss_weight: null
+    learning_rate: 0.001
 evaluation:
   fixed_evaluation_set: true
-  ece_bins: 15                 # fixed and reported — ECE is sensitive to binning
+  evaluation_repetitions: [2, 3, 5, 6]
+  ece_binning:
+    status: pending_decision
+    bins: null
+    strategy: null
+  overconfidence_error_definition: pending_decision
+  headline_ece_aggregation: pooled_predictions_across_subjects
   report_per_subject: true
   metrics:
     - expected_calibration_error

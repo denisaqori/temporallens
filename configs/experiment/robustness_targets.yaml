@@ -1,17 +1,17 @@
 # Robustness target registry (D2).
 #
 # Single source of truth for WHICH trained models get the robustness suite. Each F3/F4/F5
-# perturbation is evaluated against every target listed here whose checkpoint exists; targets
-# without a checkpoint yet are skipped by scripts/evaluate.py with a clear log line, so the
-# suite is runnable incrementally as each arm lands (F1 first, the adapters later).
+# perturbation is evaluated against every target listed here whose artifact exists: a checkpoint
+# file for F1/language targets or a run directory for G3. Targets without an artifact yet are
+# skipped by scripts/evaluate.py with a clear log line, so the suite is runnable incrementally.
 #
 # This file is shared infrastructure, not an ablation — hence it sits at the experiment root,
 # beside foundation/, generation/, language/, rather than inside any one of them.
 #
 # CHECKPOINT CONTRACT: every checkpoint is saved as {model_state, model_config}, so a consumer
-# rebuilds the exact architecture from the checkpoint alone. That is why a target is just
-# (name, checkpoint) with NO model_type — the old model_type field could not describe the
-# adapter stacks (encoder + projector + backbone + head) and is gone.
+# rebuilds the exact architecture from the checkpoint alone. A target therefore carries a name
+# plus one artifact locator (`checkpoint` or `run_dir`) with NO model_type — the old model_type
+# field could not describe the adapter stacks (encoder + projector + backbone + head) and is gone.
 #
 # WHICH checkpoint: targets point at refit.pt — the model refit on the full training-subject set
 # using the cross-validated hyperparameters. It is the only checkpoint any downstream consumer
@@ -37,10 +37,13 @@ targets:
     checkpoint: checkpoints/adapter_text_summary_only/refit.pt
 
   # --- Generative arm ---
-  # G3 does not produce a single refit.pt: it trains per-subject decoders on the fly under the
-  # real_plus_synthetic strategy. Its robustness target is therefore a RUN, not a static file,
-  # so it uses `run_dir` instead of `checkpoint`. Deferred until the generative arm exists; the
-  # runner treats a run_dir target as "not present" until that directory is populated.
-  - name: g3_augmented_decoder
+  # G3 does not produce a single refit.pt: it trains decoders across held-out subjects, schedules,
+  # and k under real_plus_synthetic_adaptation. Its robustness target is therefore a RUN, not a
+  # static file, so it uses `run_dir` instead of `checkpoint`. The future runner must resolve
+  # `latest` to an immutable recorded run ID and expand every declared artifact axis before scoring.
+  - name: g3_synthetic_adaptation
     arm: generation
+    strategy: real_plus_synthetic_adaptation
+    artifact_axes: [held_out_subject, schedule_index, calibration_trials]
+    run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest

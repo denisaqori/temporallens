@@ -1,0 +1,11 @@
+# Project-memory files are never auto-formatted.
+#
+# .gitattributes marks both of these `merge=union`, which keeps BOTH sides of a concurrent edit
+# instead of raising a conflict. That works only because every entry is a self-contained line.
+# A markdown table formatter re-pads every row in the table at once, so a re-pad on one branch
+# and a new row on another produces a union merge that keeps both copies of every existing row —
+# silently duplicating the whole decision log, with no conflict to warn anyone.
+#
+# Keep these two out of any auto-formatter. See AGENTS.md, "Working agreement".
+docs/project/STATUS.md
+docs/project/DECISIONS.md

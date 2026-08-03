@@ -10,10 +10,11 @@ decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technic
 its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
 agreement**.
 
-> 👉 **Next to pick up:** freeze the split (P0) — subjects, repetitions, and the headline statistic.
-> See [Next up](#next-up-priority-order).
+> 👉 **Next to pick up:** write and validate the P0 split manifest (exact subjects, folds, and
+> hash). The inferential unit and headline-extraction rule remain open. See
+> [Next up](#next-up-priority-order).
 
-_Last updated: 2026-07-29_
+_Last updated: 2026-08-03_
 
 ## Latest changes
 
@@ -65,7 +66,7 @@ started.
   `uv.lock` tracked.
 - Experiment specification authored: `docs/experiments/` (shared protocol + generative + language
   arms); every ablation maps 1:1 to a config under `configs/experiment/{foundation,generation,language}/`.
-- Decisions D1–D5 recorded (see DECISIONS.md).
+- Protocol and workflow choices recorded in DECISIONS.md.
 - Repo on GitHub over SSH: `git@github.com:denisaqori/temporallens.git`, `main` pushed.
 - Robustness evaluation decoupled from the target model (D2): shared `robustness_targets.yaml`,
   `scripts/evaluate.py` stub, `eval-robustness` target.
@@ -75,6 +76,8 @@ started.
   Hardened across four review rounds with Codex; see DECISIONS.
 - Agent re-rooting complete: every work surface (Codex desktop, Claude terminal CLI, Claude desktop)
   resolves to this repository; the ChatGPT-project mirror is retired as a work surface.
+- G3 calibration-budget and strategy choices frozen (D14, D15); specifications and configs
+  reconciled. The remaining reporting and training-policy choices stay open below.
 
 ## In progress
 
@@ -114,12 +117,22 @@ what is done, what remains, which branch, and the next concrete step.
    writable** — the remaining open items below affect the headline statistic and the eval code, not
    the split itself.
 
+   **Settled — G3 calibration budget and strategy parity (D14, D15).** The authority document and
+   G3/G4 configs now agree; the former *k*-unit/scope question is closed.
+
    **Still open** — tracked in DECISIONS → Pending:
    - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
      8×8 matrix adds a second axis — fold variance and subject variance must stay separate.
      Deferred by Denisa on 2026-07-30 pending further discussion.
-   - **The unit of *k*.** Windows or repetitions; ~97 windows per repetition, so the two differ by
-     two orders of magnitude. Decide with the *k*-per-class vs. *k*-per-subject question.
+   - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
+     monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
+   - **G3 calibration-subgroup aggregation.** Seen/unseen gesture reporting is required, but its
+     pooled-window versus class-macro definition remains open; empty groups report `NA`.
+   - **G3 adaptation training budget and mixture.** Fix optimizer steps, batch size,
+     real/synthetic batch composition and weighting, real-window exposure, and epoch semantics.
+   - **G3 calibration-rest ownership.** Rest does not increment *k*, but the runner needs a fixed
+     rule for whether a selected gesture trial permits one adjacent rest interval. Inspect a real
+     MAT file before deciding; never silently expose all held-out-subject rest.
    - **ECE binning.** Bin count and equal-width vs. equal-mass are unspecified; unfixed, the same
      model yields different numbers and runs are not comparable.
    - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
@@ -137,6 +150,12 @@ what is done, what remains, which branch, and the next concrete step.
 
 - Robustness configs are target-agnostic in schema but **not executable** until the eval logic and
   the arm models exist (`evaluate.py` is a stub).
+- G3 robustness expansion across held-out subject × schedule × *k* is declared, but the runner must
+  resolve `latest` to an immutable run ID before evaluating any synthetic-adaptation artifact.
+- Six generation metric keys are referenced by configs but not tabulated in any spec:
+  `calibration_seen_gesture_accuracy`, `calibration_unseen_gesture_accuracy`, `rest_accuracy`,
+  `demonstrated_gesture_count`, `accuracy_vs_k_curve`, `ece_vs_k_curve`. The concepts are in
+  generative-arm.md prose; the literal keys are not listed the way §3.4 lists metrics.
 - `head.pooling: last_token` assumes right-padding; the L-series trainer must pin the tokenizer or
   pool the true last non-pad index (silent failure otherwise).
 - Makefile `debug/train-*/report` targets reference scripts that are not written yet.
