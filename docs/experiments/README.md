@@ -94,12 +94,35 @@ raw.) Normalization is handled separately and per §3.3.
 
 | `split` value | What it does | Role |
 |---|---|---|
-| `subject_independent` | Train on one set of subjects, test on subjects never seen in training. Held-out set is `[5, 10, 15, 20, 25, 30, 35, 40]`. | **The main protocol. Every headline number uses this.** |
+| `subject_independent` | Train on one set of subjects, test on subjects never seen in training. Held-out set is `[5, 10, 15, 20, 25, 30, 35, 40]`, frozen in the manifest below. | **The main protocol. Every headline number uses this.** |
 | `random_window` | Windows shuffled without regard to subject. | Deliberately optimistic. Exists *only* to demonstrate how much leakage inflates results. Never a headline number. |
 
 **Easily missed:** windows from a single subject are highly correlated. A random split puts
 near-duplicate windows on both sides and inflates accuracy dramatically. Reporting a
 `random_window` number without labelling it as the leakage demonstration is a serious error.
+
+#### The split manifest
+
+The split is **data, not configuration**. It lives in
+[`configs/splits/subject_independent_v1.yaml`](../../configs/splits/subject_independent_v1.yaml):
+the 8 test subjects, the 32 training subjects, the 8 folds of 4 validation subjects (D6), the
+corrected label columns (D12), and the repetition policy (D13).
+
+Load it through `SplitManifest.load()`, never by reading the YAML directly. That call recomputes a
+SHA-256 over the split-defining fields and refuses to return anything whose digest does not match,
+so an edit to the file cannot quietly change what a number means. It also checks the structure:
+roles partition all 40 subjects, every training subject validates in exactly one fold, no fold
+validates on a test subject, and the calibration and evaluation repetitions stay disjoint.
+
+Fold assignment is **strided, not blocked** — the *i*-th training subject goes to fold *i* mod 8.
+Subjects were recorded in ID order, so contiguous blocks would make each fold a different slice of
+the acquisition period, and any drift in equipment or experimenter practice would separate the
+folds systematically. Each fold's training set is the complement of its validation set and is
+deliberately not written down, so a subject's role is stated in exactly one place.
+
+**The manifest is frozen.** Changing a split invalidates every number computed under the old one,
+and the language arm is a comparison against F1's reference row. A new split means a new versioned
+manifest and a DECISIONS row — never an edit in place.
 
 #### Repetitions
 

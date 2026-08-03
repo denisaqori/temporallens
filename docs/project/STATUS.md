@@ -10,9 +10,9 @@ decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technic
 its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
 agreement**.
 
-> 👉 **Next to pick up:** write and validate the P0 split manifest (exact subjects, folds, and
-> hash). The inferential unit and headline-extraction rule remain open. See
-> [Next up](#next-up-priority-order).
+> 👉 **Next to pick up:** the split manifest is frozen (D16), so the F0→F1 vertical slice is the
+> next executable work. The remaining protocol decisions are listed first because they are P0, but
+> they need Denisa, not an agent. See [Next up](#next-up-priority-order).
 
 _Last updated: 2026-08-03_
 
@@ -78,6 +78,11 @@ started.
   resolves to this repository; the ChatGPT-project mirror is retired as a work surface.
 - G3 calibration-budget and strategy choices frozen (D14, D15); specifications and configs
   reconciled. The remaining reporting and training-policy choices stay open below.
+- **Split frozen as data (D16)**: `configs/splits/subject_independent_v1.yaml` fixes the 8 test
+  subjects, the 32 training subjects, 8 strided folds of 4 validation subjects, the label columns
+  and the repetition policy, under a SHA-256 that `SplitManifest.load()` verifies. Structural
+  checks and 18 tests cover the tamper cases, including a swap between folds that leaves the
+  manifest structurally perfect and is caught only by the digest.
 
 ## In progress
 
@@ -99,26 +104,9 @@ what is done, what remains, which branch, and the next concrete step.
 
 ## Next up (priority order)
 
-1. **P0 — Freeze the split** (train/val/test subjects and repetitions) and the headline statistic.
-   Everything downstream depends on it: numbers computed on different splits are not comparable, and
-   the whole language arm rests on comparing L2 against the F1 reference row. Freeze once, record as
-   *data* (a committed manifest the loader asserts against), never revise.
-
-   **Settled — the validation scheme (D6, D7).** 8-fold CV over the 32 training subjects, 4
-   validation subjects per fold; the 8×8 fold×test-subject matrix is extended analysis only; the
-   downstream model is refit on all 32 at the median per-fold best epoch, and its test score is the
-   F1 reference row. Checkpoints named accordingly (`refit.pt` vs `folds/fold{k}/best.pt`), already
-   swept through configs and specs.
-
-   **Settled — data loading and repetitions (D12, D13), from the DB2 descriptor.** Labels come from
-   `restimulus`/`rerepetition`, never `stimulus`/`repetition`; no baseline subtraction, since rest is
-   a class. All 6 of a subject's repetitions follow that subject across the split; subject
-   calibration draws from repetitions {1, 4} and evaluates on {2, 3, 5, 6}. **The manifest is now
-   writable** — the remaining open items below affect the headline statistic and the eval code, not
-   the split itself.
-
-   **Settled — G3 calibration budget and strategy parity (D14, D15).** The authority document and
-   G3/G4 configs now agree; the former *k*-unit/scope question is closed.
+1. **P0 — The protocol decisions the split freeze left open.** The split itself is frozen (D16, see
+   Done); what remains are reporting and training-policy choices. None of them block the F0→F1
+   slice, and all of them need Denisa rather than an agent.
 
    **Still open** — tracked in DECISIONS → Pending:
    - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
@@ -138,9 +126,6 @@ what is done, what remains, which branch, and the next concrete step.
    - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
      metrics; the language arm's headline claim rests on this one.
 
-   **Deliverable:** a committed split manifest (e.g. `configs/splits/subject_independent_v1.yaml`)
-   listing exact subject IDs per role and per fold, plus a hash the loader asserts, so the split
-   cannot drift.
 2. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
    encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline.
 3. **P1 — Honor the checkpoint contract** in the F1 trainer (`{model_state, model_config}`).
