@@ -36,7 +36,10 @@ format:
 	$(PYTHON) -m black src scripts tests
 	$(PYTHON) -m ruff check src scripts tests --fix
 
+# `black --check` belongs here, not only in `format`: the Definition of Done gates on
+# verify/test/lint, so a check missing from this target is a check nothing enforces.
 lint:
+	$(PYTHON) -m black --check src scripts tests
 	$(PYTHON) -m ruff check src scripts tests
 	$(PYTHON) -m mypy src
 

@@ -285,6 +285,55 @@ the curve exists.
 
 ---
 
+## Metrics reference — the G-series keys
+
+README §3.4 fixes the shared classification metrics. These are the generation-specific ones, and
+every `evaluation.metrics` entry in a `generation/` config appears here. The rationale for each
+lives with its experiment above; this table exists so a config key can never be a name nobody
+defined.
+
+**G0/G1 — generator training**
+
+| Key | What it is |
+|---|---|
+| `elbo` | The conditional VAE's evidence lower bound — the training objective. A decreasing ELBO proves optimization, not usefulness (G0) |
+| `reconstruction_error` | The reconstruction term, reported apart from the total. Separates a decoder carrying signal from one reproducing the dataset mean |
+| `kl_divergence` | The KL term, reported apart from the total. KL → 0 is posterior collapse: the decoder is ignoring the latent and generating from the conditioning alone (G1) |
+
+**G2 — the synthetic-quality gate**
+
+| Key | What it is |
+|---|---|
+| `discriminator_auc` | AUC of the classifier two-sample test separating real encoder latents from generated ones. ≈0.5 means indistinguishable, ≈1.0 means unrealistic. Meaningless unless the discriminator was first calibrated against a deliberately poor generator |
+| `discriminator_auc_confidence_interval` | Interval on that AUC. A point estimate near 0.5 with a wide interval is not evidence of anything |
+| `per_class_discriminator_auc` | The same AUC per class. A pooled AUC hides a generator that is excellent for rest and useless for rare movements |
+| `nearest_neighbour_distance` | Distance from each synthetic sample to its closest real training sample — the diversity measure that exposes memorization. Both a quality failure and a privacy consideration |
+
+**G3 — the personalization-efficiency curve**
+
+| Key | What it is |
+|---|---|
+| `accuracy_vs_k_curve` | Decoding accuracy against *k*, one curve per `calibration_strategy`. The deliverable |
+| `real_gesture_trials_saved` | **The headline.** Horizontal gap between the two adapted curves: how many fewer real gesture trials `real_plus_synthetic_adaptation` needs to match `real_adaptation` |
+| `calibration_seen_gesture_accuracy` | Accuracy restricted to gesture classes the subject demonstrated in their *k* trials |
+| `calibration_unseen_gesture_accuracy` | Accuracy restricted to classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask |
+| `rest_accuracy` | Accuracy on the rest class, reported separately because rest is an evaluation class that never increments *k* |
+| `demonstrated_gesture_count` | How many distinct gesture classes the *k* trials covered. Without it the seen/unseen split cannot be read at a given *k* |
+
+**G4 — calibration efficiency**
+
+| Key | What it is |
+|---|---|
+| `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy |
+| `per_subject_expected_calibration_error` | ECE for each held-out subject. ECE on a small per-subject set is high-variance, so the headline ECE is pooled and these are shown alongside |
+
+**Two of these are not yet computable**, and the configs fail closed rather than defaulting: the
+pooled-window versus class-macro semantics for the seen/unseen subgroups (empty groups report
+`NA`, never zero), and the ECE bin count and binning scheme. Both are tracked in DECISIONS →
+Pending.
+
+---
+
 ## Robustness (D2)
 
 F3–F5 perturbations are also evaluated against the augmented decoders from G3, not only the F1

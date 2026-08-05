@@ -26,6 +26,11 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Every metric key a config asks for is now defined in a spec. The 14 generation-arm keys the
+  audit found undocumented — the VAE terms, the G2 gate metrics, and the *k*-indexed curves — are
+  tabulated in generative-arm.md, and a test fails if a config ever names a metric no spec
+  mentions. `make lint` also runs `black --check` now, which is why the drift it would have caught
+  went unnoticed.
 - Protocol-audit hardening landed: the frozen split is independently pinned and strictly validated,
   reportable configs consume it without duplicated subject/repetition lists, debug splits are
   explicitly non-reportable, packaged installs can resolve the manifest, and blocked G-series
@@ -153,10 +158,6 @@ what is done, what remains, which branch, and the next concrete step.
   the arm models exist (`evaluate.py` is a stub).
 - G3 robustness expansion across held-out subject × schedule × *k* is declared for both adapted
   strategies, but the runner must resolve `latest` to an immutable run ID before evaluating them.
-- Six generation metric keys are referenced by configs but not tabulated in any spec:
-  `calibration_seen_gesture_accuracy`, `calibration_unseen_gesture_accuracy`, `rest_accuracy`,
-  `demonstrated_gesture_count`, `accuracy_vs_k_curve`, `ece_vs_k_curve`. The concepts are in
-  generative-arm.md prose; the literal keys are not listed the way §3.4 lists metrics.
 - `head.pooling: last_token` assumes right-padding; the L-series trainer must pin the tokenizer or
   pool the true last non-pad index (silent failure otherwise).
 - Makefile `debug/train-*/report` targets reference scripts that are not written yet.

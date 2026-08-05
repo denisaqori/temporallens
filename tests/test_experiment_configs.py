@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -163,3 +164,43 @@ def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
         "real_plus_synthetic_adaptation",
     }
     assert len({tuple(target["artifact_axes"]) for target in g3_targets}) == 1
+
+
+def _documented_metric_keys() -> set[str]:
+    """Backticked lowercase identifiers appearing anywhere in the specs.
+
+    Deliberately permissive: it also picks up config field names, so it cannot prove a metric is
+    documented *as a metric*. What it does catch is the failure that actually happens — a key
+    entering a config that no spec mentions at all.
+    """
+    docs = (REPO_ROOT / "docs" / "experiments").glob("*.md")
+    return {
+        match.group(1)
+        for path in docs
+        for match in re.finditer(r"`([a-z][a-z0-9_]*)`", path.read_text())
+    }
+
+
+def _configured_metric_keys() -> dict[str, list[str]]:
+    """Every metric name any experiment config asks for, and which configs ask for it."""
+    keys: dict[str, list[str]] = {}
+    for path in sorted((REPO_ROOT / "configs" / "experiment").rglob("*.yaml")):
+        config = yaml.safe_load(path.read_text()) or {}
+        for metric in (config.get("evaluation") or {}).get("metrics") or []:
+            keys.setdefault(metric, []).append(path.name)
+    return keys
+
+
+def test_every_configured_metric_is_defined_in_the_specs() -> None:
+    """AGENTS.md: the spec is the authority, so a config may not name an undefined metric.
+
+    Without this the mapping degrades quietly — a metric enters a config, nothing defines what it
+    means, and the first person to implement it has to guess.
+    """
+    documented = _documented_metric_keys()
+    undefined = {
+        metric: configs
+        for metric, configs in _configured_metric_keys().items()
+        if metric not in documented
+    }
+    assert not undefined, f"metric keys used by configs but defined in no spec: {undefined}"
