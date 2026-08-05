@@ -13,10 +13,10 @@
 Wearable surface-electromyography (sEMG) interfaces promise device-free input, but a central obstacle to deployment is **calibration burden**: generalized decoders work across users, yet accuracy improves once the model is adapted to an individual. TemporalLens asks a practical question — *how much real per-subject calibration data does a new, unseen user actually need, and can generative augmentation reduce it?* — and evaluates it the way human-signal systems must be evaluated: on held-out subjects, under perturbation, with calibration analysis and leakage-controlled protocols.
 
 <p align="center">
-  <img src="results/figures/personalization_efficiency.png" width="620" alt="Decoding accuracy vs. number of real calibration samples per held-out subject, with and without synthetic augmentation.">
+  <img src="results/figures/personalization_efficiency.png" width="620" alt="Decoding accuracy versus complete real calibration gesture trials per held-out subject under three adaptation strategies.">
   <br>
   <em>Headline result: decoding accuracy for a new, unseen subject as a function of the number of real
-  calibration samples, with and without synthetic augmentation. (Figure populates after Phase&nbsp;2.)</em>
+  calibration gesture trials under three adaptation strategies. (Figure populates after Phase&nbsp;2.)</em>
 </p>
 
 > **Status.** Actively under development. The repository is organized in phases (see [Roadmap](#roadmap)); results tables and figures are populated as each phase completes. Sections marked _(pending)_ are scaffolded but not yet filled.
@@ -46,7 +46,7 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 
 ## Key contributions
 
-1. **A personalization-efficiency curve for cross-subject EMG decoding.** For each held-out subject, we measure decoding accuracy as a function of the number of real calibration samples available (0, 5, 10, 20, 50), *with and without* synthetic samples from a conditional generative model — quantifying how much real calibration a new user actually needs, and how much of it augmentation can replace.
+1. **A personalization-efficiency curve for cross-subject EMG decoding.** For each held-out subject, we measure decoding accuracy against the total number of complete real calibration gesture trials available (0, 1, 2, 5, 10, 17, 20, 34), comparing no adaptation, ordinary head adaptation, and matched real-plus-synthetic adaptation — quantifying how much real calibration a new user actually needs, and how much augmentation can replace.
 2. **An honest test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder — isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
 3. **Deployment-aware evaluation throughout.** Subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols — because for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy.
 
@@ -56,7 +56,7 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 
 Generalized sEMG decoders can work without per-person calibration, but a small amount of individual data measurably improves them — recent work reports handwriting-recognition gains of up to ~16% from limited personalization ([Sussillo, Kaifosh & Reardon, *Nature* 2025](#references)). That raises a concrete, under-studied question:
 
-> **How many real calibration samples does a new subject need to reach a target accuracy — and can a generative model supply that personalization with fewer real samples?**
+> **How many real calibration gesture trials does a new subject need to reach a target accuracy — and can a generative model supply that personalization with fewer real trials?**
 
 TemporalLens answers this as an explicit curve rather than a single number, and treats "does an LLM help?" as a separate, deliberately skeptical question rather than an assumption.
 
@@ -91,14 +91,15 @@ _(Populated as phases complete. Numbers below are placeholders.)_
 
 ### Personalization efficiency _(pending — Phase 2)_
 
-Real calibration only vs. real + synthetic, across sample counts, averaged over held-out subjects:
+Three matched strategies across complete real gesture-trial budgets, evaluated per held-out subject:
 
-| Real calibration samples | 0 | 5 | 10 | 20 | 50 |
-|---|---|---|---|---|---|
-| Accuracy — real only        | – | – | – | – | – |
-| Accuracy — real + synthetic | – | – | – | – | – |
+| Real calibration trials | 0 | 1 | 2 | 5 | 10 | 17 | 20 | 34 |
+|---|---|---|---|---|---|---|---|---|
+| Accuracy — population, no adaptation | – | – | – | – | – | – | – | – |
+| Accuracy — real adaptation | – | – | – | – | – | – | – | – |
+| Accuracy — real + synthetic adaptation | – | – | – | – | – | – | – | – |
 
-**Headline number _(pending)_:** synthetic augmentation reaches the target accuracy with approximately **[N]** fewer real calibration samples per subject.
+**Headline number _(pending)_:** synthetic augmentation reaches the target accuracy with approximately **[N]** fewer real gesture trials per subject.
 
 ### Subject-independent decoding and ablations _(pending — Phases 1–2)_
 
@@ -132,7 +133,7 @@ Evaluation is the center of this project. All headline results use a **subject-i
 - **Splits.** (i) random-window split — an optimistic baseline that shows how easily leakage inflates results; (ii) **subject-independent split** — train on a set of subjects, test on unseen subjects (the main result); (iii) grouped/leave-subjects-out folds — for per-subject variance.
 - **Robustness.** Test-time perturbations applied zero-shot: additive sensor noise, channel dropout (electrode failure / missing channels), amplitude scaling (strength / impedance / placement).
 - **Calibration.** Expected calibration error, confidence under perturbation, and overconfidence on incorrect predictions — the LLM arm's value, if any, may lie here rather than in raw accuracy.
-- **Generative leakage control _(non-negotiable)_.** The generator never trains on held-out-subject test windows. In the zero-calibration setting, generation is class-conditioned or uses a population/default subject embedding; in the *k*-shot settings, any subject-specific conditioning is derived **only** from the *k* real calibration samples permitted for that subject. A positive result traceable to leakage is treated as no result.
+- **Generative leakage control _(non-negotiable)_.** The generator never trains on held-out-subject windows. At *k*=0, generation is class-conditioned with a population/default subject embedding; at *k*>0, any subject-specific conditioning is derived **only** from windows wholly contained in the *k* permitted real calibration gesture trials. A positive result traceable to leakage is treated as no result.
 - **Synthetic-quality validation.** A classifier two-sample test (can a discriminator separate real from synthetic?) near chance indicates realistic synthesis — so a personalization gain cannot be attributed to a degenerate generator.
 
 ---

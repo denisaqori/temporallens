@@ -8,6 +8,15 @@
 # must score near 1.0. Fidelity is also not diversity: a generator reproducing ten real samples
 # scores near chance and is useless, so nearest-neighbour distance is reported alongside.
 # Spec: docs/experiments/generative-arm.md, G2.
+protocol:
+  # The final test subjects cannot drive a fix-and-rerun loop. Fail closed until the development
+  # gate population and the one-shot final diagnostic policy are approved (DECISIONS Pending).
+  status: blocked_pending_decisions
+  blocked_on:
+    - development_gate.subject_source
+    - development_gate.fold_aggregation
+    - development_gate.conditioning_coverage
+    - final_test_diagnostic.failure_policy
 experiment:
   name: gen_synthetic_quality
   seed: 42
@@ -21,8 +30,7 @@ checkpoint:
 dataset:
   name: ninapro_db2
   exercise: B
-  split: subject_independent
-  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  split_manifest: configs/splits/subject_independent_v1.yaml
   window_size: 400
   stride: 100
   input_channels: 12
@@ -34,10 +42,23 @@ discriminator:
   dropout: 0.1
   epochs: 20
   learning_rate: 0.001
-  evaluate_on: held_out_real   # never the real data the generator trained on
+  # Never point an iterative gate at split_manifest.test_subjects.
+  evaluate_on: pending_development_validation_subjects
   # Calibrates the test: the discriminator MUST score near 1.0 against this deliberately
   # poor generator, otherwise a near-chance AUC on real synthetic data is meaningless.
   sanity_generator: gaussian_matched_moments
+development_gate:
+  status: pending_decision
+  subject_source: null
+  fold_aggregation: null
+  # Must cover the population-conditioned k=0 distribution and the subject-conditioned k>0
+  # distributions that G3 actually consumes, rather than one pooled unconditional AUC.
+  conditioning_coverage: null
+final_test_diagnostic:
+  status: pending_decision
+  subject_source: split_manifest.test_subjects
+  tuning_after_observation: forbidden
+  failure_policy: null
 evaluation:
   per_class: true              # a pooled AUC hides a generator that fails on rare movements
   metrics:

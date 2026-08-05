@@ -54,8 +54,7 @@ head:
 dataset:
   name: ninapro_db2
   exercise: B
-  split: subject_independent
-  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  split_manifest: configs/splits/subject_independent_v1.yaml
   window_size: 400
   stride: 100
   input_channels: 12

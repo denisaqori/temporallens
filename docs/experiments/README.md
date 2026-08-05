@@ -114,11 +114,18 @@ so an edit to the file cannot quietly change what a number means. It also checks
 roles partition all 40 subjects, every training subject validates in exactly one fold, no fold
 validates on a test subject, and the calibration and evaluation repetitions stay disjoint.
 
+Every **reportable subject-independent config** names this file through `dataset.split_manifest`.
+It does not repeat `held_out_subjects` or the calibration/evaluation repetition lists: consumers
+derive those values from the verified object and record `manifest_hash` in the run and checkpoint
+metadata. Tiny/local configs instead declare `dataset.debug_split`; their deliberately reduced
+subject holdout exists only to exercise the pipeline and can never produce a reportable number.
+
 Fold assignment is **strided, not blocked** — the *i*-th training subject goes to fold *i* mod 8.
-Subjects were recorded in ID order, so contiguous blocks would make each fold a different slice of
-the acquisition period, and any drift in equipment or experimenter practice would separate the
-folds systematically. Each fold's training set is the complement of its validation set and is
-deliberately not written down, so a subject's role is stated in exactly one place.
+This gives every fold one subject from each quarter of the ID range instead of one contiguous ID
+block. It is a deterministic range-balancing rule, not a claim that subject ID is an acquisition
+timestamp; the DB2 descriptor does not establish that chronology (D17). Each fold's training set
+is the complement of its validation set and is deliberately not written down, so a subject's role
+is stated in exactly one place.
 
 **The manifest is frozen.** Changing a split invalidates every number computed under the old one,
 and the language arm is a comparison against F1's reference row. A new split means a new versioned
@@ -298,14 +305,17 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | `tracking` | `json_logging` | Always `true`. Local `RunLogger`; never disable |
 | | `wandb_mode` | `disabled` (debug) \| `offline` (local) \| `online` (cloud) |
 | `dataset` | `exercise`, `input_channels`, `num_classes` | `B`, `12`, `18` — fixed for v1 |
-| | `split`, `held_out_subjects` | See §3.2 |
+| | `split_manifest` | Required for reportable subject-independent runs; load and verify it as §3.2 specifies |
+| | `split`, `test_fraction` | Random-window leakage demonstration only |
+| | `debug_split` | Non-reportable tiny/local subject holdout only |
 | | `window_size`, `stride` | See §3.3 |
 | | `normalize` | See §3.3 |
 | | `max_subjects`, `max_windows_per_subject` | Debug-only caps for fast iteration |
 | `encoder` | `checkpoint`, `freeze`, `embedding_dim` | Milestone-0 CNN, frozen, 256-d |
 | `training` | `target`, `loss` | `class_label`, `cross_entropy` |
 | | `batch_size`, `gradient_accumulation_steps` | Effective batch = product |
-| | `epochs`, `learning_rate`, `weight_decay` | Optimization |
+| | `epochs`, `learning_rate`, `weight_decay` | Optimization; F1's `epochs` is the initial cross-validation fold horizon |
+| | `early_stopping`, `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2) |
 | | `device` | `auto` (portable) \| `mps` (local-only) \| `cuda` (cloud-only) |
 | | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (consumed downstream) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only) |
 | `evaluation` | `metrics` | See §3.4 |
@@ -330,11 +340,47 @@ checkpoint contract: `{model_state, model_config}`.
 
 ### 5.2 Epoch selection: the smoothed validation peak
 
-No metric should come from a single epoch. Within each fold, take a trailing moving average
-(window 10–20 epochs) of validation macro-F1 and select the epoch where the smoothed curve
-peaks. The fold's reported metrics are the smoothed values at that epoch. The refit then runs to
-a fixed budget — the median of the per-fold selected epochs, rounded up — and does not early
-stop, having no validation set to stop on.
+Each of the eight cross-validation folds trains for exactly **30 epochs**, with **no early
+stopping**. At each epoch, compute 18-class macro-F1 separately for each of the fold's four
+validation subjects, using the fixed class labels 0–17 and zero for an undefined class F1. The raw
+fold score is the arithmetic mean of those four subject scores, so every validation subject has
+exactly 25% weight; concatenating their windows before computing macro-F1 is forbidden (D21).
+
+For epoch *e* in {10, …, 30}, the selection score is the arithmetic mean of those raw fold scores
+over epochs *e*−9 through *e*. Epochs 1–9 are ineligible because they do not have a full 10-epoch
+trailing window. Select the epoch with the highest score; if two or more scores are exactly equal,
+select the earliest epoch. The fold checkpoint is the model state from that selected epoch. Record
+the 10-epoch value as a model-selection diagnostic, not as the fold's reportable `macro_f1`.
+
+All reportable validation metrics — including `macro_f1` — are computed from the predictions made
+by that one selected fold checkpoint. Final-test metrics likewise come from predictions made by the
+frozen selected fold checkpoints and the frozen refit checkpoint. Metrics are never averaged across
+epochs: doing so would describe no single model, and is especially ill-defined for count-valued or
+nonlinear outputs such as confusion matrices and ECE. D20 explicitly narrows D9's earlier phrase
+"fold metrics are the smoothed values": only the validation-macro-F1 **selection score** is smoothed.
+
+After all eight folds finish, sort their selected epochs as
+*e*<sub>(1)</sub> ≤ … ≤ *e*<sub>(8)</sub> and compute
+
+*E*<sub>refit</sub> = ⌈(*e*<sub>(4)</sub> + *e*<sub>(5)</sub>) / 2⌉.
+
+If *E*<sub>refit</sub> is below 30, refit a fresh model on all 32 development subjects for exactly
+that many epochs, again with no early stopping. The refit has no validation set: its budget is
+transferred from cross-validation.
+
+If *E*<sub>refit</sub> equals 30, the central selected epoch is at the observation boundary and the
+initial horizon is treated as right-censored. Do **not** refit and do **not** inspect any final-test
+prediction. Instead, rerun all eight folds from scratch with a 60-epoch horizon, keeping every other
+setting fixed and applying the same complete 10-epoch selection window over epochs 10–60. Recompute
+*E*<sub>refit</sub> from those eight replacement runs; the 30-epoch fold results are development
+diagnostics, not reportable alternatives. If the new value is below 60, proceed with the refit. If
+it equals 60, stop for a new owner decision — there is no second automatic extension.
+
+No final-test inference begins until horizon selection is complete, the fresh refit checkpoint is
+written and frozen, and the eight selected fold checkpoints from the same accepted horizon are
+frozen as one set. Test performance can never trigger longer training or a second confirmatory
+evaluation. D18 fixes the selection constants and D19 fixes this one allowed development-only
+horizon escalation; neither is a runner default or per-run tuning knob.
 
 Two simpler rules suggest themselves, and both fail. Picking the raw best epoch
 selects partly for noise: validation macro-F1 jumps around from epoch to epoch, especially with
@@ -346,8 +392,9 @@ has overfit by epoch 800 of 2000 still gets read off at epoch 2000.
 
 Smoothing takes the peak from the first rule and the averaging from the second.
 
-**Easily missed:** the smoothing window is a protocol constant, not a tuning knob. Fix it once
-and use the same window everywhere, or fold metrics stop being comparable across runs.
+**Easily missed:** the 10-epoch window, full-window requirement, initial 30-epoch horizon, single
+60-epoch contingency, and earliest tie-break are protocol constants, not tuning knobs. Use one
+horizon consistently across all eight folds; never extend only the folds that reached the boundary.
 
 ### 5.3 Sanity check: the refit against the fold distribution
 

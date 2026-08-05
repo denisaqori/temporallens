@@ -26,8 +26,9 @@ dataset:
   label_column: restimulus
   repetition_column: rerepetition
 
-# Fixed by the spec before any modelling; never re-drawn. These 8 subjects are touched only at
-# final evaluation.
+# Fixed by the spec before any modelling; never re-drawn. These 8 subjects are excluded from
+# population training and model selection. G3/G4 may use only their paid calibration repetitions;
+# their disjoint evaluation repetitions remain score-only.
 test_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
 
 # The remaining 32. Every one serves as validation in exactly one fold.
@@ -46,10 +47,9 @@ training_subjects:
 num_folds: 8
 validation_subjects_per_fold: 4
 
-# Assignment is strided, not blocked: the i-th training subject goes to fold i mod 8. Subjects
-# were recorded in ID order, so contiguous blocks would make each fold a different slice of the
-# acquisition period — any drift in equipment or experimenter practice would then separate the
-# folds systematically. Striding gives every fold one subject from each quarter of the ID range.
+# Assignment is strided, not blocked: the i-th training subject goes to fold i mod 8. Striding
+# gives every fold one subject from each quarter of the ID range, avoiding a fold made from one
+# contiguous ID block. Subject ID is not treated as a verified acquisition timestamp (D17).
 #
 # A fold's TRAINING set is the complement: training_subjects minus this fold's validation
 # subjects (28 subjects). It is deliberately not listed, so a subject's role is stated in exactly

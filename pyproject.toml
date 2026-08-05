@@ -78,6 +78,11 @@ Repository = "https://github.com/denisaqori/temporallens"
 [tool.hatch.build.targets.wheel]
 packages = ["src/temporallens"]
 
+# Keep one authoritative manifest in configs/, but include that exact file as a package resource
+# so SplitManifest.load() also works from a non-editable wheel install.
+[tool.hatch.build.targets.wheel.force-include]
+"configs/splits/subject_independent_v1.yaml" = "temporallens/data/manifests/subject_independent_v1.yaml"
+
 # ---- Ruff (lint) ----
 [tool.ruff]
 line-length = 100

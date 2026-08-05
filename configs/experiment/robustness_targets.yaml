@@ -38,9 +38,17 @@ targets:
 
   # --- Generative arm ---
   # G3 does not produce a single refit.pt: it trains decoders across held-out subjects, schedules,
-  # and k under real_plus_synthetic_adaptation. Its robustness target is therefore a RUN, not a
-  # static file, so it uses `run_dir` instead of `checkpoint`. The future runner must resolve
-  # `latest` to an immutable recorded run ID and expand every declared artifact axis before scoring.
+  # k, and strategy. Its robustness targets are therefore RUN slices, not static files, so they use
+  # `run_dir` instead of `checkpoint`. Both adapted strategies are required: without the matched
+  # real-adaptation slice, robustness cannot say whether the synthetic advantage survives shift.
+  # The future runner must resolve `latest` to an immutable recorded run ID and expand every
+  # declared artifact axis before scoring.
+  - name: g3_real_adaptation
+    arm: generation
+    strategy: real_adaptation
+    artifact_axes: [held_out_subject, schedule_index, calibration_trials]
+    run_selection: pending_immutable_run_id
+    run_dir: results/runs/gen_personalization_efficiency/latest
   - name: g3_synthetic_adaptation
     arm: generation
     strategy: real_plus_synthetic_adaptation

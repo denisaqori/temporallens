@@ -3,7 +3,7 @@
 # the project is measured against it. It also produces the frozen encoder checkpoint that BOTH
 # arms load, so nothing else can start until this is done and its accuracy honestly recorded.
 # Expect modest, variable cross-subject accuracy — that is the point, not a bug.
-# Spec: docs/experiments/README.md, section 6 (Foundation).
+# Spec: docs/experiments/README.md, section 6 (Foundation). Epoch protocol: D18–D21.
 experiment:
   name: baseline_cnn_subject_split
   seed: 42
@@ -15,8 +15,7 @@ dataset:
   name: ninapro_db2
   data_dir: data/processed/ninapro_db2
   exercise: B
-  split: subject_independent
-  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  split_manifest: configs/splits/subject_independent_v1.yaml
   window_size: 400
   stride: 100
   input_channels: 12
@@ -32,13 +31,45 @@ model:
 training:
   loss: class_weighted_cross_entropy
   batch_size: 64
+  # D18 fixes the initial cross-validation horizon; D19 defines its one allowed escalation.
   epochs: 30
+  early_stopping: false
   learning_rate: 0.0003
   weight_decay: 0.0001
   num_workers: 2
   device: auto
   save_checkpoint: true
+  epoch_selection:
+    metric: validation_macro_f1
+    validation_subject_aggregation: equal_weight_mean
+    expected_validation_subjects: 4
+    macro_f1_class_labels: all_dataset_classes
+    undefined_class_f1: 0.0
+    smoothing: trailing_moving_average
+    smoothing_window_epochs: 10
+    full_window_only: true
+    tie_break: earliest_epoch
+    smoothed_score_role: checkpoint_selection_diagnostic_only
+    reportable_metrics_source: selected_checkpoint_predictions
+  horizon_escalation:
+    trigger: ceiling_median_selected_fold_epochs_equals_fold_horizon
+    next_fold_epochs: 60
+    rerun_all_folds_from_scratch: true
+    maximum_automatic_escalations: 1
+    on_repeated_trigger: block_pending_owner_decision
+    refit_before_resolution: forbidden
+    test_evaluation_before_resolution: forbidden
+  refit:
+    subject_scope: all_manifest_training_subjects
+    selected_fold_count: 8
+    epoch_rule: ceiling_median_selected_fold_epochs
+    initialization: fresh_from_experiment_seed
+    early_stopping: false
 evaluation:
+  metric_source: frozen_checkpoint_predictions
+  requires_frozen_checkpoints:
+    - refit
+    - selected_fold_set
   metrics:
     - accuracy
     - macro_f1

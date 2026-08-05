@@ -16,10 +16,12 @@ tracking:
 dataset:
   name: ninapro_db2
   exercise: B
-  split: subject_independent
+  # Debug-only subset: deliberately not the frozen reportable split.
+  debug_split:
+    type: subject_holdout
+    held_out_subjects: [4]
   max_subjects: 4
   max_windows_per_subject: 100
-  held_out_subjects: [4]
   window_size: 400
   stride: 200
   input_channels: 12

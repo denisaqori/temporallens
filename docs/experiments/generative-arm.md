@@ -87,6 +87,12 @@ not required for the headline claim.
   gesture trials, so it cannot be a learned per-subject lookup table indexed by subject ID. An
   embedding that only exists for training subjects cannot be produced for a new user at all.
 
+**Not yet an executable definition.** The phrase `calibration_derived` fixes the information the
+embedding may use, not how to compute it. Before G1 runs, specify the estimator and pooling,
+training-subject pseudo-calibration schedules across *k*, the population embedding at *k*=0,
+target-window exclusion, and a control against gesture-class content masquerading as subject
+identity. G1 fails closed on those fields; a runner must not supply defaults.
+
 ---
 
 ## G2 — Synthetic quality by discrimination (the gate)
@@ -112,13 +118,19 @@ means anything.
   near chance and is useless. Report a diversity measure alongside AUC — nearest-neighbour
   distance from each synthetic sample to its closest real training sample will expose
   memorization, which is both a quality failure *and* a privacy consideration.
-- **Test on held-out real data**, not on the real data the generator trained on.
+- **The iterative development gate cannot use the final test subjects.** The old wording, "test on
+  held-out real data," left two different held-out roles collapsed: inner subject validation for
+  model development and the eight final test subjects. G2 is fail-closed until the development
+  population/aggregation and the one-shot final diagnostic failure policy are approved. A final
+  diagnostic may never trigger tuning on those same subjects.
 - **Evaluate per class.** A generator can be excellent for rest and useless for rare movements,
   and a pooled AUC hides that.
 - Report AUC with a confidence interval. A single number near 0.5 with a wide interval is not
   evidence of anything.
 
-**Gate condition:** if G2 fails, G3 is not reported. Fix the generator first.
+**Gate condition:** if the approved development gate fails, fix the generator before the protocol
+is frozen. If the eventual one-shot final diagnostic fails, G3 is not reported; its data cannot be
+recycled into another development iteration. The exact two-stage policy remains Pending.
 
 ---
 
@@ -157,6 +169,13 @@ optimizer-step budget; full fine-tuning and test-time adaptation are follow-ups.
 windows. That synthetic-only point is a diagnostic, not a matched real-versus-synthetic treatment
 comparison, because no real-only optimizer-step budget exists at *k*=0.
 
+The matched-step rule does not yet define the adaptation objective. Optimizer, loss, class-weight
+source, learning rate, regularization, and behavior for classes absent from a small-*k* support set
+remain Pending and fail closed. A population-conditioned class-balanced replay control is also
+Pending: without it, a gain from `real_plus_synthetic_adaptation` could reflect generic balanced
+rehearsal rather than calibration-derived subject information. Until that control is decided, keep
+the causal claim narrow.
+
 **Design requirement.** `calibration_strategy` must be a **pluggable axis** in the runner from
 the first line of code. Bolted on afterwards it means rewriting the loop.
 
@@ -164,7 +183,8 @@ the first line of code. Bolted on afterwards it means rewriting the loop.
 
 Calibration draws from **repetitions {1, 4}**; evaluation uses **{2, 3, 5, 6}**. The two sets are
 disjoint, which is what leakage rule 3 requires — windows from the *k* permitted trials cannot
-overlap the windows the method is scored on.
+overlap the windows the method is scored on. G3/G4 obtain both sets from the verified split
+manifest; their experiment configs deliberately do not duplicate them.
 
 The reason the calibration set is `{1, 4}` rather than `{1, 2}` is drift. The DB2 descriptor
 reports "a significant (P<0.05) dependence on the repetition ... in 12.5% (database 2) of the
@@ -200,6 +220,9 @@ held-out subject's undemonstrated gestures.
 For each `(subject, schedule_index)`, construct one seeded, nested acquisition schedule. Derive its
 seed from the first 64 bits of SHA-256 over the UTF-8 string
 `"{experiment.seed}:{subject_id}:{schedule_index}"`; never use Python's process-randomized `hash()`.
+The PRNG/permutation algorithm and whether schedule indices start at 0 or 1 remain Pending; both
+must be fixed before execution, and every selected `(gesture, rerepetition)` trial ID must be
+persisted with the run so another implementation can reconstruct the exact schedule.
 
 1. Randomly permute the 17 active gesture classes.
 2. In the first pass, select exactly one trial per gesture, alternating repetitions 1 and 4 down

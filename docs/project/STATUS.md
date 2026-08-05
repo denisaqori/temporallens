@@ -10,11 +10,10 @@ decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technic
 its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
 agreement**.
 
-> 👉 **Next to pick up:** the split manifest is frozen (D16), so the F0→F1 vertical slice is the
-> next executable work. The remaining protocol decisions are listed first because they are P0, but
-> they need Denisa, not an agent. See [Next up](#next-up-priority-order).
+> 👉 **Next to pick up:** D18–D21 fully specify F1 epoch selection, so the F0→F1 vertical slice can
+> proceed. The generative arm has additional fail-closed decisions in [Next up](#next-up-priority-order).
 
-_Last updated: 2026-08-03_
+_Last updated: 2026-08-05_
 
 ## Latest changes
 
@@ -27,6 +26,16 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Protocol-audit hardening landed: the frozen split is independently pinned and strictly validated,
+  reportable configs consume it without duplicated subject/repetition lists, debug splits are
+  explicitly non-reportable, packaged installs can resolve the manifest, and blocked G-series
+  choices fail closed. F1 epoch selection is executable under D18–D21, and G3 robustness compares
+  both matched adaptation strategies.
+- Subject-independent split frozen as versioned data (D16): fixed test/training roles, eight
+  validation folds, corrected label columns, and subject-calibration repetitions now load through
+  one verified manifest.
+- G3 calibration protocol frozen (D14, D15): *k* is complete real gesture trials per subject, with
+  nested shared schedules and matched real-adaptation versus real-plus-synthetic strategies.
 - Evaluation protocol reconciled against the group's published method (D9–D11): epoch selection is
   the smoothed validation peak, not a raw best epoch or a fixed budget (§5.2); the refit is
   cross-checked against the eight fold-model test scores (§5.3); confusion matrices are reported for
@@ -78,11 +87,7 @@ started.
   resolves to this repository; the ChatGPT-project mirror is retired as a work surface.
 - G3 calibration-budget and strategy choices frozen (D14, D15); specifications and configs
   reconciled. The remaining reporting and training-policy choices stay open below.
-- **Split frozen as data (D16)**: `configs/splits/subject_independent_v1.yaml` fixes the 8 test
-  subjects, the 32 training subjects, 8 strided folds of 4 validation subjects, the label columns
-  and the repetition policy, under a SHA-256 that `SplitManifest.load()` verifies. Structural
-  checks and 18 tests cover the tamper cases, including a swap between folds that leaves the
-  manifest structurally perfect and is caught only by the digest.
+- Split manifest and verified loader landed (D16).
 
 ## In progress
 
@@ -104,20 +109,30 @@ what is done, what remains, which branch, and the next concrete step.
 
 ## Next up (priority order)
 
-1. **P0 — The protocol decisions the split freeze left open.** The split itself is frozen (D16, see
-   Done); what remains are reporting and training-policy choices. None of them block the F0→F1
-   slice, and all of them need Denisa rather than an agent.
+1. **P0 — Owner protocol decisions.** F0→F1 can proceed under D18–D21; the remaining choices block
+   headline inference or their named G-series configs. All are tracked in DECISIONS → Pending and
+   must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
    - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
      8×8 matrix adds a second axis — fold variance and subject variance must stay separate.
      Deferred by Denisa on 2026-07-30 pending further discussion.
+   - **G1 subject-embedding contract.** Fix its estimator/pooling, pseudo-calibration schedule,
+     target exclusion, population embedding, and class-information control.
+   - **G2 gate population/final-test policy.** Fix the development folds/aggregation and one-shot
+     final diagnostic, including coverage of the conditional distributions used across *k*.
    - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
      monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
    - **G3 calibration-subgroup aggregation.** Seen/unseen gesture reporting is required, but its
      pooled-window versus class-macro definition remains open; empty groups report `NA`.
    - **G3 adaptation training budget and mixture.** Fix optimizer steps, batch size,
      real/synthetic batch composition and weighting, real-window exposure, and epoch semantics.
+   - **G3 adaptation objective.** Fix optimizer, loss, class weights, learning rate,
+     regularization, and absent-class handling.
+   - **G3 replay control.** Add a population-conditioned balanced-replay control or narrow the
+     causal claim to avoid attributing generic replay gains to subject conditioning.
+   - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
+     persisted with each run.
    - **G3 calibration-rest ownership.** Rest does not increment *k*, but the runner needs a fixed
      rule for whether a selected gesture trial permits one adjacent rest interval. Inspect a real
      MAT file before deciding; never silently expose all held-out-subject rest.
@@ -127,16 +142,17 @@ what is done, what remains, which branch, and the next concrete step.
      metrics; the language arm's headline claim rests on this one.
 
 2. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
-   encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline.
-3. **P1 — Honor the checkpoint contract** in the F1 trainer (`{model_state, model_config}`).
-4. **P2 — Reconcile** README/planning-docs wording with the authoritative spec where they drift.
+   encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline under
+   D18–D21. The F1 trainer must honor the checkpoint contract
+   (`{model_state, model_config}`) as an acceptance criterion, not a later task.
+3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
 ## Known open items (not yet scheduled)
 
 - Robustness configs are target-agnostic in schema but **not executable** until the eval logic and
   the arm models exist (`evaluate.py` is a stub).
-- G3 robustness expansion across held-out subject × schedule × *k* is declared, but the runner must
-  resolve `latest` to an immutable run ID before evaluating any synthetic-adaptation artifact.
+- G3 robustness expansion across held-out subject × schedule × *k* is declared for both adapted
+  strategies, but the runner must resolve `latest` to an immutable run ID before evaluating them.
 - Six generation metric keys are referenced by configs but not tabulated in any spec:
   `calibration_seen_gesture_accuracy`, `calibration_unseen_gesture_accuracy`, `rest_accuracy`,
   `demonstrated_gesture_count`, `accuracy_vs_k_curve`, `ece_vs_k_curve`. The concepts are in

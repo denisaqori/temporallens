@@ -13,7 +13,10 @@ protocol:
   status: blocked_pending_decisions
   blocked_on:
     - personalization.rest_calibration_policy
+    - personalization.trial_selection.reproducibility
     - personalization.adaptation.training_budget
+    - personalization.adaptation.objective
+    - personalization.synthetic.replay_control
     - evaluation.ece_binning
     - evaluation.overconfidence_error_definition
 experiment:
@@ -29,8 +32,7 @@ checkpoint:
 dataset:
   name: ninapro_db2
   exercise: B
-  split: subject_independent
-  held_out_subjects: [5, 10, 15, 20, 25, 30, 35, 40]
+  split_manifest: configs/splits/subject_independent_v1.yaml
   window_size: 400
   stride: 100
   input_channels: 12
@@ -40,7 +42,7 @@ personalization:
   calibration_trials: [0, 1, 2, 5, 10, 17, 20, 34]
   k_unit: complete_active_gesture_trial
   k_scope: per_subject
-  eligible_repetitions: [1, 4]
+  # Eligible calibration/evaluation repetitions come only from the verified split manifest.
   schedules_per_subject: 5
   trial_selection:
     select_before_windowing: true
@@ -52,6 +54,11 @@ personalization:
     seed_derivation: sha256_64bit_experiment_seed_subject_schedule
     first_pass_repetition_assignment: alternating_8_9_flip_by_subject_plus_schedule_parity
     shared_across_strategies: true
+    reproducibility:
+      status: pending_decision
+      prng: null
+      schedule_index_base: null
+      persist_selected_trial_ids: true
   rest_calibration_policy: pending_mat_inspection
   calibration_strategy:
     - population_no_adaptation
@@ -62,6 +69,9 @@ personalization:
     class_scope: all_output_classes
     conditioning_at_k0: population_embedding
     conditioning_at_k: calibration_derived_from_k_only
+    replay_control:
+      status: pending_decision
+      strategy: null
   adaptation:
     type: head_only_finetune
     initialization: f1_population_head
@@ -72,10 +82,16 @@ personalization:
       batch_size: null
       real_synthetic_batch_mix: null
       synthetic_loss_weight: null
-    learning_rate: 0.001
+    objective:
+      status: pending_decision
+      optimizer: null
+      loss: null
+      class_weight_source: null
+      learning_rate: null
+      regularization: null
+      absent_class_handling: null
 evaluation:
   fixed_evaluation_set: true
-  evaluation_repetitions: [2, 3, 5, 6]
   ece_binning:
     status: pending_decision
     bins: null
