@@ -221,9 +221,7 @@ def test_wrong_split_identity_is_rejected(tmp_path: Path) -> None:
     ("field", "value"),
     [("label_column", "stimulus"), ("repetition_column", "repetition")],
 )
-def test_uncorrected_dataset_columns_are_rejected(
-    tmp_path: Path, field: str, value: str
-) -> None:
+def test_uncorrected_dataset_columns_are_rejected(tmp_path: Path, field: str, value: str) -> None:
     manifest = copy.deepcopy(_raw())
     manifest["dataset"][field] = value
     path = _write(tmp_path, manifest)

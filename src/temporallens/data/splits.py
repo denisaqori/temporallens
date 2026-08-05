@@ -280,9 +280,7 @@ def _verify(raw: Mapping[str, Any], source: Path | Traversable) -> None:
     if len(folds) != num_folds:
         raise SplitManifestError(f"{source}: num_folds disagrees with the number of fold entries")
 
-    validation_subjects_per_fold = _require_plain_int(
-        raw, "validation_subjects_per_fold", source
-    )
+    validation_subjects_per_fold = _require_plain_int(raw, "validation_subjects_per_fold", source)
     if validation_subjects_per_fold != _EXPECTED_VALIDATION_SUBJECTS_PER_FOLD:
         raise SplitManifestError(
             f"{source}: validation_subjects_per_fold is {validation_subjects_per_fold}; "
