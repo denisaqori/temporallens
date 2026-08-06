@@ -1,12 +1,13 @@
 # G2 — Synthetic quality by discrimination. THIS IS A GATE, NOT A METRIC: it runs before G3
 # is interpreted, and if it fails, G3 is not reported. A classifier two-sample test trains a
-# discriminator to separate real encoder latents from generated ones; AUC near 0.5 indicates
-# a realistic synthetic distribution.
+# discriminator to separate real encoder latents from generated ones; AUC near 0.5 means the
+# approved discriminator did not detect separation, subject to the Pending orientation/CI rule.
 #
-# Both failure directions matter. AUC ~1.0 means the generator is unrealistic. AUC ~0.5 from a
-# WEAK discriminator means nothing — hence the sanity_generator below, which the discriminator
-# must score near 1.0. Fidelity is also not diversity: a generator reproducing ten real samples
-# scores near chance and is useless, so nearest-neighbour distance is reported alongside.
+# Strong separability means the generator is unrealistic; the legacy candidate thresholds assume
+# that is oriented toward AUC ~1.0. AUC ~0.5 from a WEAK discriminator means nothing. The
+# sanity_generator below must be strongly separable. Fidelity is also not diversity: a generator
+# reproducing ten real samples scores near chance and is useless. Nearest-neighbour distance can
+# expose memorization; a genuine diversity or coverage diagnostic remains Pending.
 # Spec: docs/experiments/generative-arm.md, G2.
 protocol:
   # The final test subjects cannot drive a fix-and-rerun loop. Fail closed until the development
@@ -17,6 +18,7 @@ protocol:
     - development_gate.fold_aggregation
     - development_gate.conditioning_coverage
     - final_test_diagnostic.failure_policy
+    - evaluation.quality_metric_contract_status
 experiment:
   name: gen_synthetic_quality
   seed: 42
@@ -44,8 +46,9 @@ discriminator:
   learning_rate: 0.001
   # Never point an iterative gate at split_manifest.test_subjects.
   evaluate_on: pending_development_validation_subjects
-  # Calibrates the test: the discriminator MUST score near 1.0 against this deliberately
-  # poor generator, otherwise a near-chance AUC on real synthetic data is meaningless.
+  # Calibrates the test: the discriminator MUST strongly separate this deliberately poor generator
+  # under the legacy candidate orientation, otherwise a near-chance AUC on real synthetic data is
+  # meaningless. The quality-metric contract remains Pending.
   sanity_generator: gaussian_matched_moments
 development_gate:
   status: pending_decision
@@ -60,12 +63,15 @@ final_test_diagnostic:
   tuning_after_observation: forbidden
   failure_policy: null
 evaluation:
+  quality_metric_contract_status: pending_decision
   per_class: true              # a pooled AUC hides a generator that fails on rare movements
   metrics:
     - discriminator_auc
     - discriminator_auc_confidence_interval
-    - nearest_neighbour_distance   # memorization / diversity check
+    - nearest_neighbour_distance   # memorization check; diversity/coverage remains Pending
     - per_class_discriminator_auc
+  # Candidate point thresholds only; DECISIONS Pending must resolve the quality-metric and
+  # acceptance contract before this blocked protocol becomes executable.
   gate:
     pass_if_auc_within: [0.45, 0.55]
     sanity_generator_auc_above: 0.90

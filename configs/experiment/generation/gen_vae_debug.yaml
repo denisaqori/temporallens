@@ -1,6 +1,7 @@
 # G0 — Generator plumbing check. Verifies the conditional VAE trains at all: latents load,
-# class/subject conditioning accept their inputs, ELBO decreases, samples return the right
-# shape. Not a measurement — a decreasing ELBO proves optimization, not usefulness. Check
+# class/subject conditioning accept their inputs, the negative-ELBO objective is finite and
+# updates parameters, and samples return the right shape. Not a measurement — a finite training
+# loss proves plumbing, not usefulness. Check
 # that reconstructions are not the dataset mean and that changing the class label changes
 # the sample. Spec: docs/experiments/generative-arm.md, G0.
 experiment:
@@ -38,8 +39,8 @@ generator:
   class_conditioning: true
   subject_conditioning: population_only
 training:
-  loss: elbo
-  kl_warmup_epochs: 1        # never apply full KL weight from step 0 (posterior collapse)
+  loss: negative_elbo
+  kl_warmup_epochs: 1        # provisional duration; exact warmup contract remains Pending
   batch_size: 8
   epochs: 2
   learning_rate: 0.001
@@ -47,7 +48,9 @@ training:
   device: auto
   save_checkpoint: false
 evaluation:
-  metrics: [elbo, reconstruction_error, kl_divergence]
+  metrics: [negative_elbo, reconstruction_error, kl_divergence]
   checks:
+    - negative_elbo_is_finite
+    - parameters_updated
     - reconstruction_is_not_dataset_mean
     - class_label_changes_sample

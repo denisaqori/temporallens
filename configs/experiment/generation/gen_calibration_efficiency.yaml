@@ -4,9 +4,9 @@
 # PROBABILITY calibration over a SUBJECT-CALIBRATION axis (README section 2).
 #
 # Exists because augmentation could raise accuracy while making the model confidently wrong,
-# which for a wearable interface is a poor trade. ECE binning and the overconfidence-error
-# definition remain pending decisions; this config records that state and must fail closed until
-# they are settled.
+# which for a wearable interface is a poor trade. ECE binning, the overconfidence-error definition,
+# and headline aggregation are encoded below as execution blockers; the current pooled aggregation
+# value is explicitly provisional.
 # Spec: docs/experiments/generative-arm.md, G4.
 protocol:
   # The eventual runner must reject any status other than ready; pending values never get defaults.
@@ -19,6 +19,7 @@ protocol:
     - personalization.synthetic.replay_control
     - evaluation.ece_binning
     - evaluation.overconfidence_error_definition
+    - evaluation.headline_ece_aggregation_status
 experiment:
   name: gen_calibration_efficiency
   seed: 42
@@ -97,6 +98,8 @@ evaluation:
     bins: null
     strategy: null
   overconfidence_error_definition: pending_decision
+  headline_ece_aggregation_status: pending_decision
+  # Provisional legacy value; Pending must resolve its headline/supplemental/omitted role.
   headline_ece_aggregation: pooled_predictions_across_subjects
   report_per_subject: true
   metrics:

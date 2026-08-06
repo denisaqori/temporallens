@@ -1,4 +1,4 @@
-"""Experiment configs must consume the frozen split without duplicating it."""
+"""Structural contracts linking experiment configs to manifests and specifications."""
 
 from __future__ import annotations
 
@@ -79,9 +79,11 @@ def test_g3_g4_do_not_duplicate_manifest_repetition_partitions(relative_path: st
 def test_g2_fails_closed_without_using_final_test_subjects_as_an_iterative_gate() -> None:
     config = _load("configs/experiment/generation/gen_synthetic_quality.yaml")
     assert config["protocol"]["status"] == "blocked_pending_decisions"
+    assert "evaluation.quality_metric_contract_status" in config["protocol"]["blocked_on"]
     assert config["discriminator"]["evaluate_on"] == "pending_development_validation_subjects"
     assert config["development_gate"]["status"] == "pending_decision"
     assert config["final_test_diagnostic"]["tuning_after_observation"] == "forbidden"
+    assert config["evaluation"]["quality_metric_contract_status"] == "pending_decision"
 
 
 def test_f1_config_encodes_approved_epoch_constants_and_gates() -> None:
@@ -156,6 +158,13 @@ def test_g3_g4_fail_closed_on_schedule_objective_and_replay_control(
     assert personalization["synthetic"]["replay_control"]["strategy"] is None
 
 
+def test_g4_records_pending_headline_ece_aggregation() -> None:
+    config = _load("configs/experiment/generation/gen_calibration_efficiency.yaml")
+    assert config["protocol"]["status"] == "blocked_pending_decisions"
+    assert "evaluation.headline_ece_aggregation_status" in config["protocol"]["blocked_on"]
+    assert config["evaluation"]["headline_ece_aggregation_status"] == "pending_decision"
+
+
 def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
     registry = _load("configs/experiment/robustness_targets.yaml")
     g3_targets = [target for target in registry["targets"] if target["arm"] == "generation"]
@@ -166,41 +175,107 @@ def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
     assert len({tuple(target["artifact_axes"]) for target in g3_targets}) == 1
 
 
-def _documented_metric_keys() -> set[str]:
-    """Backticked lowercase identifiers appearing anywhere in the specs.
+METRIC_REFERENCE_SECTIONS = (
+    (
+        "docs/experiments/README.md",
+        "### 3.4 Metrics",
+        "### 3.5 Reproducibility",
+    ),
+    (
+        "docs/experiments/generative-arm.md",
+        "## Metrics reference — the G-series keys",
+        "## Robustness (D2)",
+    ),
+)
 
-    Deliberately permissive: it also picks up config field names, so it cannot prove a metric is
-    documented *as a metric*. What it does catch is the failure that actually happens — a key
-    entering a config that no spec mentions at all.
-    """
-    docs = (REPO_ROOT / "docs" / "experiments").glob("*.md")
-    return {
-        match.group(1)
-        for path in docs
-        for match in re.finditer(r"`([a-z][a-z0-9_]*)`", path.read_text())
-    }
+METRIC_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+METRIC_TABLE_ROW_PATTERN = re.compile(
+    r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|",
+    re.MULTILINE,
+)
 
 
-def _configured_metric_keys() -> dict[str, list[str]]:
-    """Every metric name any experiment config asks for, and which configs ask for it."""
+def _section_between(relative_path: str, start_heading: str, end_heading: str) -> str:
+    text = (REPO_ROOT / relative_path).read_text()
+    _, start, remainder = text.partition(start_heading)
+    assert start, f"{relative_path}: missing heading {start_heading!r}"
+    section, end, _ = remainder.partition(end_heading)
+    assert end, f"{relative_path}: missing heading {end_heading!r}"
+    return section
+
+
+def _registered_evaluation_metric_keys() -> set[str]:
+    registrations: dict[str, list[str]] = {}
+
+    for relative_path, start_heading, end_heading in METRIC_REFERENCE_SECTIONS:
+        section = _section_between(relative_path, start_heading, end_heading)
+        keys = METRIC_TABLE_ROW_PATTERN.findall(section)
+        assert keys, f"{relative_path}: no metric rows under {start_heading!r}"
+
+        for key in keys:
+            registrations.setdefault(key, []).append(relative_path)
+
+    duplicates = {key: paths for key, paths in registrations.items() if len(paths) > 1}
+    assert not duplicates, f"metric keys registered more than once: {duplicates}"
+    return set(registrations)
+
+
+def _configured_evaluation_metric_keys() -> dict[str, list[str]]:
     keys: dict[str, list[str]] = {}
+
     for path in sorted((REPO_ROOT / "configs" / "experiment").rglob("*.yaml")):
-        config = yaml.safe_load(path.read_text()) or {}
-        for metric in (config.get("evaluation") or {}).get("metrics") or []:
-            keys.setdefault(metric, []).append(path.name)
+        relative_path = path.relative_to(REPO_ROOT)
+        config = _load(str(relative_path))
+        evaluation = config.get("evaluation")
+        if evaluation is None:
+            continue
+        assert isinstance(evaluation, dict), f"{relative_path}: evaluation must be a mapping"
+
+        metrics = evaluation.get("metrics")
+        if metrics is None:
+            continue
+        assert isinstance(metrics, list), f"{relative_path}: evaluation.metrics must be a list"
+
+        for metric in metrics:
+            assert isinstance(metric, str) and METRIC_KEY_PATTERN.fullmatch(
+                metric
+            ), f"{relative_path}: invalid evaluation metric key {metric!r}"
+
+        assert len(metrics) == len(
+            set(metrics)
+        ), f"{relative_path}: duplicate evaluation.metrics entries"
+
+        for metric in metrics:
+            keys.setdefault(metric, []).append(str(relative_path))
+
     return keys
 
 
-def test_every_configured_metric_is_defined_in_the_specs() -> None:
-    """AGENTS.md: the spec is the authority, so a config may not name an undefined metric.
-
-    Without this the mapping degrades quietly — a metric enters a config, nothing defines what it
-    means, and the first person to implement it has to guess.
-    """
-    documented = _documented_metric_keys()
-    undefined = {
-        metric: configs
-        for metric, configs in _configured_metric_keys().items()
-        if metric not in documented
+def test_every_evaluation_metric_is_registered_in_a_metric_reference_table() -> None:
+    """Registration is exact name coverage; operational semantics may still be Pending."""
+    registered = _registered_evaluation_metric_keys()
+    configured = _configured_evaluation_metric_keys()
+    unregistered = {
+        metric: configs for metric, configs in configured.items() if metric not in registered
     }
-    assert not undefined, f"metric keys used by configs but defined in no spec: {undefined}"
+    assert not unregistered, (
+        "evaluation.metrics keys missing from the metric-reference tables: " f"{unregistered}"
+    )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "configs/experiment/generation/gen_vae_debug.yaml",
+        "configs/experiment/generation/gen_vae_train.yaml",
+    ),
+)
+def test_vae_configs_minimize_and_report_negative_elbo(relative_path: str) -> None:
+    config = _load(relative_path)
+    assert config["training"]["loss"] == "negative_elbo"
+    assert "negative_elbo" in config["evaluation"]["metrics"]
+    assert "elbo" not in config["evaluation"]["metrics"]
+    if config["experiment"]["mode"] == "debug":
+        assert {"negative_elbo_is_finite", "parameters_updated"} <= set(
+            config["evaluation"]["checks"]
+        )

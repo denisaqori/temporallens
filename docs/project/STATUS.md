@@ -26,11 +26,17 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
-- Every metric key a config asks for is now defined in a spec. The 14 generation-arm keys the
-  audit found undocumented — the VAE terms, the G2 gate metrics, and the *k*-indexed curves — are
-  tabulated in generative-arm.md, and a test fails if a config ever names a metric no spec
-  mentions. `make lint` also runs `black --check` now, which is why the drift it would have caught
-  went unnoticed.
+- Pre-F0/F1 metric hygiene: the minimized VAE objective is named `negative_elbo` (D22), correcting
+  prose that had a decreasing ELBO proving optimization when the bound is maximized. Metric
+  registration now reads first-column keys from the two reference tables rather than any backticked
+  identifier, so a key like `seed` no longer passes. G2 and G4 gained fail-closed blockers, and four
+  gaps the audit exposed — VAE objective components, the G2 quality/acceptance contract, G3/G4
+  repeated-run aggregation, and G4 headline ECE aggregation — are recorded as Pending.
+- Every `evaluation.metrics` key is mentioned in a spec. The 14 generation-arm keys the audit found
+  undocumented — the VAE terms, G2 gate metrics, and *k*-indexed curves — are tabulated in
+  generative-arm.md, and a lexical test rejects a config metric that no spec mentions. This is
+  name-level coverage, not an executable definition. `make lint` also runs `black --check` now,
+  which is why the drift it would have caught went unnoticed.
 - Protocol-audit hardening landed: the frozen split is independently pinned and strictly validated,
   reportable configs consume it without duplicated subject/repetition lists, debug splits are
   explicitly non-reportable, packaged installs can resolve the manifest, and blocked G-series
@@ -145,6 +151,17 @@ what is done, what remains, which branch, and the next concrete step.
      model yields different numbers and runs are not comparable.
    - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
      metrics; the language arm's headline claim rests on this one.
+   - **G0/G1 VAE objective components.** The minimized objective is correctly named
+     `negative_elbo`; the reconstruction likelihood/reduction, units, and raw-versus-weighted KL
+     reporting remain open.
+   - **G2 metric/gate contract.** Fix grouped discriminator evaluation, AUC orientation and
+     dependence-aware CI, CI/per-class gate behavior, nearest-neighbour semantics, and a genuine
+     diversity or coverage diagnostic.
+   - **G3/G4 within-subject repeated-run aggregation.** Fix aggregation across the persisted
+     schedule/seed/draw runs without duplicating the population reference or treating reused
+     evaluation windows as independent observations; record adaptation-seed and synthetic-draw IDs.
+   - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
+     headline, supplemental, or omitted.
 
 2. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
    encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline under
@@ -158,6 +175,12 @@ what is done, what remains, which branch, and the next concrete step.
   the arm models exist (`evaluate.py` is a stub).
 - G3 robustness expansion across held-out subject × schedule × *k* is declared for both adapted
   strategies, but the runner must resolve `latest` to an immutable run ID before evaluating them.
+- Evaluation outputs currently mix primitive metrics, grouped curves, metadata, uncertainty, and
+  derived estimands. Define and validate a result schema that separates those roles alongside the
+  F0/F1 evaluator, then migrate the G-series configs before their runners are implemented.
+- The new G0/G1 objective-component and G3/G4 repeated-run Pending choices are not yet wired into
+  runner-enforced config schemas; add the appropriate execution/reportability gates when
+  implementing their runners.
 - `head.pooling: last_token` assumes right-padding; the L-series trainer must pin the tokenizer or
   pool the true last non-pad index (silent failure otherwise).
 - Makefile `debug/train-*/report` targets reference scripts that are not written yet.

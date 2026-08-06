@@ -188,10 +188,11 @@ never permits subject-specific normalization.
 | `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
-The table above is the shared set. Generation-specific keys — the VAE terms, the G2 gate, and the
-*k*-indexed curves — are defined in [generative-arm.md](generative-arm.md), "Metrics reference".
-Between the two, every `evaluation.metrics` entry in every config is defined somewhere, and
-`tests/test_experiment_configs.py` enforces that.
+The table above is the shared metric registry; the "Metrics reference" tables in
+[generative-arm.md](generative-arm.md) register generation-specific keys. Every value under an
+experiment config's `evaluation.metrics` must appear as a first-column key in one of those two
+registries, and `tests/test_experiment_configs.py` enforces that registration. Registration gives
+name-level coverage, not proof that every metric is executable; Pending decisions remain binding.
 
 **Where each metric is computed (D6).** Cross-validation and testing run the same metric set
 through the same code path, which is what makes them comparable. Each of the 8 fold models is

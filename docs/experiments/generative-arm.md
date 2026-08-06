@@ -50,15 +50,16 @@ windows are derived examples, not additional calibration units.
 **Config:** `gen_vae_debug.yaml` · **Runs:** locally, minutes · **Mode:** `debug`
 
 **What it measures.** That the conditional VAE trains at all: encoder latents load, the
-class-conditioning and subject-conditioning paths accept their inputs, the ELBO decreases, and
-samples come back at the right shape.
+class-conditioning and subject-conditioning paths accept their inputs, the negative-ELBO
+objective is finite and updates parameters, and samples come back at the right shape.
 
 **Why it exists.** Same reason as L0 — find shape and conditioning bugs on 3 subjects locally
 before spending cloud time.
 
-**Easily missed.** A decreasing ELBO proves optimization, not usefulness. Check that
-reconstructions are not the dataset mean, and that varying the class label actually changes the
-sample. Both failures produce a beautiful loss curve.
+**Easily missed.** A finite loss and parameter update prove plumbing, not usefulness. During KL
+warmup, the changing weight means objective values are not directly comparable across epochs.
+Check that reconstructions are not the dataset mean, and that varying the class label actually
+changes the sample. Both failures can accompany a beautiful loss curve.
 
 ---
 
@@ -77,8 +78,8 @@ not required for the headline claim.
 **Easily missed.**
 - **Posterior collapse.** The classic conditional-VAE failure: the decoder learns to ignore the
   latent and generate from the conditioning alone. Symptom: KL term → 0. Monitor the KL term
-  separately from total ELBO, and warm up its weight rather than applying it at full strength
-  from step 0.
+  separately from the total negative-ELBO objective, and warm up its weight rather than applying
+  it at full strength from step 0.
 - **The conditioning must actually condition.** Verify that sampling with a fixed latent and
   varying the class label produces different outputs. If not, the "conditional" generator is
   unconditional and every downstream result is meaningless.
@@ -100,8 +101,9 @@ identity. G1 fails closed on those fields; a runner must not supply defaults.
 **Config:** `gen_synthetic_quality.yaml` · **Runs:** cloud or local · **Mode:** `evaluate`
 
 **What it measures.** A **classifier two-sample test**: train a discriminator to tell real
-encoder latents from generated ones. Discrimination near chance (AUC ≈ 0.5) indicates the
-synthetic distribution is close to the real one.
+encoder latents from generated ones. AUC near chance means the approved discriminator did not
+detect separability; it establishes distributional similarity only under the approved grouping,
+orientation, uncertainty, and sanity-control contract.
 
 **Why it exists — it is a gate, not a metric.** It runs *before* G3 is interpreted. Without it,
 a personalization "gain" could come from a degenerate generator: one emitting near-copies of a
@@ -110,14 +112,16 @@ produces an artifact rather than a result, which is why G2 has to pass before th
 means anything.
 
 **Easily missed.**
-- **Both failure directions matter.** AUC ≈ 1.0 means the generator is unrealistic. AUC ≈ 0.5
-  from a *weak* discriminator means nothing at all — it must be strong enough to separate
-  obviously-bad synthetic data, so calibrate it against a deliberately poor generator (e.g.
-  Gaussian noise at matched moments) and confirm it scores near 1.0 there.
+- **Both failure directions matter.** Strong separation means the generator is unrealistic; its
+  numeric AUC direction depends on the approved label/score orientation. AUC ≈ 0.5 from a *weak*
+  discriminator means nothing at all — it must be strong enough to separate obviously-bad
+  synthetic data, so calibrate it against a deliberately poor generator (e.g. Gaussian noise at
+  matched moments) and confirm strong separation there.
 - **Fidelity is not diversity.** A generator that reproduces ten real samples perfectly scores
-  near chance and is useless. Report a diversity measure alongside AUC — nearest-neighbour
-  distance from each synthetic sample to its closest real training sample will expose
-  memorization, which is both a quality failure *and* a privacy consideration.
+  near chance and is useless. Nearest-neighbour distance from each synthetic sample to its closest
+  real training sample can expose memorization, which is both a quality failure *and* a privacy
+  consideration, but it cannot establish diversity by itself. G2 needs a separate coverage or
+  synthetic–synthetic diversity diagnostic.
 - **The iterative development gate cannot use the final test subjects.** The old wording, "test on
   held-out real data," left two different held-out roles collapsed: inner subject validation for
   model development and the eight final test subjects. G2 is fail-closed until the development
@@ -126,11 +130,13 @@ means anything.
 - **Evaluate per class.** A generator can be excellent for rest and useless for rare movements,
   and a pooled AUC hides that.
 - Report AUC with a confidence interval. A single number near 0.5 with a wide interval is not
-  evidence of anything.
+  evidence of anything. Discriminator splitting and interval resampling must respect subject/trial
+  dependence rather than treating overlapping windows as independent.
 
 **Gate condition:** if the approved development gate fails, fix the generator before the protocol
 is frozen. If the eventual one-shot final diagnostic fails, G3 is not reported; its data cannot be
-recycled into another development iteration. The exact two-stage policy remains Pending.
+recycled into another development iteration. The exact two-stage population policy and the
+quality-metric/acceptance contract remain Pending.
 
 ---
 
@@ -272,8 +278,9 @@ which for a wearable interface is a poor trade. Improving both makes for a much 
 than improving accuracy alone.
 
 **Easily missed.** ECE is sensitive to binning; fix the bin count and report it. ECE computed on
-a small per-subject test set is high-variance — pool across subjects for the headline ECE and
-show per-subject values separately.
+a small per-subject test set is high-variance, while pooling predictions can hide subject-level
+miscalibration and overweight subjects or repeated evaluation windows. The schedule-within-subject
+summary, subject aggregation, and role of pooled ECE remain Pending; always show per-subject values.
 
 ---
 
@@ -287,34 +294,39 @@ the curve exists.
 
 ## Metrics reference — the G-series keys
 
-README §3.4 fixes the shared classification metrics. These are the generation-specific ones, and
-every `evaluation.metrics` entry in a `generation/` config appears here. The rationale for each
-lives with its experiment above; this table exists so a config key can never be a name nobody
-defined.
+README §3.4 is the shared metric registry. The tables below register generation-specific keys, and
+every `evaluation.metrics` entry in a `generation/` config appears as a first-column key here or in
+the shared registry. Registration prevents unnamed config values; it does not by itself make a
+metric operational while a required contract remains Pending.
 
 **G0/G1 — generator training**
 
 | Key | What it is |
 |---|---|
-| `elbo` | The conditional VAE's evidence lower bound — the training objective. A decreasing ELBO proves optimization, not usefulness (G0) |
+| `negative_elbo` | The fixed-sign name for the minimized conditional-VAE objective; lower is better under a fixed definition. At KL weight 1 it is the negative of the raw evidence lower bound. The scheduled warmup loss is a weighted analogue whose values are not comparable while the weight changes (G0) |
 | `reconstruction_error` | The reconstruction term, reported apart from the total. Separates a decoder carrying signal from one reproducing the dataset mean |
 | `kl_divergence` | The KL term, reported apart from the total. KL → 0 is posterior collapse: the decoder is ignoring the latent and generating from the conditioning alone (G1) |
+
+This freezes only the optimized objective's sign and name. The reconstruction likelihood/error,
+component reductions across dimensions, windows, and subjects, units, KL-warmup schedule, whether
+evaluation uses the fixed weight-1 objective, and raw-versus-weighted KL reporting remain Pending
+before G0/G1 implementation.
 
 **G2 — the synthetic-quality gate**
 
 | Key | What it is |
 |---|---|
-| `discriminator_auc` | AUC of the classifier two-sample test separating real encoder latents from generated ones. ≈0.5 means indistinguishable, ≈1.0 means unrealistic. Meaningless unless the discriminator was first calibrated against a deliberately poor generator |
+| `discriminator_auc` | AUC of the classifier two-sample test separating real encoder latents from generated ones. ≈0.5 means no detected separation under the approved test; strong separation is a failure, with numeric direction set by the Pending orientation. Meaningless unless calibrated against a deliberately poor generator |
 | `discriminator_auc_confidence_interval` | Interval on that AUC. A point estimate near 0.5 with a wide interval is not evidence of anything |
 | `per_class_discriminator_auc` | The same AUC per class. A pooled AUC hides a generator that is excellent for rest and useless for rare movements |
-| `nearest_neighbour_distance` | Distance from each synthetic sample to its closest real training sample — the diversity measure that exposes memorization. Both a quality failure and a privacy consideration |
+| `nearest_neighbour_distance` | Distance from each synthetic sample to its closest real training sample. It can expose memorization, a quality and privacy concern, but is not by itself a diversity or coverage guarantee |
 
 **G3 — the personalization-efficiency curve**
 
 | Key | What it is |
 |---|---|
 | `accuracy_vs_k_curve` | Decoding accuracy against *k*, one curve per `calibration_strategy`. The deliverable |
-| `real_gesture_trials_saved` | **The headline.** Horizontal gap between the two adapted curves: how many fewer real gesture trials `real_plus_synthetic_adaptation` needs to match `real_adaptation` |
+| `real_gesture_trials_saved` | **The headline.** Horizontal gap between the two adapted curves: how many fewer real gesture trials `real_plus_synthetic_adaptation` needs to match `real_adaptation`. D15's unmatched synthetic *k*=0 diagnostic is excluded |
 | `calibration_seen_gesture_accuracy` | Accuracy restricted to gesture classes the subject demonstrated in their *k* trials |
 | `calibration_unseen_gesture_accuracy` | Accuracy restricted to classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask |
 | `rest_accuracy` | Accuracy on the rest class, reported separately because rest is an evaluation class that never increments *k* |
@@ -325,12 +337,13 @@ defined.
 | Key | What it is |
 |---|---|
 | `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy |
-| `per_subject_expected_calibration_error` | ECE for each held-out subject. ECE on a small per-subject set is high-variance, so the headline ECE is pooled and these are shown alongside |
+| `per_subject_expected_calibration_error` | ECE for each held-out subject. These values must be shown; the schedule/subject aggregation and the role of any pooled-prediction ECE remain Pending |
 
-**Two of these are not yet computable**, and the configs fail closed rather than defaulting: the
-pooled-window versus class-macro semantics for the seen/unseen subgroups (empty groups report
-`NA`, never zero), and the ECE bin count and binning scheme. Both are tracked in DECISIONS →
-Pending.
+Several registered metrics remain non-executable under DECISIONS → Pending. Existing blockers
+cover the G1 subject embedding, G2 development/final-test population, G3 headline and subgroup
+semantics, ECE binning, and the overconfidence-error definition. The additional VAE objective,
+G2 quality-gate, within-subject repeated-run, and G4 headline-ECE contracts raised by the metric
+audit are recorded there as well. Implementers must not fill any of these gaps with defaults.
 
 ---
 
@@ -354,7 +367,8 @@ README §6.
 
 Before any G-series number leaves this repository:
 
-- [ ] G2 gate passed and reported (AUC with CI, per class, plus a diversity measure)
+- [ ] G2 gate passed and reported (AUC with CI, per class, plus memorization and
+      diversity/coverage diagnostics)
 - [ ] All five leakage rules verified for the reported configuration
 - [ ] All three D15 strategies on the curve, with matched training for the two adapted heads
 - [ ] Per-subject curves shown, not only the mean
