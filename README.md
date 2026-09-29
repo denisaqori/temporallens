@@ -48,21 +48,21 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 
 1. **A personalization-efficiency curve for cross-subject EMG decoding.** For each held-out subject, we measure decoding accuracy against the total number of complete real calibration gesture trials available (0, 1, 2, 5, 10, 17, 20, 34), comparing no adaptation, ordinary head adaptation, and matched real-plus-synthetic adaptation — quantifying how much real calibration a new user actually needs, and how much augmentation can replace.
 2. **A test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder, isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
-3. **Deployment-aware evaluation throughout.** Subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols — because for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy.
+3. **Deployment-aware evaluation throughout.** Given that for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy, the evaluation includes subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols.
 
 ---
 
-## The question
+## Central questions
 
-Generalized sEMG decoders can work without per-person calibration, but a small amount of individual data measurably improves them — recent work reports handwriting-recognition gains of up to ~16% from limited personalization ([Sussillo, Kaifosh & Reardon, *Nature* 2025](#references)). That raises a concrete, under-studied question:
+Generalized sEMG decoders can work without per-person calibration, but a small amount of individual data measurably improves them: recent work reports handwriting-recognition gains of up to ~16% from limited personalization ([Sussillo, Kaifosh & Reardon, *Nature* 2025](#references)). That raises a concrete, under-studied question:
 
-> **How many real calibration gesture trials does a new subject need to reach a target accuracy — and can a generative model supply that personalization with fewer real trials?**
+> **How many real calibration gesture trials does a new subject need to reach a target accuracy, and can a generative model supply that personalization with fewer real trials?**
 
 TemporalLens answers this as an explicit curve rather than a single number, and treats "does an LLM help?" as a separate, deliberately skeptical question rather than an assumption.
 
 ---
 
-## Method
+## Methods
 
 TemporalLens has two arms that share a temporal encoder. The **generative arm** (headline) studies calibration efficiency; the **language arm** (secondary) tests whether LLM conditioning adds value.
 
