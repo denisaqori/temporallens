@@ -28,8 +28,8 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 ## Contents
 
 - [Key contributions](#key-contributions)
-- [The question](#the-question)
-- [Method](#method)
+- [Central questions](#central-questions)
+- [Methods](#methods)
 - [Results](#results)
 - [Evaluation protocol](#evaluation-protocol)
 - [Repository structure](#repository-structure)
