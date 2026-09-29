@@ -78,7 +78,7 @@ multichannel EMG window
               → augmented calibration set → personalization-efficiency evaluation
 ```
 
-- **Temporal encoder — 1-D CNN.** Suited to local temporal structure, easy to inspect, and a strong baseline. (A patch-based transformer encoder is a planned ablation, not the default.)
+- **Temporal encoder — 1-D CNN.** Suited to local temporal structure, easy to inspect, and a strong baseline. (A patch-based transformer encoder is a planned ablation.)
 - **Projection adapter.** A small MLP maps encoder outputs into the LLM embedding dimension; the result is treated as **soft-prefix / pseudo-token embeddings** prepended to a text prompt — *not* discrete tokens. Prefix concatenation is used for transparency over cross-attention.
 - **Frozen LLM.** The language model's weights are frozen; only the adapter is trained. A small model (e.g. Llama 3.2 1B) is used for local iteration; a larger frozen model for final numbers.
 - **Conditional generator.** A conditional VAE operating in the encoder's latent space, conditioned on gesture class and a learned subject/calibration embedding. Synthetic quality is validated before use (see [Evaluation protocol](#evaluation-protocol)). A conditional diffusion variant is a planned extension.
@@ -128,11 +128,11 @@ Accuracy under test-time perturbation (clean → perturbed), zero-shot:
 
 Evaluation is the center of this project. All headline results use a **subject-independent** protocol.
 
-> **Full specification:** [`docs/experiments/`](docs/experiments/) is the authority on what every experiment and ablation measures, why it exists, and the failure modes that are easy to miss — the [shared protocol and vocabulary](docs/experiments/README.md), the [generative arm](docs/experiments/generative-arm.md), and the [language arm](docs/experiments/language-arm.md). Each ablation there maps to exactly one config file.
+> **Full specification:** [`docs/experiments/`](docs/experiments/) is the authority on what every experiment and ablation measures, why it exists, and the failure modes that are easy to miss: the [shared protocol and vocabulary](docs/experiments/README.md), the [generative arm](docs/experiments/generative-arm.md), and the [language arm](docs/experiments/language-arm.md). Each ablation there maps to exactly one config file.
 
-- **Splits.** (i) random-window split — an optimistic baseline that shows how easily leakage inflates results; (ii) **subject-independent split** — train on a set of subjects, test on unseen subjects (the main result); (iii) grouped/leave-subjects-out folds — for per-subject variance.
+- **Splits.** (i) random-window split, an optimistic baseline that shows how easily leakage inflates results; (ii) **subject-independent split** — train on a set of subjects, test on unseen subjects (the main result); (iii) grouped/leave-subjects-out folds — for per-subject variance.
 - **Robustness.** Test-time perturbations applied zero-shot: additive sensor noise, channel dropout (electrode failure / missing channels), amplitude scaling (strength / impedance / placement).
-- **Calibration.** Expected calibration error, confidence under perturbation, and overconfidence on incorrect predictions — the LLM arm's value, if any, may lie here rather than in raw accuracy.
+- **Calibration.** Expected calibration error, confidence under perturbation, and overconfidence on incorrect predictions; the LLM arm's value, if any, may lie here rather than in raw accuracy.
 - **Generative leakage control _(non-negotiable)_.** The generator never trains on held-out-subject windows. At *k*=0, generation is class-conditioned with a population/default subject embedding; at *k*>0, any subject-specific conditioning is derived **only** from windows wholly contained in the *k* permitted real calibration gesture trials. A positive result traceable to leakage is treated as no result.
 - **Synthetic-quality validation.** A classifier two-sample test (can a discriminator separate real from synthetic?) near chance indicates realistic synthesis — so a personalization gain cannot be attributed to a degenerate generator.
 
