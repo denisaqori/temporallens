@@ -1,6 +1,6 @@
 # TemporalLens
 
-**Reducing cross-subject calibration burden in EMG decoding via generative augmentation — and testing whether language-model conditioning adds anything beyond the encoder.**
+**Reducing cross-subject calibration burden in EMG decoding via generative augmentation and testing whether language-model conditioning adds anything beyond the encoder.**
 
 <!-- Fill the arXiv ID and Spaces URL once they exist, then uncomment. -->
 <!-- [![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) -->
@@ -10,7 +10,7 @@
 ![Code License](https://img.shields.io/badge/code-Apache%202.0-green.svg)
 ![Docs License](https://img.shields.io/badge/paper%20%26%20figures-CC%20BY--NC--SA%204.0-lightgrey.svg)
 
-Wearable surface-electromyography (sEMG) interfaces promise device-free input, but a central obstacle to deployment is **calibration burden**: generalized decoders work across users, yet accuracy improves once the model is adapted to an individual. TemporalLens asks a practical question — *how much real per-subject calibration data does a new, unseen user actually need, and can generative augmentation reduce it?* — and evaluates it the way human-signal systems must be evaluated: on held-out subjects, under perturbation, with calibration analysis and leakage-controlled protocols.
+Wearable surface-electromyography (sEMG) interfaces promise device-free input, but a central obstacle to deployment is **the calibration burden**: generalized decoders work across users, but accuracy improves once the model is adapted to an individual. TemporalLens aims to answer the question of *how much real per-subject calibration data a new, unseen user needs, and if generative augmentation can reduce it*. Evaluation happens on held-out subjects, under perturbation, with calibration analysis and leakage-controlled protocols.
 
 <p align="center">
   <img src="results/figures/personalization_efficiency.png" width="620" alt="Decoding accuracy versus complete real calibration gesture trials per held-out subject under three adaptation strategies.">
@@ -47,7 +47,7 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 ## Key contributions
 
 1. **A personalization-efficiency curve for cross-subject EMG decoding.** For each held-out subject, we measure decoding accuracy against the total number of complete real calibration gesture trials available (0, 1, 2, 5, 10, 17, 20, 34), comparing no adaptation, ordinary head adaptation, and matched real-plus-synthetic adaptation — quantifying how much real calibration a new user actually needs, and how much augmentation can replace.
-2. **An honest test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder — isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
+2. **A test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder, isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
 3. **Deployment-aware evaluation throughout.** Subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols — because for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy.
 
 ---
