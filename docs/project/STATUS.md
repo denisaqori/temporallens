@@ -1,5 +1,5 @@
 # STATUS — start here
-
+		 bdvbcvgfdsa 
 **This is the single source of truth for the state of the repository.** Every agent and person
 starts here to see what is done, what changed most recently, and what to pick up next — and updates
 it in the same change that moves the work.
@@ -32,6 +32,19 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   identifier, so a key like `seed` no longer passes. G2 and G4 gained fail-closed blockers, and four
   gaps the audit exposed — VAE objective components, the G2 quality/acceptance contract, G3/G4
   repeated-run aggregation, and G4 headline ECE aggregation — are recorded as Pending.
+- Calibration measurement and windowing boundaries settled (D23, D24), and three protocol
+  assumptions checked against the shipped data for the first time. `stimulus` disagrees with
+  `restimulus` on 19.9% of samples with a median onset shift of 856 ms, so D12 is now a measured
+  fact rather than a quoted one; rest is 50.2% of windows at stride 100, about 17.5x the median
+  gesture class, which is why `macro_f1` and not `accuracy` is the headline (D11); and
+  `rerepetition` is non-zero during rest, which satisfies the inspection precondition the G3
+  rest-ownership question was waiting on. ECE now has fixed bins (adaptive, M=10), temperature
+  scaling with an out-of-fold T source, subject-level resampling, and `brier_score` beside it
+  across all nine configs that report calibration.
+- Data layer for F0→F1: DB2 Exercise B reader (corrected label columns asserted on load), a
+  processed per-subject format, and a window indexer that never crosses a `(label, repetition)`
+  boundary. Indexing is separate from materialising, because materialising a 28-subject fold at
+  stride 100 would need about 8 GB.
 - Every `evaluation.metrics` key is mentioned in a spec. The 14 generation-arm keys the audit found
   undocumented — the VAE terms, G2 gate metrics, and *k*-indexed curves — are tabulated in
   generative-arm.md, and a lexical test rejects a config metric that no spec mentions. This is
@@ -76,14 +89,18 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
 
 ## Phase
 
-Week 0–1 (Setup → Milestone 0). Local environment complete and verified; the research pipeline
-(loader, models, training, evaluation) is **not yet implemented**. Milestone 0 (F0→F1) has not
-started.
+Week 0–1 (Setup → Milestone 0). Local environment complete and verified. **Milestone 0 (F0→F1) has
+started**: NinaPro DB2 Exercise B is downloaded locally and the data layer (reader, processed
+format, windower) is implemented and tested. Normalization, the encoder and head, the training
+loop, `prepare_dataset.py` and `train_encoder.py` are still to write, so no run has executed
+end to end yet.
 
 ## Done
 
 - Reproducible local env: uv + Python 3.11, PyTorch MPS, `make setup/verify/test/lint` all green,
   `uv.lock` tracked.
+- NinaPro DB2 Exercise B present and verified locally for all 40 subjects (provenance, checksums and
+  per-file structural checks in `data/raw/ninapro_db2/SOURCE.md`). Never committed.
 - Experiment specification authored: `docs/experiments/` (shared protocol + generative + language
   arms); every ablation maps 1:1 to a config under `configs/experiment/{foundation,generation,language}/`.
 - Protocol and workflow choices recorded in DECISIONS.md.

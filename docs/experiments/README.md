@@ -83,6 +83,12 @@ Training runs, loss falls, accuracy looks plausible. Onset is also the region a 
 decoder has to get right, so the damage lands on the most important windows. Assert on load that
 the label column is `restimulus`.
 
+**Measured on the shipped data, not inferred.** On subject 2's Exercise B recording the two
+columns disagree on **19.9% of samples** — one in five — and the median gesture onset sits **856 ms
+later** under `restimulus` than under `stimulus` (range 6 ms to 2.6 s). At a 200 ms window that is
+roughly the first four windows of *every* gesture trial consisting purely of rest while labelled as
+movement. "Reaction-time offset" undersells it.
+
 **No baseline subtraction.** The dataset authors do not subtract a rest level, and neither do we.
 Rest is one of the 18 classes, so removing the rest level would erase the signal that defines it.
 The only filtering DB2 receives is theirs: a Hampel filter for 50 Hz power-line interference and
@@ -160,6 +166,21 @@ complete per-gesture trials indexed by `rerepetition` are the natural unit — s
 `window_size: 400`, `stride: 100` for real runs (`200` for debug configs — fewer, less
 overlapping windows).
 
+**Windows never cross a segment boundary (D24).** A segment is a maximal run of samples sharing
+the same `(restimulus, rerepetition)`. Windows are cut within segments; where fewer than
+`window_size` samples remain at a segment's tail, they are dropped.
+
+A window spanning rest→gesture contains two states and can carry only one label, so whichever the
+code assigns is wrong for part of the window. That is the same silent mislabelling D12 exists to
+prevent, one layer further down, and it concentrates at movement onset — the region a real-time
+decoder most needs to get right. The alternative, labelling by majority or centre sample, keeps
+those windows but puts a transition inside them; given how much weight D12 places on onset
+correctness, that is the worse trade. A dropped window costs a little data; a mislabelled one
+costs the ability to trust the number.
+
+This generalizes the rule the generative arm already assumed: G3's
+`forbid_boundary_crossing_windows` is now protocol-wide, not a G3 setting.
+
 | `normalize` value | Statistics come from | Used by |
 |---|---|---|
 | `train_subjects_global_stats` | Pooled across training subjects only | Subject-independent runs |
@@ -186,6 +207,7 @@ never permits subject-specific normalization.
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
 | `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
+| `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
 The table above is the shared metric registry; the "Metrics reference" tables in
@@ -209,6 +231,75 @@ evaluated on the *same* test subjects, so summing counts every test window eight
 implies eight times the data. Take the element-wise mean instead, which leaves the matrix on the
 scale of one evaluation. Same goes for any other count-based metric.
 
+#### Measuring calibration (D23)
+
+Calibration is only observable as a *frequency*. A single prediction at confidence 0.7 is right or
+wrong; there is no such thing as one prediction being "70% right". So predictions making similar
+claims are pooled and the group's accuracy compared against its mean confidence. **That pooling is
+the binning, and the bin count is an artifact of estimation, not part of what calibration is** —
+which is exactly why it has to be fixed in the spec rather than chosen per run.
+
+| | Rule |
+|---|---|
+| Binning | **Adaptive (equal-mass / quantile)**, not equal-width |
+| Bin count | **M = 10**, fixed everywhere |
+| Quantity | **Top-label** ECE — the max softmax probability |
+| Recalibration | **Temperature scaling**, T fit on pooled out-of-fold predictions |
+| Reporting | ECE **both raw and temperature-scaled**, plus `brier_score` |
+| Uncertainty | Resample **subjects**, never windows. Cross-arm comparisons are **paired** |
+| Per-subject | Always shown, whatever the headline aggregation |
+
+**There is a noise floor, and it is not subtractable.** At M=10 and this project's effective
+sample size, a *perfectly calibrated* model measures ECE ≈ 0.037. Anything at or below that is
+indistinguishable from calibrated. The floor cannot be subtracted off either: a true ECE of 0.050
+measures 0.058, which is 0.021 above the floor rather than 0.050. Treat it as a detection
+threshold, never as an offset.
+
+**Why M = 10.** The floor rises monotonically with M — about 0.026 at M=5, 0.037 at M=10, 0.045 at
+M=15, 0.058 at M=25 — while the run-to-run spread stays flat near 0.009. Extra bins are therefore
+pure cost. Below 10, though, the opposite failure appears: miscalibration that changes sign across
+the confidence range gets cancelled inside bins that straddle the flips, and M=5 under-reports a
+true 0.065 as 0.053. M=10 is the smallest bin count that still resolves it. (The familiar M=15
+default was tuned on test sets with tens of thousands of independent samples, where the floor is
+negligible; here it is not.)
+
+**Why adaptive bins.** A confident decoder's confidence distribution is skewed, so equal-width
+bins strand several on nearly no data — in one check, 2 of 15 bins were empty and the smallest
+non-empty held a single window, whose "accuracy" is 0 or 1. Adaptive binning fixes *placement*
+only; it does **not** remove the bias in M, so fixing M is still required.
+
+**Why temperature scaling, and what it changes.** Raw ECE conflates two different things: a global
+confidence offset, which one scalar removes, and genuinely better-ranked probabilities, which it
+cannot. Those are not equally interesting, and raw ECE can rank arms backwards — an arm whose
+probabilities are better ordered may still post a worse raw ECE purely from a scale offset.
+Scaling separates them, so the headline cross-arm claim becomes *"better calibrated after both are
+optimally scaled"*, which is stronger and harder. It is also safe to add: T > 0 divides every
+logit equally, so argmax is preserved and `accuracy`, `macro_f1`, the per-class family and the
+confusion matrix **cannot** change.
+
+**Where T comes from.** The 8-fold cross-validation already yields out-of-fold predictions
+covering all 32 training subjects, each held out exactly once — the right data for a post-hoc
+calibrator, and never the test subjects. The refit, which has no validation set by construction
+(§5.1), uses the **median of the 8 fold temperatures**, mirroring D18's median-epoch rule. Store T
+in the checkpoint's `model_config`; it is a fitted parameter, and a consumer that rebuilds without
+it gets a differently calibrated model.
+
+*Known approximation:* those fold temperatures come from models trained on 28 subjects and are
+applied to a refit trained on 32. That is the same lineage mismatch as the reference row (§5.3).
+Median-of-folds is a defensible answer, not a derived one.
+
+**Easily missed — resample subjects, never windows.** Windows overlap 75% at stride 100, and the
+~154 windows from one five-second contraction are one event seen 154 times. Bootstrapping windows
+treats them as independent and produced a 95% interval **20× too narrow** than the same data
+resampled by subject (width 0.005 against 0.100, identical point estimate). The subject is the
+unit because the protocol generalizes to a *new person*. The honest interval is wide; the way to
+recover power is **pairing** — every arm is scored on the identical 8 test subjects, so per-subject
+differences cancel the subject effect entirely.
+
+**Report `brier_score` alongside.** It is a proper scoring rule with no binning hyperparameter, so
+it cannot be a bin artifact. If it and ECE disagree about which arm is better calibrated, that is
+a bug to chase, not a result to report.
+
 ### 3.5 Reproducibility
 
 `seed: 42` everywhere. Every run writes `run.json` (config, git commit, summary) and
@@ -221,7 +312,10 @@ an effect. Cross-device comparisons need the same device.
 
 ### 3.6 Class imbalance
 
-Rest is over-represented in DB2 Exercise B. Handle that in the loss, never by resampling:
+Rest is over-represented in DB2 Exercise B — measured on subject 2 at `stride: 100`, **rest is
+50.2% of all windows**, about **17.5×** the median gesture class (338–761 windows each). A model
+that predicted rest and nothing else would score 50% accuracy, which is why `macro_f1` and not
+`accuracy` is the headline. Handle the imbalance in the loss, never by resampling:
 
 | | Rule |
 |---|---|
