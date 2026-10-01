@@ -1,5 +1,5 @@
 # STATUS — start here
-		 bdvbcvgfdsa 
+
 **This is the single source of truth for the state of the repository.** Every agent and person
 starts here to see what is done, what changed most recently, and what to pick up next — and updates
 it in the same change that moves the work.
@@ -10,10 +10,12 @@ decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technic
 its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
 agreement**.
 
-> 👉 **Next to pick up:** D18–D21 fully specify F1 epoch selection, so the F0→F1 vertical slice can
-> proceed. The generative arm has additional fail-closed decisions in [Next up](#next-up-priority-order).
+> 👉 **Next developer task:** continue the F0→F1 vertical slice. **Next owner task:** settle the
+> remaining protocol choices in [Next up](#next-up-priority-order), beginning with the F1
+> architecture and calibration clarifications recorded under
+> [Known open items](#known-open-items-not-yet-scheduled).
 
-_Last updated: 2026-08-05_
+_Last updated: 2026-10-01_
 
 ## Latest changes
 
@@ -26,12 +28,11 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
-- Pre-F0/F1 metric hygiene: the minimized VAE objective is named `negative_elbo` (D22), correcting
-  prose that had a decreasing ELBO proving optimization when the bound is maximized. Metric
-  registration now reads first-column keys from the two reference tables rather than any backticked
-  identifier, so a key like `seed` no longer passes. G2 and G4 gained fail-closed blockers, and four
-  gaps the audit exposed — VAE objective components, the G2 quality/acceptance contract, G3/G4
-  repeated-run aggregation, and G4 headline ECE aggregation — are recorded as Pending.
+- Repository consistency pass hardened raw/processed DB2 validation, made debug window caps
+  class-covering, repaired run-log serialization and worktree provenance, reconciled config/spec
+  metric contracts, corrected stale implementation claims, and added metadata-only acquisition
+  provenance. The F1 architecture and remaining calibration choices are recorded below for owner
+  resolution; no protocol decision was silently supplied by the implementation.
 - Calibration measurement and windowing boundaries settled (D23, D24), and three protocol
   assumptions checked against the shipped data for the first time. `stimulus` disagrees with
   `restimulus` on 19.9% of samples with a median onset shift of 856 ms, so D12 is now a measured
@@ -45,6 +46,14 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   processed per-subject format, and a window indexer that never crosses a `(label, repetition)`
   boundary. Indexing is separate from materialising, because materialising a 28-subject fold at
   stride 100 would need about 8 GB.
+- README reframed the project around calibration burden, renamed the central-question and method
+  sections, and tightened contribution and evaluation prose without changing protocol.
+- Pre-F0/F1 metric hygiene: the minimized VAE objective is named `negative_elbo` (D22), correcting
+  prose that had a decreasing ELBO proving optimization when the bound is maximized. Metric
+  registration now reads first-column keys from the two reference tables rather than any backticked
+  identifier, so a key like `seed` no longer passes. G2 and G4 gained fail-closed blockers, and four
+  gaps the audit exposed — VAE objective components, the G2 quality/acceptance contract, G3/G4
+  repeated-run aggregation, and G4 headline ECE aggregation — are recorded as Pending.
 - Every `evaluation.metrics` key is mentioned in a spec. The 14 generation-arm keys the audit found
   undocumented — the VAE terms, G2 gate metrics, and *k*-indexed curves — are tabulated in
   generative-arm.md, and a lexical test rejects a config metric that no spec mentions. This is
@@ -60,16 +69,16 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   one verified manifest.
 - G3 calibration protocol frozen (D14, D15): *k* is complete real gesture trials per subject, with
   nested shared schedules and matched real-adaptation versus real-plus-synthetic strategies.
+- Data-loading and repetition rules taken from the DB2 descriptor (D12, D13): `restimulus` /
+  `rerepetition` as the binding label columns with an assert on load, no baseline subtraction, all
+  of a subject's repetitions on one side of the split, and disjoint calibration/evaluation
+  repetitions chosen to span the drift the descriptor measured. Spec §3.1, §3.2, generative-arm G3.
 - Evaluation protocol reconciled against the group's published method (D9–D11): epoch selection is
   the smoothed validation peak, not a raw best epoch or a fixed budget (§5.2); the refit is
   cross-checked against the eight fold-model test scores (§5.3); confusion matrices are reported for
   cross-validation as well as test; class imbalance is handled by weighted loss, never resampling,
   and the test set is never balanced (§3.6). The three foundation configs declared no `loss` at all
   and now do.
-- Data-loading and repetition rules taken from the DB2 descriptor (D12, D13): `restimulus` /
-  `rerepetition` as the binding label columns with an assert on load, no baseline subtraction, all
-  of a subject's repetitions on one side of the split, and disjoint calibration/evaluation
-  repetitions chosen to span the drift the descriptor measured. Spec §3.1, §3.2, generative-arm G3.
 - Metric set settled (D8): per-class precision and recall added beside the confusion matrix on the
   six classification configs; spec §3.4 now states that cross-validation and testing run the same
   metric set, and that fold confusion matrices are averaged element-wise rather than summed.
@@ -80,8 +89,8 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
 - Validation scheme settled (D6): 8-fold CV over the training subjects, refit on all 32 downstream.
 - Worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh` (`make test-worktree`);
   claim-on-`main` coordination, atomic create/teardown.
-- Split-freeze findings recorded: no validation set, repetitions undefined, inferential unit
-  unspecified.
+- Split-freeze audit recorded the gaps later resolved by D6 and D13; the general inferential unit
+  remains open outside D23's calibration-specific rule.
 - STATUS/DECISIONS working agreement; union-merge on project memory.
 - Governance Tier-1 added: `AGENTS.md`, `CLAUDE.md`, STATUS, DECISIONS.
 - Robustness evaluation decoupled from the target model (D2).
@@ -99,8 +108,8 @@ end to end yet.
 
 - Reproducible local env: uv + Python 3.11, PyTorch MPS, `make setup/verify/test/lint` all green,
   `uv.lock` tracked.
-- NinaPro DB2 Exercise B present and verified locally for all 40 subjects (provenance, checksums and
-  per-file structural checks in `data/raw/ninapro_db2/SOURCE.md`). Never committed.
+- NinaPro DB2 Exercise B acquisition and verification completed for all 40 subjects; repository
+  provenance/checksums live in `docs/data/`, while the archives and MAT files remain ignored.
 - Experiment specification authored: `docs/experiments/` (shared protocol + generative + language
   arms); every ablation maps 1:1 to a config under `configs/experiment/{foundation,generation,language}/`.
 - Protocol and workflow choices recorded in DECISIONS.md.
@@ -137,14 +146,15 @@ what is done, what remains, which branch, and the next concrete step.
 
 ## Next up (priority order)
 
-1. **P0 — Owner protocol decisions.** F0→F1 can proceed under D18–D21; the remaining choices block
-   headline inference or their named G-series configs. All are tracked in DECISIONS → Pending and
-   must be resolved explicitly rather than receiving runner defaults.
+1. **P0 — Owner protocol decisions.** F0 plumbing can proceed under D18–D21, but a reportable F1
+   still needs the architecture and calibration clarifications listed under Known open items. The
+   choices below block headline inference or their named G-series configs; all are tracked in
+   DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
-   - **Inferential unit.** Per-window vs. per-subject changes every confidence interval, and D6's
-     8×8 matrix adds a second axis — fold variance and subject variance must stay separate.
-     Deferred by Denisa on 2026-07-30 pending further discussion.
+   - **Inferential unit outside calibration.** D23 fixes subject-level resampling and paired
+     comparisons for calibration metrics. Other confidence intervals still need an explicit unit,
+     and D6's 8×8 matrix adds a second axis: fold and subject variance must stay separate.
    - **G1 subject-embedding contract.** Fix its estimator/pooling, pseudo-calibration schedule,
      target exclusion, population embedding, and class-information control.
    - **G2 gate population/final-test policy.** Fix the development folds/aggregation and one-shot
@@ -162,10 +172,8 @@ what is done, what remains, which branch, and the next concrete step.
    - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
      persisted with each run.
    - **G3 calibration-rest ownership.** Rest does not increment *k*, but the runner needs a fixed
-     rule for whether a selected gesture trial permits one adjacent rest interval. Inspect a real
-     MAT file before deciding; never silently expose all held-out-subject rest.
-   - **ECE binning.** Bin count and equal-width vs. equal-mass are unspecified; unfixed, the same
-     model yields different numbers and runs are not comparable.
+     rule for whether a selected gesture trial permits one adjacent rest interval. Inspection is
+     complete and assignment is feasible; never silently expose all held-out-subject rest.
    - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
      metrics; the language arm's headline claim rests on this one.
    - **G0/G1 VAE objective components.** The minimized objective is correctly named
@@ -180,9 +188,9 @@ what is done, what remains, which branch, and the next concrete step.
    - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
      headline, supplemental, or omitted.
 
-2. **P1 — F0→F1 vertical slice**: NinaPro DB2 Exercise B loader + `prepare_dataset.py`, 1-D CNN
-   encoder + head, training loop, `make debug` (F0) passing end to end, then the F1 baseline under
-   D18–D21. The F1 trainer must honor the checkpoint contract
+2. **P1 — F0→F1 vertical slice**: implement normalization + `prepare_dataset.py`, the 1-D CNN
+   encoder + head, and the training loop; get `make debug` (F0) passing end to end, then run the F1
+   baseline under D18–D21. The F1 trainer must honor the checkpoint contract
    (`{model_state, model_config}`) as an acceptance criterion, not a later task.
 3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
@@ -195,10 +203,36 @@ what is done, what remains, which branch, and the next concrete step.
 - Evaluation outputs currently mix primitive metrics, grouped curves, metadata, uncertainty, and
   derived estimands. Define and validate a result schema that separates those roles alongside the
   F0/F1 evaluator, then migrate the G-series configs before their runners are implemented.
+- D23's temperature rule is internally inconsistent: one pooled out-of-fold temperature and eight
+  per-fold temperatures whose median feeds the refit cannot both be the procedure. F2 also has no
+  subject-CV folds from which its configured temperature could come. Resolve both before calibrated
+  F1/F2 evaluation; robustness runs consume the frozen target checkpoint's stored temperature.
+- Calibration execution still needs exact Brier reduction/reporting, bootstrap level/count/seed,
+  deterministic equal-mass tie handling, and distinct result keys for raw versus scaled ECE.
+- Retain the simulation or analysis artifact that justified D23's M=10 choice, and recompute any
+  finite-sample ECE detection threshold for each actual evaluation design rather than reusing 0.037.
+- The F1 reference architecture and optimizer are not fully reconstructible from its config: layer
+  stack, kernels/pooling/activation/normalization, optimizer/scheduler, initialization, and gradient
+  handling must be frozen before implementing `model_config` and the trainer.
+- Processed NPZ recordings load eagerly and are not memory-mappable. The F1 batching/normalization
+  path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
+  is 0 as the safe local default until a measured lazy/memory-mapped design exists.
+- D10 requires the refit-minus-fold-mean result, but its output key/schema is not yet defined.
+- L2–L4 do not yet encode a cross-validation/refit selection contract and request the still-Pending
+  `overconfidence_error` without an evaluation gate; settle both before language-arm execution.
+- F3–F5 still need executable perturbation definitions (order relative to normalization,
+  noise/channel-mask sampling and seeds, repetitions, and aggregation).
+- Governance wording still conflicts: AGENTS calls DECISIONS rows append-only while DECISIONS moves
+  approved proposals from Pending to Resolved, and the accepted L2/L3/L4 readout row has no decision
+  ID. Reconcile the retention rule and assign stable identifiers without rewriting history.
+- The `merge=union` rule assumes self-contained one-line entries, but STATUS is mutable and most
+  entries span multiple lines. Concurrent deletion/reordering can retain stale fragments instead of
+  conflicting. Decide whether to restore normal merges or restructure project memory before relying
+  on union merge as collision protection.
 - The new G0/G1 objective-component and G3/G4 repeated-run Pending choices are not yet wired into
   runner-enforced config schemas; add the appropriate execution/reportability gates when
   implementing their runners.
 - `head.pooling: last_token` assumes right-padding; the L-series trainer must pin the tokenizer or
   pool the true last non-pad index (silent failure otherwise).
-- Makefile `debug/train-*/report` targets reference scripts that are not written yet.
+- The interface-only Make targets listed in AGENTS.md reference scripts that are not written yet.
 - GitHub Issues/Project sync deferred to Tier-2 (`gh` not installed).

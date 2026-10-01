@@ -183,17 +183,18 @@ This generalizes the rule the generative arm already assumed: G3's
 
 | `normalize` value | Statistics come from | Used by |
 |---|---|---|
-| `train_subjects_global_stats` | Pooled across training subjects only | Subject-independent runs |
-| `per_subject_train_stats` | Each subject's own training windows | Debug configs |
+| `train_subjects_global_stats` | Pooled across the current training partition only: 28 fold-training subjects during cross-validation, all 32 development subjects for the refit, or the explicitly reduced training subjects in a debug holdout | Subject-independent and subject-holdout debug runs |
 | `train_split_global_stats` | The training split only | Random-window runs |
 
 **Easily missed — this is the most common silent leak in the whole project.** Normalization and
-other preprocessing statistics must be computed on **training data only** and then applied
-unchanged to validation and test. Computing mean/std over the full dataset before splitting leaks
-test distribution into training and inflates every downstream number. It leaves no trace in the
-logs. G3's subject-conditioning embedding is the explicit exception: at *k*>0 it may use only the
-windows contained in the selected *k* trials, as defined by the generative-arm leakage rules; this
-never permits subject-specific normalization.
+other preprocessing statistics must be computed on **the current training partition only** and
+then applied unchanged to validation and test. For each cross-validation fold that means its 28
+training subjects, not all 32 development subjects; the refit recomputes statistics on all 32.
+Class weights follow the same partition rule. Computing either quantity over the full dataset
+before splitting leaks validation/test distribution into training and inflates every downstream
+number. It leaves no trace in the logs. G3's subject-conditioning embedding is the explicit
+exception: at *k*>0 it may use only the windows contained in the selected *k* trials, as defined by
+the generative-arm leakage rules; this never permits subject-specific normalization.
 
 ### 3.4 Metrics
 
@@ -206,6 +207,7 @@ never permits subject-specific normalization.
 | `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away |
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
+| `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
 | `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
 | `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
@@ -249,19 +251,19 @@ which is exactly why it has to be fixed in the spec rather than chosen per run.
 | Uncertainty | Resample **subjects**, never windows. Cross-arm comparisons are **paired** |
 | Per-subject | Always shown, whatever the headline aggregation |
 
-**There is a noise floor, and it is not subtractable.** At M=10 and this project's effective
-sample size, a *perfectly calibrated* model measures ECE ≈ 0.037. Anything at or below that is
-indistinguishable from calibrated. The floor cannot be subtracted off either: a true ECE of 0.050
-measures 0.058, which is 0.021 above the floor rather than 0.050. Treat it as a detection
-threshold, never as an offset.
+**There is finite-sample bias, and it is not subtractable.** In the simulation used to select
+M=10, a perfectly calibrated model measured ECE ≈ 0.037. That number is not a universal project
+threshold: it depends on sample count, the confidence/label distribution, and dependence among
+windows, all of which differ across pooled, per-subject, F2, and G4 evaluations. A threshold used
+in a report must be recomputed and retained for that exact design. It can never be subtracted as
+an offset: in the motivating simulation a true ECE of 0.050 measured 0.058, not 0.087.
 
-**Why M = 10.** The floor rises monotonically with M — about 0.026 at M=5, 0.037 at M=10, 0.045 at
-M=15, 0.058 at M=25 — while the run-to-run spread stays flat near 0.009. Extra bins are therefore
-pure cost. Below 10, though, the opposite failure appears: miscalibration that changes sign across
-the confidence range gets cancelled inside bins that straddle the flips, and M=5 under-reports a
-true 0.065 as 0.053. M=10 is the smallest bin count that still resolves it. (The familiar M=15
-default was tuned on test sets with tens of thousands of independent samples, where the floor is
-negligible; here it is not.)
+**Why M = 10.** In that motivating simulation, the measured bias rose monotonically with M — about
+0.026 at M=5, 0.037 at M=10, 0.045 at M=15, 0.058 at M=25 — while the run-to-run spread stayed near
+0.009. Below 10, the opposite failure appeared: miscalibration that changed sign across the
+confidence range was cancelled inside bins that straddled the flips, and M=5 under-reported a true
+0.065 as 0.053. M=10 was the smallest tested bin count that still resolved it. These numbers justify
+the fixed estimator choice; they are not reusable confidence thresholds for every experiment.
 
 **Why adaptive bins.** A confident decoder's confidence distribution is skewed, so equal-width
 bins strand several on nearly no data — in one check, 2 of 15 bins were empty and the smallest
@@ -297,8 +299,10 @@ recover power is **pairing** — every arm is scored on the identical 8 test sub
 differences cancel the subject effect entirely.
 
 **Report `brier_score` alongside.** It is a proper scoring rule with no binning hyperparameter, so
-it cannot be a bin artifact. If it and ECE disagree about which arm is better calibrated, that is
-a bug to chase, not a result to report.
+it cannot be a bin artifact. Brier score also reflects probability sharpness and discrimination,
+whereas top-label ECE estimates a binned calibration gap, so the two can legitimately rank arms
+differently. Investigate a disagreement for implementation errors, then report it transparently if
+it remains.
 
 ### 3.5 Reproducibility
 
@@ -319,7 +323,7 @@ that predicted rest and nothing else would score 50% accuracy, which is why `mac
 
 | | Rule |
 |---|---|
-| Training | `class_weighted_cross_entropy` — weights inversely proportional to class frequency in the training split |
+| Training | `class_weighted_cross_entropy` — weights inversely proportional to class frequency in the current training partition |
 | Resampling | **Never.** No oversampling, no undersampling, on any split |
 | Test set | **Never balanced.** A balanced test set does not estimate deployment performance |
 
@@ -333,6 +337,10 @@ anything.
 Do not do both. Macro-F1 already accounts for the imbalance and the weighted loss already
 corrects for it. Resampling on top would leave `accuracy` describing a class distribution the
 model never meets in deployment.
+
+Debug-only `max_windows_per_subject` caps are a non-reportable plumbing exception, not a class-
+balancing method. Their seeded subsample retains every class present so the smoke test exercises
+all output logits; no scientific metric may be reported from a capped run.
 
 ---
 
@@ -407,12 +415,12 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | `dataset` | `exercise`, `input_channels`, `num_classes` | `B`, `12`, `18` — fixed for v1 |
 | | `split_manifest` | Required for reportable subject-independent runs; load and verify it as §3.2 specifies |
 | | `split`, `test_fraction` | Random-window leakage demonstration only |
-| | `debug_split` | Non-reportable tiny/local subject holdout only |
+| | `debug_split` | Explicit non-reportable `train_subjects` and `held_out_subjects` for tiny/local runs |
 | | `window_size`, `stride` | See §3.3 |
 | | `normalize` | See §3.3 |
-| | `max_subjects`, `max_windows_per_subject` | Debug-only caps for fast iteration |
+| | `max_windows_per_subject` | Debug-only cap for fast iteration; class-covering and never reportable |
 | `encoder` | `checkpoint`, `freeze`, `embedding_dim` | Milestone-0 CNN, frozen, 256-d |
-| `training` | `target`, `loss` | `class_label`, `cross_entropy` |
+| `training` | `target`, `loss` | `class_label`, `class_weighted_cross_entropy` for classification |
 | | `batch_size`, `gradient_accumulation_steps` | Effective batch = product |
 | | `epochs`, `learning_rate`, `weight_decay` | Optimization; F1's `epochs` is the initial cross-validation fold horizon |
 | | `early_stopping`, `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2) |

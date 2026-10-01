@@ -21,9 +21,9 @@ WHICH checkpoint: targets point at refit.pt, the model refit on the full trainin
 with the cross-validated hyperparameters. Per-fold checkpoints (folds/fold{k}/best.pt) are for
 extended analysis and are never consumed here. See docs/experiments/README.md §5.1.
 
-The evaluation logic itself is not implemented yet (no data loader or models exist). This module
-defines and enforces the interface; run_target() is the single place the real evaluation will
-be filled in.
+The evaluation logic itself is not implemented yet. The DB2 reader and windower exist, but the
+checkpoint-rebuild path, perturbations, models, and metrics do not. This module defines and
+enforces the interface; run_target() is the single place the real evaluation will be filled in.
 """
 
 from __future__ import annotations
@@ -56,9 +56,8 @@ def target_artifact(target: dict[str, Any]) -> Path:
 def run_target(perturbation: dict[str, Any], target: dict[str, Any]) -> None:
     """Evaluate one perturbation against one present target.
 
-    Not implemented: requires the data loader, the checkpoint-rebuild path, the perturbation
-    transforms, and the metrics — none of which exist yet (Milestone 0). Reached only once a
-    target's artifact is actually present on disk.
+    Not implemented: requires batching/normalization, the checkpoint-rebuild path, perturbation
+    transforms, and metrics. Reached only once a target's artifact is actually present on disk.
     """
     raise NotImplementedError(
         "robustness evaluation is not implemented yet; this stub only resolves the "
@@ -86,7 +85,8 @@ def main() -> int:
     print(f"Perturbation: {perturbation['type']}  levels={perturbation.get('levels')}")
     print(f"Registry:     {args.targets}  ({len(targets)} target(s))")
 
-    present, missing = [], []
+    present: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
     for target in targets:
         (present if target_artifact(target).exists() else missing).append(target)
 

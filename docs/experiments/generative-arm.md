@@ -258,9 +258,10 @@ replicates of the acquisition policy, not additional subjects or independent inf
   real/synthetic minibatch composition, real-window exposure, synthetic loss weight, and the
   meaning of an "epoch" over unequal datasets remain Pending and must be fixed before the runner.
 - **Rest ownership remains open.** Rest is the eighteenth output class, but it is not an ordinary
-  prompted gesture trial and does not increment *k*. Before implementing the runner, inspect a
-  real MAT file and decide whether selecting a gesture trial also permits one uniquely assigned
-  adjacent rest interval. Never give a method all held-out-subject rest data for free.
+  prompted gesture trial and does not increment *k*. Inspection established that corrected rest
+  intervals carry repetition indices, so unique trial-to-rest assignment is feasible; the owner
+  still must choose the exact rule before implementation. Never give a method all held-out-subject
+  rest data for free.
 - **The evaluation set never changes** with *k* (leakage rule 5).
 
 ---
@@ -277,8 +278,8 @@ function of *k*, for the same three strategies as G3. This is *probability* cali
 which for a wearable interface is a poor trade. Improving both makes for a much stronger claim
 than improving accuracy alone.
 
-**Easily missed.** ECE is sensitive to binning; fix the bin count and report it. ECE computed on
-a small per-subject test set is high-variance, while pooling predictions can hide subject-level
+**Easily missed.** D23 fixes top-label ECE to 10 equal-mass bins. ECE computed on a small
+per-subject test set is high-variance, while pooling predictions can hide subject-level
 miscalibration and overweight subjects or repeated evaluation windows. The schedule-within-subject
 summary, subject aggregation, and role of pooled ECE remain Pending; always show per-subject values.
 
@@ -337,11 +338,9 @@ before G0/G1 implementation.
 | Key | What it is |
 |---|---|
 | `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy |
-| `per_subject_expected_calibration_error` | ECE for each held-out subject. These values must be shown; the schedule/subject aggregation and the role of any pooled-prediction ECE remain Pending |
-
 Several registered metrics remain non-executable under DECISIONS → Pending. Existing blockers
 cover the G1 subject embedding, G2 development/final-test population, G3 headline and subgroup
-semantics, ECE binning, and the overconfidence-error definition. The additional VAE objective,
+semantics, and the overconfidence-error definition. The additional VAE objective,
 G2 quality-gate, within-subject repeated-run, and G4 headline-ECE contracts raised by the metric
 audit are recorded there as well. Implementers must not fill any of these gaps with defaults.
 

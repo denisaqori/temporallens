@@ -76,8 +76,9 @@ and embedding table, real `inputs_embeds` assembly, on Apple Silicon.
 recurring cost, and discovering an injection bug there is the expensive way to find it.
 
 **Easily missed.**
-- **This is not a result.** `max_subjects: 4`, `max_windows_per_subject: 100`, one epoch. Never
-  report a number from this config.
+- **This is not a result.** The explicit debug split uses subjects 1–3 for training and subject 4
+  for holdout, capped at `max_windows_per_subject: 100` for one epoch. Never report a number from
+  this config.
 - Llama weights are **gated**. `hf auth login` and accepting Meta's licence must happen first;
   this is an account action, not a code action.
 - `torch_dtype: float16` on MPS: some ops silently fall back or lose precision. If loss is NaN,

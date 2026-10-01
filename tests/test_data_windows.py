@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scipy.io import savemat
 
 from temporallens.data.ninapro import (
     NUM_CHANNELS,
@@ -18,6 +19,7 @@ from temporallens.data.ninapro import (
     available_subjects,
     load_processed,
     processed_path,
+    read_raw_mat,
     save_processed,
 )
 from temporallens.data.windows import (
@@ -47,7 +49,8 @@ def _synthetic_recording(
     for repetition in range(1, repetitions + 1):
         for gesture in range(1, gestures + 1):
             labels += [0] * samples_per_segment + [gesture] * samples_per_segment
-            reps += [0] * samples_per_segment + [repetition] * samples_per_segment
+            # Shipped DB2 rest usually carries the adjacent trial's corrected repetition index.
+            reps += [repetition] * samples_per_segment * 2
 
     label = np.asarray(labels, dtype=np.int16)
     repetition = np.asarray(reps, dtype=np.int16)
@@ -91,6 +94,63 @@ def test_recording_rejects_misaligned_streams() -> None:
         )
 
 
+def _write_raw_mat(
+    path,
+    *,
+    subject: int = 1,
+    exercise: int = 1,
+    gestures: int = 17,
+    corrected: bool = True,
+) -> None:
+    recording = _synthetic_recording(
+        subject=subject,
+        gestures=gestures,
+        repetitions=6,
+        samples_per_segment=10,
+    )
+    payload = {
+        "subject": np.asarray([[subject]], dtype=np.uint8),
+        "exercise": np.asarray([[exercise]], dtype=np.uint8),
+        "emg": recording.emg,
+        "stimulus": recording.label[:, None],
+        "repetition": recording.repetition[:, None],
+    }
+    if corrected:
+        payload |= {
+            "restimulus": recording.label[:, None],
+            "rerepetition": recording.repetition[:, None],
+        }
+    savemat(path, payload)
+
+
+def test_raw_mat_identity_matches_the_requested_subject_and_exercise(tmp_path) -> None:
+    path = tmp_path / "S7_E1_A1.mat"
+    _write_raw_mat(path, subject=7)
+    recording = read_raw_mat(path, subject=7)
+    assert recording.subject == 7
+
+
+def test_raw_mat_rejects_a_subject_mapping_mismatch(tmp_path) -> None:
+    path = tmp_path / "misnamed.mat"
+    _write_raw_mat(path, subject=17)
+    with pytest.raises(NinaProFormatError, match="caller requested subject 1"):
+        read_raw_mat(path, subject=1)
+
+
+def test_raw_mat_rejects_a_non_exercise_b_file_even_if_labels_fit(tmp_path) -> None:
+    path = tmp_path / "S1_E2_A1.mat"
+    _write_raw_mat(path, exercise=2)
+    with pytest.raises(NinaProFormatError, match="expected Exercise B"):
+        read_raw_mat(path, subject=1)
+
+
+def test_raw_mat_rejects_incomplete_gesture_repetition_coverage(tmp_path) -> None:
+    path = tmp_path / "incomplete.mat"
+    _write_raw_mat(path, gestures=16)
+    with pytest.raises(NinaProFormatError, match="incomplete Exercise-B"):
+        read_raw_mat(path, subject=1)
+
+
 # --- the processed round trip -------------------------------------------------------------
 
 
@@ -112,6 +172,7 @@ def test_processed_file_built_from_uncorrected_labels_is_rejected(tmp_path) -> N
     path = processed_path(tmp_path, 1)
     np.savez_compressed(
         path,
+        format_version=np.asarray(1, dtype=np.int16),
         subject=np.asarray(1, dtype=np.int16),
         emg=recording.emg,
         label=recording.label,
@@ -123,10 +184,37 @@ def test_processed_file_built_from_uncorrected_labels_is_rejected(tmp_path) -> N
         load_processed(path)
 
 
+def test_processed_file_built_from_uncorrected_repetitions_is_rejected(tmp_path) -> None:
+    recording = _synthetic_recording()
+    path = processed_path(tmp_path, 1)
+    np.savez_compressed(
+        path,
+        format_version=np.asarray(1, dtype=np.int16),
+        subject=np.asarray(1, dtype=np.int16),
+        emg=recording.emg,
+        label=recording.label,
+        repetition=recording.repetition,
+        label_column=np.asarray("restimulus"),
+        repetition_column=np.asarray("repetition"),
+    )
+    with pytest.raises(NinaProFormatError, match="rerepetition"):
+        load_processed(path)
+
+
+def test_processed_file_rejects_a_filename_subject_mismatch(tmp_path) -> None:
+    recording = _synthetic_recording(subject=2)
+    path = processed_path(tmp_path, 1)
+    save_processed(recording, path)
+    with pytest.raises(NinaProFormatError, match="filename identifies subject 1"):
+        load_processed(path)
+
+
 def test_available_subjects_is_sorted_and_ignores_strays(tmp_path) -> None:
     for subject in (10, 2, 33):
         save_processed(_synthetic_recording(subject), processed_path(tmp_path, subject))
     (tmp_path / "subject_notanumber.npz").write_bytes(b"")
+    (tmp_path / "subject_00.npz").write_bytes(b"")
+    (tmp_path / "subject_41.npz").write_bytes(b"")
     (tmp_path / "README.txt").write_text("not a recording")
 
     assert available_subjects(tmp_path) == [2, 10, 33]
@@ -204,15 +292,15 @@ def test_a_segment_shorter_than_one_window_contributes_nothing() -> None:
         index_recording(recording, window_size=400, stride=100)
 
 
-def test_max_windows_subsamples_deterministically_and_keeps_class_variety() -> None:
+def test_max_windows_subsamples_deterministically_and_keeps_every_present_class() -> None:
     recording = _synthetic_recording()
     first = index_recording(recording, window_size=400, stride=100, max_windows=20, seed=42)
     second = index_recording(recording, window_size=400, stride=100, max_windows=20, seed=42)
 
     assert len(first) == 20
     np.testing.assert_array_equal(first.start, second.start)
-    # Sampling rather than truncating is the point: the head of the recording is all rest.
-    assert np.unique(first.label).size > 1
+    # A small smoke-test cap must still exercise every class available in its subjects.
+    np.testing.assert_array_equal(np.unique(first.label), np.unique(recording.label))
 
 
 def test_max_windows_above_the_available_count_is_a_no_op() -> None:
@@ -220,6 +308,12 @@ def test_max_windows_above_the_available_count_is_a_no_op() -> None:
     everything = index_recording(recording, window_size=400, stride=100)
     capped = index_recording(recording, window_size=400, stride=100, max_windows=10_000)
     assert len(capped) == len(everything)
+
+
+def test_max_windows_rejects_a_cap_too_small_for_class_coverage() -> None:
+    recording = _synthetic_recording()
+    with pytest.raises(ValueError, match="cannot retain all"):
+        index_recording(recording, window_size=400, stride=100, max_windows=3)
 
 
 def test_concatenate_preserves_subject_provenance() -> None:
@@ -327,37 +421,19 @@ def test_array_backed_records_do_not_pretend_to_support_equality() -> None:
 # --- reading the shipped .mat -----------------------------------------------------------
 
 
-def _write_mat(path, *, corrected: bool = True, max_label: int = 3) -> None:
-    """A .mat shaped like a DB2 subject file, with (n, 1) label columns as shipped."""
-    from scipy.io import savemat
-
-    n = 3000
-    label = np.zeros((n, 1), dtype=np.uint8)
-    label[1000:2000] = max_label
-    repetition = np.zeros((n, 1), dtype=np.uint8)
-    repetition[1000:2000] = 2
-    emg = np.zeros((n, NUM_CHANNELS), dtype=np.float64)
-
-    payload = {"subject": 1, "exercise": 1, "emg": emg}
-    if corrected:
-        payload |= {"restimulus": label, "rerepetition": repetition}
-    payload |= {"stimulus": label, "repetition": repetition}
-    savemat(str(path), payload)
-
-
 def test_read_raw_mat_parses_the_shipped_layout(tmp_path) -> None:
     from temporallens.data.ninapro import read_raw_mat
 
     path = tmp_path / "S1_E1_A1.mat"
-    _write_mat(path)
+    _write_raw_mat(path)
     recording = read_raw_mat(path, subject=1)
 
-    assert recording.emg.shape == (3000, NUM_CHANNELS)
+    assert recording.emg.shape == (2040, NUM_CHANNELS)
     assert recording.emg.dtype == np.float32
     # The (n, 1) columns are flattened to (n,).
-    assert recording.label.shape == (3000,)
-    assert sorted(np.unique(recording.label)) == [0, 3]
-    assert sorted(np.unique(recording.repetition)) == [0, 2]
+    assert recording.label.shape == (2040,)
+    assert sorted(np.unique(recording.label)) == list(range(18))
+    assert sorted(np.unique(recording.repetition)) == list(range(1, 7))
 
 
 def test_read_raw_mat_refuses_a_file_without_corrected_columns(tmp_path) -> None:
@@ -365,16 +441,6 @@ def test_read_raw_mat_refuses_a_file_without_corrected_columns(tmp_path) -> None
     from temporallens.data.ninapro import read_raw_mat
 
     path = tmp_path / "uncorrected.mat"
-    _write_mat(path, corrected=False)
+    _write_raw_mat(path, corrected=False)
     with pytest.raises(NinaProFormatError, match="restimulus"):
-        read_raw_mat(path, subject=1)
-
-
-def test_read_raw_mat_rejects_a_different_exercise(tmp_path) -> None:
-    """Exercise C labels run past 17, so pointing at the wrong file fails loudly."""
-    from temporallens.data.ninapro import read_raw_mat
-
-    path = tmp_path / "S1_E2_A1.mat"
-    _write_mat(path, max_label=23)
-    with pytest.raises(NinaProFormatError, match="Exercise B"):
         read_raw_mat(path, subject=1)

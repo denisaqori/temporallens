@@ -54,7 +54,7 @@ Working now:
 make setup      # uv sync --python 3.11 --extra dev  (idempotent)
 make verify     # env + MPS check
 make test       # pytest
-make lint       # ruff + mypy
+make lint       # black --check + ruff + mypy
 make format     # black + ruff --fix
 make test-worktree  # integration tests for scripts/worktree.sh (slower; run when it changes)
 ```
@@ -78,8 +78,8 @@ Interface-only — the scripts they call are not written yet (`train_encoder.py`
 - **Leakage rules** in `docs/experiments/generative-arm.md` are non-negotiable; a result traceable to
   a violation is treated as no result.
 - **Never commit** data, checkpoints, secrets, or run outputs — `.gitignore` already excludes them.
-- `frozen` means `requires_grad=False` and `eval()` mode. The encoder and language model are frozen;
-  the projector and head are not.
+- `frozen` means `requires_grad=False` and `eval()` mode. F0/F1 train the encoder; downstream arm
+  runs freeze that checkpoint. The language model is always frozen; the projector and head are not.
 - **Checkpoint contract:** every training checkpoint saves `{model_state, model_config}` so any
   consumer can rebuild the model from the checkpoint alone (no external `model_type`).
 

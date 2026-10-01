@@ -161,7 +161,7 @@ temporallens/
 │   │                         #   personalization_efficiency, synthetic_quality, ablations
 │   ├── reporting/            # structured scorecards and templated reports
 │   └── utils/                # device selection, run logging
-├── scripts/                  # prepare_dataset, train_*, evaluate, make_report
+├── scripts/                  # environment/worktree tools + evaluate stub; training/report scripts planned
 ├── notebooks/                # exploration + per-phase result notebooks
 ├── results/                  # runs/ metrics/ figures/  (JSON logs + plots)
 ├── tests/
@@ -200,16 +200,21 @@ A frozen 3B model runs comfortably on a 24 GB GPU in `bfloat16`; quantization is
 
 ## Reproducing the results
 
-Common workflows are wrapped in a `Makefile`; each script is config-driven and runs locally on a tiny config before scaling up. Configs live under `configs/experiment/` in three groups — `foundation/`, `generation/`, `language/` — and each one is specified in [`docs/experiments/`](docs/experiments/).
+Configs live under `configs/experiment/` in three groups — `foundation/`, `generation/`,
+`language/` — and each one is specified in [`docs/experiments/`](docs/experiments/). The working
+repository checks are:
 
 ```bash
-make debug              # validate the full pipeline on a 3-subject tiny config
-make train-baseline     # 1-D CNN, subject-independent split
-make debug-adapter      # adapter shape-check against a mock LLM
-make smoke-1b           # real Llama-1B adapter smoke test (local)
-make eval-noise         # a robustness perturbation evaluation
-make report             # structured scorecard for a run
+make verify             # Python/dependency/device checks
+make test               # unit tests
+make lint               # formatting, lint, and type checks
 ```
+
+The `make debug`, `train-baseline`, `debug-adapter`, `smoke-1b`, `train-adapter-cloud`,
+`eval-noise`, `eval-robustness`, and `report` targets define the planned command-line interface.
+They are not operational yet: their training/report scripts have not been implemented and
+`evaluate.py` remains a contract stub. See [`docs/project/STATUS.md`](docs/project/STATUS.md) for
+the live implementation state.
 
 Long training runs on a rented GPU should be launched inside `tmux` so they survive disconnection; checkpoint frequently and sync artifacts back.
 
@@ -219,7 +224,13 @@ Long training runs on a rented GPU should be launched inside `tmux` so they surv
 
 TemporalLens uses **[NinaPro DB2](http://ninapro.hevs.ch/)** (Atzori et al., *Scientific Data* 2014): surface EMG (12 channels, 2 kHz) with inertial, kinematic, and force data from 40 intact subjects. The first version uses **Exercise B** (17 hand/wrist movements + rest = 18 classes) under a subject-independent split; the full 49-movement set is a planned extension.
 
-NinaPro data must be downloaded from the official site under its terms of use and is **not** redistributed here. Place the raw `.mat` files under `data/raw/` and run `scripts/prepare_dataset.py` to produce windowed, normalized tensors under `data/processed/`.
+NinaPro data must be downloaded from the official site under its terms of use and is **not**
+redistributed here. Exercise-B `.mat` files belong under `data/raw/ninapro_db2/exercise_b/`. The
+planned `scripts/prepare_dataset.py` will write continuous, corrected, unnormalized per-subject
+archives under `data/processed/ninapro_db2/`; windowing happens later because F0 and F1 use
+different strides, and normalization is fitted separately on each training partition to prevent
+leakage. Both data directories are excluded from Git; the repository's metadata-only
+[acquisition record and archive checksums](docs/data/ninapro_db2.md) contain metadata only.
 
 ---
 

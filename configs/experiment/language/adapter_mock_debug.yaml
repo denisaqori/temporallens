@@ -20,14 +20,15 @@ dataset:
   # Debug-only subset: deliberately not the frozen reportable split.
   debug_split:
     type: subject_holdout
+    train_subjects: [1, 2]
     held_out_subjects: [3]
-  max_subjects: 3
   max_windows_per_subject: 50
   window_size: 400
   stride: 200
   input_channels: 12
   num_classes: 18
-  normalize: per_subject_train_stats
+  # Debug holdout follows the same no-leakage rule as reportable subject splits.
+  normalize: train_subjects_global_stats
 encoder:
   checkpoint: null
   freeze: false
@@ -43,6 +44,13 @@ mock_llm:
   enabled: true
   embedding_dim: 128
   hidden_dim: 128
+head:
+  type: mlp
+  pooling: last_token
+  input_dim: 128
+  hidden_dim: 64
+  dropout: 0.1
+  num_classes: 18
 training:
   target: class_label
   loss: class_weighted_cross_entropy

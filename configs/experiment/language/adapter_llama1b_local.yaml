@@ -19,14 +19,15 @@ dataset:
   # Debug-only subset: deliberately not the frozen reportable split.
   debug_split:
     type: subject_holdout
+    train_subjects: [1, 2, 3]
     held_out_subjects: [4]
-  max_subjects: 4
   max_windows_per_subject: 100
   window_size: 400
   stride: 200
   input_channels: 12
   num_classes: 18
-  normalize: per_subject_train_stats
+  # Debug holdout follows the same no-leakage rule as reportable subject splits.
+  normalize: train_subjects_global_stats
 encoder:
   checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
   freeze: true
@@ -42,6 +43,13 @@ llm:
   torch_dtype: float16
   load_in_4bit: false
   device: mps
+head:
+  type: mlp
+  pooling: last_token
+  input_dim: auto_from_llm_config
+  hidden_dim: 256
+  dropout: 0.1
+  num_classes: 18
 training:
   target: class_label
   loss: class_weighted_cross_entropy

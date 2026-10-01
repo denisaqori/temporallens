@@ -33,6 +33,18 @@ DEBUG_CONFIGS = (
     "configs/experiment/language/adapter_mock_debug.yaml",
 )
 
+ECE_CONFIGS = (
+    "configs/experiment/foundation/baseline_cnn_random_split.yaml",
+    "configs/experiment/foundation/baseline_cnn_subject_split.yaml",
+    "configs/experiment/foundation/robustness_amplitude_scaling.yaml",
+    "configs/experiment/foundation/robustness_channel_dropout.yaml",
+    "configs/experiment/foundation/robustness_noise.yaml",
+    "configs/experiment/generation/gen_calibration_efficiency.yaml",
+    "configs/experiment/language/adapter_llama3b_subject_split.yaml",
+    "configs/experiment/language/adapter_random_transformer.yaml",
+    "configs/experiment/language/adapter_text_summary_only.yaml",
+)
+
 
 def _load(relative_path: str) -> dict[str, Any]:
     raw = yaml.safe_load((REPO_ROOT / relative_path).read_text())
@@ -49,6 +61,8 @@ def test_reportable_subject_independent_configs_use_only_the_manifest(
     assert "split" not in dataset
     assert "held_out_subjects" not in dataset
     assert "debug_split" not in dataset
+    assert "max_subjects" not in dataset
+    assert "max_windows_per_subject" not in dataset
 
 
 @pytest.mark.parametrize("relative_path", DEBUG_CONFIGS)
@@ -57,10 +71,30 @@ def test_debug_configs_use_an_explicit_nonreportable_subject_subset(relative_pat
     dataset = config["dataset"]
     assert config["experiment"]["mode"] == "debug"
     assert dataset["debug_split"]["type"] == "subject_holdout"
-    assert dataset["debug_split"]["held_out_subjects"]
+    train_subjects = dataset["debug_split"]["train_subjects"]
+    held_out_subjects = dataset["debug_split"]["held_out_subjects"]
+    assert train_subjects
+    assert held_out_subjects
+    assert set(train_subjects).isdisjoint(held_out_subjects)
+    assert dataset["normalize"] == "train_subjects_global_stats"
+    assert "max_subjects" not in dataset
     assert "split_manifest" not in dataset
     assert "split" not in dataset
     assert "held_out_subjects" not in dataset
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "configs/experiment/language/adapter_llama1b_local.yaml",
+        "configs/experiment/language/adapter_mock_debug.yaml",
+    ),
+)
+def test_language_smoke_configs_define_the_classifier_head(relative_path: str) -> None:
+    config = _load(relative_path)
+    assert config["head"]["type"] == "mlp"
+    assert config["head"]["pooling"] == "last_token"
+    assert config["head"]["num_classes"] == 18
 
 
 @pytest.mark.parametrize(
@@ -153,6 +187,7 @@ def test_g3_g4_fail_closed_on_schedule_objective_and_replay_control(
 ) -> None:
     config = _load(relative_path)
     personalization = config["personalization"]
+    assert personalization["rest_calibration_policy"] == "pending_decision"
     assert personalization["trial_selection"]["reproducibility"]["prng"] is None
     assert personalization["adaptation"]["objective"]["optimizer"] is None
     assert personalization["synthetic"]["replay_control"]["strategy"] is None
@@ -163,6 +198,33 @@ def test_g4_records_pending_headline_ece_aggregation() -> None:
     assert config["protocol"]["status"] == "blocked_pending_decisions"
     assert "evaluation.headline_ece_aggregation_status" in config["protocol"]["blocked_on"]
     assert config["evaluation"]["headline_ece_aggregation_status"] == "pending_decision"
+
+
+@pytest.mark.parametrize("relative_path", ECE_CONFIGS)
+def test_d23_ece_contract_is_present_wherever_ece_is_reported(relative_path: str) -> None:
+    evaluation = _load(relative_path)["evaluation"]
+    assert evaluation["ece"]["bins"] == 10
+    assert evaluation["ece"]["binning"] == "equal_mass"
+    assert evaluation["ece"]["scope"] == "top_label"
+    assert evaluation["ece"]["temperature_scaling"] is True
+    assert evaluation["ece"]["report"] == ["raw", "temperature_scaled"]
+    assert evaluation["uncertainty_resampling_unit"] == "subject"
+    assert "expected_calibration_error" in evaluation["metrics"]
+    assert "per_subject_expected_calibration_error" in evaluation["metrics"]
+    assert "brier_score" in evaluation["metrics"]
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "configs/experiment/foundation/robustness_amplitude_scaling.yaml",
+        "configs/experiment/foundation/robustness_channel_dropout.yaml",
+        "configs/experiment/foundation/robustness_noise.yaml",
+    ),
+)
+def test_robustness_uses_the_frozen_target_temperature(relative_path: str) -> None:
+    config = _load(relative_path)
+    assert config["evaluation"]["ece"]["temperature_source"] == "checkpoint_model_config"
 
 
 def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:

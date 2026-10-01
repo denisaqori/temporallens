@@ -16,14 +16,15 @@ dataset:
   # Debug-only subset: deliberately not the frozen reportable split.
   debug_split:
     type: subject_holdout
+    train_subjects: [1, 2]
     held_out_subjects: [3]
-  max_subjects: 3
   max_windows_per_subject: 50
   window_size: 400
   stride: 200
   input_channels: 12
   num_classes: 18
-  normalize: per_subject_train_stats
+  # Fit once on subjects 1-2; apply unchanged to held-out subject 3.
+  normalize: train_subjects_global_stats
 model:
   type: cnn1d
   input_channels: 12

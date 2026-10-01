@@ -81,12 +81,15 @@ def index_recording(
 ) -> WindowIndex:
     """Index ``recording`` into windows, skipping any that would span two segments.
 
-    ``max_windows`` subsamples with a seeded draw rather than truncating. Truncation returns the
-    head of the recording, which is rest plus whichever gesture came first — a debug run would
-    then "pass" against two classes and prove nothing.
+    ``max_windows`` takes a seeded, class-covering subsample rather than truncating. Truncation
+    returns the head of the recording, which is rest plus whichever gesture came first; a purely
+    uniform 50-window draw can also omit several DB2 classes. Debug caps are large enough to retain
+    at least one window from every class present, then fill their remaining budget randomly.
     """
     if window_size <= 0 or stride <= 0:
         raise ValueError(f"window_size and stride must be positive, got {window_size}/{stride}")
+    if max_windows is not None and max_windows <= 0:
+        raise ValueError(f"max_windows must be positive when provided, got {max_windows}")
 
     starts: list[int] = []
     for span_start, span_stop in segment_spans(recording.label, recording.repetition):
@@ -102,7 +105,24 @@ def index_recording(
     start = np.asarray(starts, dtype=np.int64)
     if max_windows is not None and start.size > max_windows:
         rng = np.random.default_rng(seed + recording.subject)
-        start = np.sort(rng.choice(start, size=max_windows, replace=False))
+        window_labels = recording.label[start]
+        classes = np.unique(window_labels)
+        if max_windows < classes.size:
+            raise ValueError(
+                f"max_windows={max_windows} cannot retain all {classes.size} classes present"
+            )
+
+        required_positions = np.asarray(
+            [rng.choice(np.flatnonzero(window_labels == label)) for label in classes],
+            dtype=np.int64,
+        )
+        remaining_positions = np.setdiff1d(
+            np.arange(start.size, dtype=np.int64), required_positions, assume_unique=True
+        )
+        extra_count = max_windows - required_positions.size
+        extra_positions = rng.choice(remaining_positions, size=extra_count, replace=False)
+        selected_positions = np.sort(np.concatenate((required_positions, extra_positions)))
+        start = start[selected_positions]
 
     return WindowIndex(
         subject=np.full(start.size, recording.subject, dtype=np.int16),

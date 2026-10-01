@@ -20,6 +20,7 @@ dataset:
   stride: 100
   input_channels: 12
   num_classes: 18
+  # Fit independently on each fold's 28 training subjects; refit on all 32 development subjects.
   normalize: train_subjects_global_stats
 model:
   type: cnn1d
@@ -36,7 +37,8 @@ training:
   early_stopping: false
   learning_rate: 0.0003
   weight_decay: 0.0001
-  num_workers: 2
+  # Processed NPZ recordings load eagerly; macOS spawn workers would duplicate several GiB.
+  num_workers: 0
   device: auto
   save_checkpoint: true
   epoch_selection:
@@ -66,7 +68,7 @@ training:
     initialization: fresh_from_experiment_seed
     early_stopping: false
 evaluation:
-  # D23: adaptive bins, M=10, top-label. Floor (~0.037) is a detection threshold, not an offset.
+  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
   ece:
     bins: 10
     binning: equal_mass
@@ -87,5 +89,6 @@ evaluation:
     - per_class_recall
     - confusion_matrix
     - expected_calibration_error
+    - per_subject_expected_calibration_error
     - brier_score
   save_predictions: true

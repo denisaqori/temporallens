@@ -21,13 +21,13 @@ perturbation:
   type: channel_dropout
   levels: [1, 2, 4, 6]
 evaluation:
-  # D23: adaptive bins, M=10, top-label. Floor (~0.037) is a detection threshold, not an offset.
+  # D23: use the target checkpoint's already-fitted T; never recalibrate on perturbed test data.
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    temperature_source: pooled_out_of_fold_folds
+    temperature_source: checkpoint_model_config
     report: [raw, temperature_scaled]
   uncertainty_resampling_unit: subject
   metrics:
@@ -35,6 +35,7 @@ evaluation:
     - macro_f1
     - per_subject_accuracy
     - expected_calibration_error
+    - per_subject_expected_calibration_error
     - brier_score
     - robustness_drop
   save_predictions: true

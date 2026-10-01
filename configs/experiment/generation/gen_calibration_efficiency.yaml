@@ -4,9 +4,9 @@
 # PROBABILITY calibration over a SUBJECT-CALIBRATION axis (README section 2).
 #
 # Exists because augmentation could raise accuracy while making the model confidently wrong,
-# which for a wearable interface is a poor trade. ECE binning, the overconfidence-error definition,
-# and headline aggregation are encoded below as execution blockers; the current pooled aggregation
-# value is explicitly provisional.
+# which for a wearable interface is a poor trade. The overconfidence-error definition and headline
+# aggregation are encoded below as execution blockers; the current pooled aggregation value is
+# explicitly provisional. D23 already fixes ECE binning.
 # Spec: docs/experiments/generative-arm.md, G4.
 protocol:
   # The eventual runner must reject any status other than ready; pending values never get defaults.
@@ -59,7 +59,7 @@ personalization:
       prng: null
       schedule_index_base: null
       persist_selected_trial_ids: true
-  rest_calibration_policy: pending_mat_inspection
+  rest_calibration_policy: pending_decision
   calibration_strategy:
     - population_no_adaptation
     - real_adaptation
@@ -92,7 +92,7 @@ personalization:
       absent_class_handling: null
 evaluation:
   fixed_evaluation_set: true
-  # D23: adaptive bins, M=10, top-label. Floor (~0.037) is a detection threshold, not an offset.
+  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
   ece:
     bins: 10
     binning: equal_mass

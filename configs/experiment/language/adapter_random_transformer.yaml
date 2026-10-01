@@ -60,7 +60,7 @@ training:
   device: cuda
   save_checkpoint: true
 evaluation:
-  # D23: adaptive bins, M=10, top-label. Floor (~0.037) is a detection threshold, not an offset.
+  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
   ece:
     bins: 10
     binning: equal_mass
@@ -77,6 +77,7 @@ evaluation:
     - per_class_recall
     - confusion_matrix
     - expected_calibration_error
+    - per_subject_expected_calibration_error
     - brier_score
     - overconfidence_error
   save_predictions: true

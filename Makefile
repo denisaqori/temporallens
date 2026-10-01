@@ -41,7 +41,7 @@ format:
 lint:
 	$(PYTHON) -m black --check src scripts tests
 	$(PYTHON) -m ruff check src scripts tests
-	$(PYTHON) -m mypy src
+	$(PYTHON) -m mypy src scripts
 
 debug:
 	$(PYTHON) scripts/train_encoder.py --config configs/experiment/foundation/debug_tiny.yaml

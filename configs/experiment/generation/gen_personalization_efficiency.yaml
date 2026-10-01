@@ -62,9 +62,8 @@ personalization:
       prng: null
       schedule_index_base: null
       persist_selected_trial_ids: true
-  # Rest is an evaluation class but does not increment k. Fail closed until an actual MAT file
-  # establishes how corrected rest intervals attach to selected gesture trials (DECISIONS Pending).
-  rest_calibration_policy: pending_mat_inspection
+  # MAT inspection established that assignment is feasible; the ownership rule remains Pending.
+  rest_calibration_policy: pending_decision
   calibration_strategy:
     - population_no_adaptation
     - real_adaptation
