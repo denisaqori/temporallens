@@ -165,14 +165,52 @@ def test_f1_config_encodes_approved_epoch_constants_and_gates() -> None:
     ]
 
 
-def test_g1_fails_closed_until_subject_embedding_is_operationally_defined() -> None:
+def test_g1_subject_embedding_contract_is_operationally_defined() -> None:
+    """D27: every field the embedding needs is fixed, and none is left to a runner default."""
     config = _load("configs/experiment/generation/gen_vae_train.yaml")
     embedding = config["generator"]["subject_embedding"]
+
+    assert embedding["estimator"] == "class_centred_mean_latent_residual"
+    assert embedding["centring_reference"] == "training_subject_class_mean_latents"
+    assert embedding["population_embedding"] == "learned_vector"
+    assert embedding["class_information_control"].endswith("must_be_at_chance")
+    assert "status" not in embedding, "the contract is decided; no pending status should remain"
+
+    schedule = embedding["pseudo_calibration_schedule"]
+    assert schedule["k_grid"] == [0, 1, 2, 5, 10, 17, 20, 34], "must match D14's deployment grid"
+    assert schedule["k_draw"] == "uniform_per_subject_per_step"
+    # Rotation is augmentation, but every pair must still span early/late repetitions so the
+    # support shape matches inference and straddles the drift D13 measured.
+    rotation = schedule["support_repetition_rotation"]
+    assert rotation == [[1, 4], [2, 5], [3, 6]]
+    assert all(hi - lo == 3 for lo, hi in rotation), "each support pair spans the session"
+    assert sorted(r for pair in rotation for r in pair) == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ], "every repetition serves as support in exactly one rotation, and as a target in the rest"
+
+
+def test_g1_target_exclusion_survives_support_rotation() -> None:
+    """Rotation must not reintroduce the leak fixed support made impossible."""
+    config = _load("configs/experiment/generation/gen_vae_train.yaml")
+    embedding = config["generator"]["subject_embedding"]
+    assert embedding["target_exclusion_policy"] == "draw_complement_of_support_repetitions"
+    # Held-out subjects keep D13's fixed partition; rotation is training-subjects-only.
+    assert embedding["held_out_subject_support"] == "d13_fixed_calibration_repetitions"
+
+
+def test_g1_still_fails_closed_on_the_vae_objective_components() -> None:
+    """D22 fixed the objective's sign and name; its components are still Pending."""
+    config = _load("configs/experiment/generation/gen_vae_train.yaml")
     assert config["protocol"]["status"] == "blocked_pending_decisions"
-    assert embedding["status"] == "pending_decision"
-    assert embedding["estimator"] is None
-    assert embedding["pseudo_calibration_schedule"] is None
-    assert embedding["target_exclusion_policy"] is None
+    assert config["protocol"]["blocked_on"] == ["training.objective_components"]
+    components = config["training"]["objective_components"]
+    assert components["status"] == "pending_decision"
+    assert components["reconstruction_likelihood"] is None
 
 
 @pytest.mark.parametrize(

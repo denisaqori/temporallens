@@ -35,6 +35,8 @@ evaluation:
     - macro_f1
     - per_subject_accuracy
     - expected_calibration_error
+    - overconfidence_error
+    - mean_confidence_when_wrong
     - per_subject_expected_calibration_error
     - brier_score
     - robustness_drop

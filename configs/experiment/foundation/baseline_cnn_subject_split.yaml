@@ -89,6 +89,8 @@ evaluation:
     - per_class_recall
     - confusion_matrix
     - expected_calibration_error
+    - overconfidence_error
+    - mean_confidence_when_wrong
     - per_subject_expected_calibration_error
     - brier_score
   save_predictions: true

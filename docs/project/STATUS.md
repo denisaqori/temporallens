@@ -33,6 +33,13 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   metric contracts, corrected stale implementation claims, and added metadata-only acquisition
   provenance. The F1 architecture and remaining calibration choices are recorded below for owner
   resolution; no protocol decision was silently supplied by the implementation.
+- Three protocol decisions settled (D25–D27). Overconfidence error is split into the binned
+  positive gap and a separate descriptive `mean_confidence_when_wrong`, now on all five foundation
+  configs so the language arm has an F1 reference row to compare against. The subject is the
+  inferential unit for every metric, with paired cross-arm intervals and a stated minimum
+  reportable difference. G1's subject-embedding contract is fixed — class-centred mean residual,
+  rotated support repetitions, learned population vector, class-composition probe — which unblocks
+  the generative chain's root; G1 still fails closed on the VAE objective components.
 - Calibration measurement and windowing boundaries settled (D23, D24), and three protocol
   assumptions checked against the shipped data for the first time. `stimulus` disagrees with
   `restimulus` on 19.9% of samples with a median onset shift of 856 ms, so D12 is now a measured

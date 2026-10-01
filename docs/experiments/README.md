@@ -208,7 +208,8 @@ the generative-arm leakage rules; this never permits subject-specific normalizat
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
 | `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
-| `overconfidence_error` | Confidence specifically on *incorrect* predictions | The language arm's benefit, if any, may live here rather than in accuracy |
+| `overconfidence_error` | Confidence-weighted **positive** gap, summed over bins: `Σ (|Bₘ|/n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
+| `mean_confidence_when_wrong` | Mean confidence over misclassified windows | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |
 | `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
@@ -303,6 +304,41 @@ it cannot be a bin artifact. Brier score also reflects probability sharpness and
 whereas top-label ECE estimates a binned calibration gap, so the two can legitimately rank arms
 differently. Investigate a disagreement for implementation errors, then report it transparently if
 it remains.
+
+**Two metrics, two names (D25).** `overconfidence_error` is the binned, confidence-weighted
+positive gap and inherits everything above — same bins, same scaling, same resampling unit. It is
+one-sided on purpose: a model made uniformly timid scores a perfect 0 on it while being badly
+miscalibrated, so it is only interpretable next to ECE, which catches both directions.
+
+`mean_confidence_when_wrong` is a separate, **descriptive** quantity. It is reported because it
+answers a question the structured-report demo needs — *when the device is wrong, how sure does it
+sound?* — but it is not a calibration metric and must never be compared across arms. Three
+*perfectly calibrated* models scored 0.25, 0.40 and 0.67 on it purely from differing confidence
+profiles, so no value of it means "calibrated"; and scaling a model's confidences down improves it
+from 0.69 to 0.31 without changing a single prediction. Lower is not better.
+
+#### The inferential unit (D26)
+
+D26 generalizes the resampling rule above from calibration to **every** reported metric.
+
+| | Rule |
+|---|---|
+| Resampling unit | **Subject.** Never the window, never the trial |
+| Per-subject values | **Always reported** — accuracy and macro-F1 as well as the calibration family |
+| Fold spread | Reported **separately**, labelled *training* variability (§5.3); never pooled with subject spread |
+| Cross-arm claims | **Paired** over the identical 8 test subjects: all 8 per-subject differences, plus a 95% paired bootstrap interval |
+| Significance | **No unpaired tests at n=8.** Wilcoxon signed-rank is available as a paired nonparametric check |
+| Minimum reportable difference | **Computed and stated** from the observed paired spread, per metric, beside every claim |
+
+**Fold spread and subject spread answer different questions and must not merge.** Fold-to-fold
+variation says how much the result depends on *which 28 subjects trained the model*;
+subject-to-subject variation says how much it depends on *who is wearing it*. One interval pooling
+both answers neither.
+
+**Pairing is what makes n=8 workable**, and it is why the wide marginal interval is not fatal: the
+subject effect is the dominant variance component and pairing cancels it. Interval resolution is
+still limited at n=8, so reports state that rather than implying more precision than 8 subjects
+can support.
 
 ### 3.5 Reproducibility
 

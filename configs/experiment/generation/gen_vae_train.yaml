@@ -6,15 +6,11 @@
 # separately: KL -> 0 means posterior collapse and the decoder is ignoring the latent.
 # Spec: docs/experiments/generative-arm.md, G1.
 protocol:
-  # `calibration_derived` is not an implementation. Reject G1 until the embedding contract is fixed.
+  # D27 fixed the embedding contract. The remaining blockers are the VAE objective components
+  # (D22 fixed only the sign and name), which the runner must not default.
   status: blocked_pending_decisions
   blocked_on:
-    - generator.subject_embedding.estimator
-    - generator.subject_embedding.pooling
-    - generator.subject_embedding.pseudo_calibration_schedule
-    - generator.subject_embedding.target_exclusion_policy
-    - generator.subject_embedding.population_embedding
-    - generator.subject_embedding.class_information_control
+    - training.objective_components
 experiment:
   name: gen_vae_train
   seed: 42
@@ -43,20 +39,49 @@ generator:
   hidden_dim: 256
   class_conditioning: true
   subject_conditioning: calibration_derived
+  # D27. Encoder latents cluster by gesture, so a plain mean of the support set would encode
+  # WHICH gestures the subject demonstrated rather than who they are -- at k<17 the support
+  # covers only some classes. Centring on the population per-class mean removes class content
+  # by construction, which is why it is the control rather than a separate mechanism.
   subject_embedding:
-    status: pending_decision
     output_dim: 16
-    estimator: null
-    pooling: null
-    # Training subjects need simulated k-trial support sets matching deployment.
-    pseudo_calibration_schedule: null
-    # A target latent must not appear in the support set used to condition its reconstruction.
-    target_exclusion_policy: null
-    population_embedding: null
-    # Prevent gesture-class content from serving as a shortcut for subject identity.
-    class_information_control: null
+    estimator: class_centred_mean_latent_residual
+    pooling: mean_then_linear_projection
+    # Population per-class mean latents, fitted on training subjects only, define the centring.
+    centring_reference: training_subject_class_mean_latents
+    # Simulate deployment during training: draw k per subject per step across the whole grid,
+    # so one generator serves the entire curve and no k is privileged. k=0 trains the
+    # population embedding.
+    pseudo_calibration_schedule:
+      k_grid: [0, 1, 2, 5, 10, 17, 20, 34]
+      k_draw: uniform_per_subject_per_step
+      support_builder: d14_nested_class_aware_prefix
+      # D27 as revised: ROTATE the support repetition pair among the early/late-spanning pairs,
+      # so every repetition serves as a reconstruction target in 2 of 3 rotations. Rotation is
+      # augmentation -- it stops the estimator memorising artefacts of reps 1 and 4 -- and the
+      # spanning shape still matches inference and still straddles the drift D13 measured.
+      support_repetition_rotation: [[1, 4], [2, 5], [3, 6]]
+    # Support and targets stay complementary WITHIN each draw, so a target latent can never
+    # appear in the set conditioning its own reconstruction. Exclusion is per-draw, not global.
+    target_exclusion_policy: draw_complement_of_support_repetitions
+    # Rotation applies ONLY to training subjects. Held-out-subject calibration remains D13's
+    # fixed {1,4} support / {2,3,5,6} evaluation; loosening that for test subjects is a leak.
+    held_out_subject_support: d13_fixed_calibration_repetitions
+    population_embedding: learned_vector
+    # Centring is the structural fix; this is the check that it worked. Above-chance recovery of
+    # the support set's class composition from the embedding fails the gate.
+    class_information_control: support_class_composition_probe_must_be_at_chance
 training:
   loss: negative_elbo
+  # D22 fixed the sign and name only. These remain Pending; the runner must not default them.
+  objective_components:
+    status: pending_decision
+    reconstruction_likelihood: null
+    component_reductions: null
+    units: null
+    kl_warmup_schedule: null
+    evaluation_uses_unit_kl_weight: null
+    reported_kl_is_raw_or_weighted: null
   kl_warmup_epochs: 5        # provisional duration; exact warmup contract remains Pending
   batch_size: 64
   epochs: 60
