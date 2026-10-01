@@ -1,6 +1,6 @@
 # TemporalLens
 
-**Reducing cross-subject calibration burden in EMG decoding via generative augmentation — and testing whether language-model conditioning adds anything beyond the encoder.**
+**Reducing cross-subject calibration burden in EMG decoding via generative augmentation and testing whether language-model conditioning adds anything beyond the encoder.**
 
 <!-- Fill the arXiv ID and Spaces URL once they exist, then uncomment. -->
 <!-- [![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX) -->
@@ -10,7 +10,7 @@
 ![Code License](https://img.shields.io/badge/code-Apache%202.0-green.svg)
 ![Docs License](https://img.shields.io/badge/paper%20%26%20figures-CC%20BY--NC--SA%204.0-lightgrey.svg)
 
-Wearable surface-electromyography (sEMG) interfaces promise device-free input, but a central obstacle to deployment is **calibration burden**: generalized decoders work across users, yet accuracy improves once the model is adapted to an individual. TemporalLens asks a practical question — *how much real per-subject calibration data does a new, unseen user actually need, and can generative augmentation reduce it?* — and evaluates it the way human-signal systems must be evaluated: on held-out subjects, under perturbation, with calibration analysis and leakage-controlled protocols.
+Wearable surface-electromyography (sEMG) interfaces promise device-free input, but a central obstacle to deployment is **the calibration burden**: generalized decoders work across users, but accuracy improves once the model is adapted to an individual. TemporalLens aims to answer the question of *how much real per-subject calibration data a new, unseen user needs, and if generative augmentation can reduce it*. Evaluation happens on held-out subjects, under perturbation, with calibration analysis and leakage-controlled protocols.
 
 <p align="center">
   <img src="results/figures/personalization_efficiency.png" width="620" alt="Decoding accuracy versus complete real calibration gesture trials per held-out subject under three adaptation strategies.">
@@ -28,8 +28,8 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 ## Contents
 
 - [Key contributions](#key-contributions)
-- [The question](#the-question)
-- [Method](#method)
+- [Central questions](#central-questions)
+- [Methods](#methods)
 - [Results](#results)
 - [Evaluation protocol](#evaluation-protocol)
 - [Repository structure](#repository-structure)
@@ -47,22 +47,22 @@ Wearable surface-electromyography (sEMG) interfaces promise device-free input, b
 ## Key contributions
 
 1. **A personalization-efficiency curve for cross-subject EMG decoding.** For each held-out subject, we measure decoding accuracy against the total number of complete real calibration gesture trials available (0, 1, 2, 5, 10, 17, 20, 34), comparing no adaptation, ordinary head adaptation, and matched real-plus-synthetic adaptation — quantifying how much real calibration a new user actually needs, and how much augmentation can replace.
-2. **An honest test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder — isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
-3. **Deployment-aware evaluation throughout.** Subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols — because for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy.
+2. **A test of language-model conditioning.** We map temporal signal windows into the embedding space of a **frozen** large language model through a learned soft-prefix adapter, and ask whether it improves decoding, calibration, or failure reporting beyond a well-trained encoder, isolating the effect with a **matched-size random-initialized transformer** and a **text-summary-only** baseline, so any effect is attributable to language pretraining rather than to model size or prompt engineering.
+3. **Deployment-aware evaluation throughout.** Given that for wearable interfaces, behavior under subject shift and perturbation matters as much as aggregate accuracy, the evaluation includes subject-independent splits, test-time robustness perturbations, expected calibration error, per-subject variance, and leakage-controlled generative protocols.
 
 ---
 
-## The question
+## Central questions
 
-Generalized sEMG decoders can work without per-person calibration, but a small amount of individual data measurably improves them — recent work reports handwriting-recognition gains of up to ~16% from limited personalization ([Sussillo, Kaifosh & Reardon, *Nature* 2025](#references)). That raises a concrete, under-studied question:
+Generalized sEMG decoders can work without per-person calibration, but a small amount of individual data measurably improves them: recent work reports handwriting-recognition gains of up to ~16% from limited personalization ([Sussillo, Kaifosh & Reardon, *Nature* 2025](#references)). That raises a concrete, under-studied question:
 
-> **How many real calibration gesture trials does a new subject need to reach a target accuracy — and can a generative model supply that personalization with fewer real trials?**
+> **How many real calibration gesture trials does a new subject need to reach a target accuracy, and can a generative model supply that personalization with fewer real trials?**
 
 TemporalLens answers this as an explicit curve rather than a single number, and treats "does an LLM help?" as a separate, deliberately skeptical question rather than an assumption.
 
 ---
 
-## Method
+## Methods
 
 TemporalLens has two arms that share a temporal encoder. The **generative arm** (headline) studies calibration efficiency; the **language arm** (secondary) tests whether LLM conditioning adds value.
 
@@ -78,7 +78,7 @@ multichannel EMG window
               → augmented calibration set → personalization-efficiency evaluation
 ```
 
-- **Temporal encoder — 1-D CNN.** Suited to local temporal structure, easy to inspect, and a strong baseline. (A patch-based transformer encoder is a planned ablation, not the default.)
+- **Temporal encoder — 1-D CNN.** Suited to local temporal structure, easy to inspect, and a strong baseline. (A patch-based transformer encoder is a planned ablation.)
 - **Projection adapter.** A small MLP maps encoder outputs into the LLM embedding dimension; the result is treated as **soft-prefix / pseudo-token embeddings** prepended to a text prompt — *not* discrete tokens. Prefix concatenation is used for transparency over cross-attention.
 - **Frozen LLM.** The language model's weights are frozen; only the adapter is trained. A small model (e.g. Llama 3.2 1B) is used for local iteration; a larger frozen model for final numbers.
 - **Conditional generator.** A conditional VAE operating in the encoder's latent space, conditioned on gesture class and a learned subject/calibration embedding. Synthetic quality is validated before use (see [Evaluation protocol](#evaluation-protocol)). A conditional diffusion variant is a planned extension.
@@ -128,11 +128,11 @@ Accuracy under test-time perturbation (clean → perturbed), zero-shot:
 
 Evaluation is the center of this project. All headline results use a **subject-independent** protocol.
 
-> **Full specification:** [`docs/experiments/`](docs/experiments/) is the authority on what every experiment and ablation measures, why it exists, and the failure modes that are easy to miss — the [shared protocol and vocabulary](docs/experiments/README.md), the [generative arm](docs/experiments/generative-arm.md), and the [language arm](docs/experiments/language-arm.md). Each ablation there maps to exactly one config file.
+> **Full specification:** [`docs/experiments/`](docs/experiments/) is the authority on what every experiment and ablation measures, why it exists, and the failure modes that are easy to miss: the [shared protocol and vocabulary](docs/experiments/README.md), the [generative arm](docs/experiments/generative-arm.md), and the [language arm](docs/experiments/language-arm.md). Each ablation there maps to exactly one config file.
 
-- **Splits.** (i) random-window split — an optimistic baseline that shows how easily leakage inflates results; (ii) **subject-independent split** — train on a set of subjects, test on unseen subjects (the main result); (iii) grouped/leave-subjects-out folds — for per-subject variance.
+- **Splits.** (i) random-window split, an optimistic baseline that shows how easily leakage inflates results; (ii) **subject-independent split** — train on a set of subjects, test on unseen subjects (the main result); (iii) grouped/leave-subjects-out folds — for per-subject variance.
 - **Robustness.** Test-time perturbations applied zero-shot: additive sensor noise, channel dropout (electrode failure / missing channels), amplitude scaling (strength / impedance / placement).
-- **Calibration.** Expected calibration error, confidence under perturbation, and overconfidence on incorrect predictions — the LLM arm's value, if any, may lie here rather than in raw accuracy.
+- **Calibration.** Expected calibration error, confidence under perturbation, and overconfidence on incorrect predictions; the LLM arm's value, if any, may lie here rather than in raw accuracy.
 - **Generative leakage control _(non-negotiable)_.** The generator never trains on held-out-subject windows. At *k*=0, generation is class-conditioned with a population/default subject embedding; at *k*>0, any subject-specific conditioning is derived **only** from windows wholly contained in the *k* permitted real calibration gesture trials. A positive result traceable to leakage is treated as no result.
 - **Synthetic-quality validation.** A classifier two-sample test (can a discriminator separate real from synthetic?) near chance indicates realistic synthesis — so a personalization gain cannot be attributed to a degenerate generator.
 
