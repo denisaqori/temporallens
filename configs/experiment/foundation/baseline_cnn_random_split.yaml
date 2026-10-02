@@ -38,6 +38,11 @@ training:
   device: auto
   save_checkpoint: true
 evaluation:
+  # No per-subject metrics here, deliberately. This split shuffles windows without regard to
+  # subject, so every test window's subject is also in training: a per-subject number would
+  # measure nothing about generalising to that subject, and quoting one would be the exact
+  # misreading section 3.2 warns about. D26's per-subject rule applies to generalisation
+  # claims, and F2 makes none.
   # D23: adaptive bins, M=10, top-label. F2's T source still needs an explicit protocol rule.
   ece:
     bins: 10

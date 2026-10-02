@@ -208,6 +208,9 @@ the generative-arm leakage rules; this never permits subject-specific normalizat
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
 | `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
 | `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
+| `per_subject_macro_f1` | Macro-F1 for each evaluation subject separately | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too |
+| `per_subject_brier_score` | Brier score for each evaluation subject separately | Same rule as ECE: a pooled proper score can hide one badly-scored subject |
+| `per_subject_overconfidence_error` | Overconfidence error for each evaluation subject separately | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number |
 | `overconfidence_error` | Confidence-weighted **positive** gap, summed over bins: `Σ (|Bₘ|/n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
 | `mean_confidence_when_wrong` | Mean confidence over misclassified windows | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |
 | `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
@@ -297,7 +300,8 @@ treats them as independent and produced a 95% interval **20× too narrow** than 
 resampled by subject (width 0.005 against 0.100, identical point estimate). The subject is the
 unit because the protocol generalizes to a *new person*. The honest interval is wide; the way to
 recover power is **pairing** — every arm is scored on the identical 8 test subjects, so per-subject
-differences cancel the subject effect entirely.
+differences control the shared subject variation. It removes the additive subject-level
+component, not a subject-by-arm interaction, so it reduces the spread rather than eliminating it.
 
 **Report `brier_score` alongside.** It is a proper scoring rule with no binning hyperparameter, so
 it cannot be a bin artifact. Brier score also reflects probability sharpness and discrimination,
@@ -317,6 +321,17 @@ sound?* — but it is not a calibration metric and must never be compared across
 profiles, so no value of it means "calibrated"; and scaling a model's confidences down improves it
 from 0.69 to 0.31 without changing a single prediction. Lower is not better.
 
+**The output contract (D25, D23).** Temperature scaling changes the confidence distribution, and
+adaptive bins are quantile-based, so the edges move with it. The rules:
+
+| | Rule |
+|---|---|
+| Bin edges | **Recomputed after scaling.** The scaled distribution is what is being assessed, so pre-scaling quantiles would bin the wrong variable |
+| Result keys | ECE and `overconfidence_error` are emitted **twice**, raw and temperature-scaled, under distinct keys — never one key whose meaning depends on a config flag |
+| The descriptive statistic | `mean_confidence_when_wrong` is reported on the **raw** probabilities only. It is descriptive, and scaling it would invite exactly the cross-arm comparison it must not be used for |
+| Zero errors | `mean_confidence_when_wrong` is **`NA`**, never 0. A model with no errors has no confidence-on-errors, and 0 would read as "perfectly humble when wrong" |
+| Per-subject | Every calibration metric also emits its `per_subject_*` form (D26) |
+
 #### The inferential unit (D26)
 
 D26 generalizes the resampling rule above from calibration to **every** reported metric.
@@ -328,7 +343,8 @@ D26 generalizes the resampling rule above from calibration to **every** reported
 | Fold spread | Reported **separately**, labelled *training* variability (§5.3); never pooled with subject spread |
 | Cross-arm claims | **Paired** over the identical 8 test subjects: all 8 per-subject differences, plus a 95% paired bootstrap interval |
 | Significance | **No unpaired tests at n=8.** Wilcoxon signed-rank is available as a paired nonparametric check |
-| Minimum reportable difference | **Computed and stated** from the observed paired spread, per metric, beside every claim |
+| Paired interval | **Percentile bootstrap**, 10,000 resamples of the 8 test subjects, seeded from `experiment.seed` |
+| Minimum reportable difference | A difference is reportable when its paired interval **excludes zero**; for ECE it must additionally exceed the estimator floor (§ above). Stated beside every claim |
 
 **Fold spread and subject spread answer different questions and must not merge.** Fold-to-fold
 variation says how much the result depends on *which 28 subjects trained the model*;
@@ -336,7 +352,7 @@ subject-to-subject variation says how much it depends on *who is wearing it*. On
 both answers neither.
 
 **Pairing is what makes n=8 workable**, and it is why the wide marginal interval is not fatal: the
-subject effect is the dominant variance component and pairing cancels it. Interval resolution is
+shared subject variation is the dominant component and pairing controls it. Interval resolution is
 still limited at n=8, so reports state that rather than implying more precision than 8 subjects
 can support.
 

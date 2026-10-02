@@ -55,3 +55,4 @@ evaluation:
     - parameters_updated
     - reconstruction_is_not_dataset_mean
     - class_label_changes_sample
+    - subject_embedding_changes_sample

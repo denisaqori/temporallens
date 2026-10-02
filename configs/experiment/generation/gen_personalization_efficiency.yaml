@@ -109,6 +109,7 @@ evaluation:
     - accuracy
     - macro_f1
     - per_subject_accuracy
+    - per_subject_macro_f1
     - calibration_seen_gesture_accuracy
     - calibration_unseen_gesture_accuracy
     - rest_accuracy

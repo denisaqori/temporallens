@@ -173,8 +173,10 @@ def test_g1_subject_embedding_contract_is_operationally_defined() -> None:
     assert embedding["estimator"] == "class_centred_mean_latent_residual"
     assert embedding["centring_reference"] == "training_subject_class_mean_latents"
     assert embedding["population_embedding"] == "learned_vector"
-    assert embedding["class_information_control"].endswith("must_be_at_chance")
-    assert "status" not in embedding, "the contract is decided; no pending status should remain"
+    probe = embedding["class_information_control"]
+    assert probe["diagnostic"] == "support_class_composition_probe"
+    assert probe["must_be_at_chance"] is True
+    assert "status" not in embedding, "the estimator itself is decided; no pending status here"
 
     schedule = embedding["pseudo_calibration_schedule"]
     assert schedule["k_grid"] == [0, 1, 2, 5, 10, 17, 20, 34], "must match D14's deployment grid"
@@ -207,10 +209,26 @@ def test_g1_still_fails_closed_on_the_vae_objective_components() -> None:
     """D22 fixed the objective's sign and name; its components are still Pending."""
     config = _load("configs/experiment/generation/gen_vae_train.yaml")
     assert config["protocol"]["status"] == "blocked_pending_decisions"
-    assert config["protocol"]["blocked_on"] == ["training.objective_components"]
+    assert config["protocol"]["blocked_on"] == [
+        "training.objective_components",
+        "generator.subject_embedding.pseudo_calibration_schedule.rotation_selection",
+        "generator.subject_embedding.class_information_control",
+    ]
     components = config["training"]["objective_components"]
     assert components["status"] == "pending_decision"
     assert components["reconstruction_likelihood"] is None
+
+    embedding = config["generator"]["subject_embedding"]
+    # D27 chose the rotation pairs, but WHICH pair a draw uses inherits D14's PRNG convention,
+    # which is itself Pending. A pair list is not a draw rule.
+    rotation = embedding["pseudo_calibration_schedule"]["rotation_selection"]
+    assert rotation["status"] == "pending_decision"
+    assert rotation["rule"] is None and rotation["prng"] is None
+    # Centring removes the class mean, not class-conditional covariance, so the probe is
+    # load-bearing -- and a gate needs a target, a grouping, a score and a threshold.
+    probe = config["generator"]["subject_embedding"]["class_information_control"]
+    assert probe["status"] == "pending_decision"
+    assert probe["grouping"] is None and probe["acceptance_threshold"] is None
 
 
 @pytest.mark.parametrize(

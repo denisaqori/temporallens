@@ -11,6 +11,8 @@ protocol:
   status: blocked_pending_decisions
   blocked_on:
     - training.objective_components
+    - generator.subject_embedding.pseudo_calibration_schedule.rotation_selection
+    - generator.subject_embedding.class_information_control
 experiment:
   name: gen_vae_train
   seed: 42
@@ -61,6 +63,12 @@ generator:
       # augmentation -- it stops the estimator memorising artefacts of reps 1 and 4 -- and the
       # spanning shape still matches inference and still straddles the drift D13 measured.
       support_repetition_rotation: [[1, 4], [2, 5], [3, 6]]
+      # WHICH rotation a given draw uses, and how it is seeded, inherits D14's PRNG and
+      # schedule-index convention -- still Pending. A listed pair set is not a draw rule.
+      rotation_selection:
+        status: pending_decision
+        rule: null
+        prng: null
     # Support and targets stay complementary WITHIN each draw, so a target latent can never
     # appear in the set conditioning its own reconstruction. Exclusion is per-draw, not global.
     target_exclusion_policy: draw_complement_of_support_repetitions
@@ -70,7 +78,19 @@ generator:
     population_embedding: learned_vector
     # Centring is the structural fix; this is the check that it worked. Above-chance recovery of
     # the support set's class composition from the embedding fails the gate.
-    class_information_control: support_class_composition_probe_must_be_at_chance
+    # Centring removes the class MEAN, not every trace of class information: class-conditional
+    # covariance and higher moments survive it. So this probe is load-bearing, not confirmatory,
+    # and it cannot stay a slogan.
+    class_information_control:
+      diagnostic: support_class_composition_probe
+      must_be_at_chance: true
+      status: pending_decision
+      target: null              # what the probe predicts from the embedding
+      grouping: null            # must be subject-grouped, or the probe memorises individuals
+      model: null
+      score: null
+      chance_baseline: null
+      acceptance_threshold: null
 training:
   loss: negative_elbo
   # D22 fixed the sign and name only. These remain Pending; the runner must not default them.
@@ -95,4 +115,6 @@ evaluation:
   checks:
     - kl_term_not_collapsed
     - class_label_changes_sample
+    # Without this, a generator that ignores subject conditioning passes everything above.
+    - subject_embedding_changes_sample
     - trained_on_training_subjects_only

@@ -79,6 +79,9 @@ evaluation:
     - expected_calibration_error
     - mean_confidence_when_wrong
     - per_subject_expected_calibration_error
+    - per_subject_macro_f1
+    - per_subject_brier_score
+    - per_subject_overconfidence_error
     - brier_score
     - overconfidence_error
   save_predictions: true

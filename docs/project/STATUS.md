@@ -33,6 +33,19 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   metric contracts, corrected stale implementation claims, and added metadata-only acquisition
   provenance. The F1 architecture and remaining calibration choices are recorded below for owner
   resolution; no protocol decision was silently supplied by the implementation.
+- Corrective pass on D25–D27 after Codex review. Added the per-subject macro-F1, Brier and
+  overconfidence keys D26 promised but no config could emit (F2 exempted, and the reason written
+  into the config: its test windows come from subjects that are in training, so a per-subject
+  number there measures nothing). Specified the paired bootstrap, the post-scaling bin recompute,
+  distinct raw/scaled result keys, and `NA` on zero errors. Re-blocked G1 — rotation *selection*
+  still inherits D14's Pending PRNG convention, and the class-composition probe was a slogan
+  rather than a gate. Added a `subject_embedding_changes_sample` check, since nothing verified the
+  embedding affected the output at all. Corrected "pairing cancels the subject effect" to
+  "controls shared subject variation", and defined the minimum reportable difference as a CI
+  criterion rather than a power calculation the no-tests-at-n=8 rule forbids.
+- `tests/test_project_memory.py` enforces the bookkeeping that kept breaking by hand: no blank
+  line splitting a Markdown table, every `blocked_on` entry naming a field that exists, Pending
+  and Resolved disjoint, and STATUS's open list matching Pending in **both** directions.
 - Three protocol decisions settled (D25–D27). Overconfidence error is split into the binned
   positive gap and a separate descriptive `mean_confidence_when_wrong`, now on all five foundation
   configs so the language arm has an F1 reference row to compare against. The subject is the
@@ -159,12 +172,7 @@ what is done, what remains, which branch, and the next concrete step.
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
-   - **Inferential unit outside calibration.** D23 fixes subject-level resampling and paired
-     comparisons for calibration metrics. Other confidence intervals still need an explicit unit,
-     and D6's 8×8 matrix adds a second axis: fold and subject variance must stay separate.
-   - **G1 subject-embedding contract.** Fix its estimator/pooling, pseudo-calibration schedule,
-     target exclusion, population embedding, and class-information control.
-   - **G2 gate population/final-test policy.** Fix the development folds/aggregation and one-shot
+   - **G2 gate population and final-test policy.** Fix the development folds/aggregation and one-shot
      final diagnostic, including coverage of the conditional distributions used across *k*.
    - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
      monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
@@ -174,19 +182,21 @@ what is done, what remains, which branch, and the next concrete step.
      real/synthetic batch composition and weighting, real-window exposure, and epoch semantics.
    - **G3 adaptation objective.** Fix optimizer, loss, class weights, learning rate,
      regularization, and absent-class handling.
-   - **G3 replay control.** Add a population-conditioned balanced-replay control or narrow the
+   - **G3 population-replay control.** Add a population-conditioned balanced-replay control or narrow the
      causal claim to avoid attributing generic replay gains to subject conditioning.
    - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
      persisted with each run.
    - **G3 calibration-rest ownership.** Rest does not increment *k*, but the runner needs a fixed
      rule for whether a selected gesture trial permits one adjacent rest interval. Inspection is
      complete and assignment is feasible; never silently expose all held-out-subject rest.
-   - **Overconfidence-error definition.** §3.4's prose and the literature term name two different
-     metrics; the language arm's headline claim rests on this one.
+   - **G1 embedding operational detail.** D27 fixed the estimator, schedule and population
+     vector, but rotation *selection* inherits D14's Pending PRNG convention and the
+     class-composition probe needs a target, subject-grouped split, score and threshold before it
+     can gate anything.
    - **G0/G1 VAE objective components.** The minimized objective is correctly named
      `negative_elbo`; the reconstruction likelihood/reduction, units, and raw-versus-weighted KL
      reporting remain open.
-   - **G2 metric/gate contract.** Fix grouped discriminator evaluation, AUC orientation and
+   - **G2 quality-metric and acceptance contract.** Fix grouped discriminator evaluation, AUC orientation and
      dependence-aware CI, CI/per-class gate behavior, nearest-neighbour semantics, and a genuine
      diversity or coverage diagnostic.
    - **G3/G4 within-subject repeated-run aggregation.** Fix aggregation across the persisted
@@ -225,8 +235,8 @@ what is done, what remains, which branch, and the next concrete step.
   path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
   is 0 as the safe local default until a measured lazy/memory-mapped design exists.
 - D10 requires the refit-minus-fold-mean result, but its output key/schema is not yet defined.
-- L2–L4 do not yet encode a cross-validation/refit selection contract and request the still-Pending
-  `overconfidence_error` without an evaluation gate; settle both before language-arm execution.
+- L2–L4 do not yet encode a cross-validation/refit selection contract and request `overconfidence_error` (settled as
+  D25) without an evaluation gate; settle the selection contract before language-arm execution.
 - F3–F5 still need executable perturbation definitions (order relative to normalization,
   noise/channel-mask sampling and seeds, repetitions, and aggregation).
 - Governance wording still conflicts: AGENTS calls DECISIONS rows append-only while DECISIONS moves
