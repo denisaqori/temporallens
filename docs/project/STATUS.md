@@ -33,6 +33,17 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
   metric contracts, corrected stale implementation claims, and added metadata-only acquisition
   provenance. The F1 architecture and remaining calibration choices are recorded below for owner
   resolution; no protocol decision was silently supplied by the implementation.
+- G3's adaptation is specified (D28–D30). The objective is additive rather than averaged, so the
+  replay arms embed the whole real-only objective with its coefficient unchanged and add exactly
+  one intervention; both loss sources are normalised to per-source means, because the real set
+  spans ~97 to ~3,300 windows across the grid and an unnormalised sum would make the loss scale a
+  function of *k*. Regularisation is L2-SP to the F1 head with Adam weight decay zeroed, so the two
+  anchors cannot compete. Adaptation is full-batch and restarts at every *k*, which removes
+  minibatch composition and warm-starting as protocol variables. The single synthetic arm became
+  two, split by conditioning source with paired synthetic draws and one shared *k*=0 run, so a gain
+  can be attributed to subject conditioning rather than generic replay — this amends D15 and adds a
+  third G3 robustness slice. Seen/unseen reporting is mean per-class recall, renamed to
+  `*_macro_recall`. The numeric candidate grid stays open.
 - Corrective pass on D25–D27 after Codex review. Added the per-subject macro-F1, Brier and
   overconfidence keys D26 promised but no config could emit (F2 exempted, and the reason written
   into the config: its test windows come from subjects that are in training, so a per-subject
@@ -176,14 +187,6 @@ what is done, what remains, which branch, and the next concrete step.
      final diagnostic, including coverage of the conditional distributions used across *k*.
    - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
      monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
-   - **G3 calibration-subgroup aggregation.** Seen/unseen gesture reporting is required, but its
-     pooled-window versus class-macro definition remains open; empty groups report `NA`.
-   - **G3 adaptation training budget and mixture.** Fix optimizer steps, batch size,
-     real/synthetic batch composition and weighting, real-window exposure, and epoch semantics.
-   - **G3 adaptation objective.** Fix optimizer, loss, class weights, learning rate,
-     regularization, and absent-class handling.
-   - **G3 population-replay control.** Add a population-conditioned balanced-replay control or narrow the
-     causal claim to avoid attributing generic replay gains to subject conditioning.
    - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
      persisted with each run.
    - **G3 calibration-rest ownership.** Rest does not increment *k*, but the runner needs a fixed
@@ -193,6 +196,10 @@ what is done, what remains, which branch, and the next concrete step.
      vector, but rotation *selection* inherits D14's Pending PRNG convention and the
      class-composition probe needs a target, subject-grouped split, score and threshold before it
      can gate anything.
+   - **G3 adaptation candidate grid.** D28 fixed the objective's form, losses,
+     regulariser and full-batch rule; the numeric learning-rate / step / L2-SP grid, selection
+     metric and tie-break are undeclared, and a grid declared after results are seen is not a
+     selection protocol.
    - **G0/G1 VAE objective components.** The minimized objective is correctly named
      `negative_elbo`; the reconstruction likelihood/reduction, units, and raw-versus-weighted KL
      reporting remain open.

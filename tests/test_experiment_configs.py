@@ -245,8 +245,11 @@ def test_g3_g4_fail_closed_on_schedule_objective_and_replay_control(
     personalization = config["personalization"]
     assert personalization["rest_calibration_policy"] == "pending_decision"
     assert personalization["trial_selection"]["reproducibility"]["prng"] is None
-    assert personalization["adaptation"]["objective"]["optimizer"] is None
-    assert personalization["synthetic"]["replay_control"]["strategy"] is None
+    # D28/D29 settled the objective form and the replay control. What did NOT land is the
+    # numeric grid, and a grid declared after results are inspected is not a protocol.
+    grid = personalization["adaptation"]["objective"]["candidate_grid"]
+    assert grid["status"] == "pending_decision"
+    assert grid["learning_rate"] is None and grid["l2_sp_beta"] is None
 
 
 def test_g4_records_pending_headline_ece_aggregation() -> None:
@@ -288,8 +291,9 @@ def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
     g3_targets = [target for target in registry["targets"] if target["arm"] == "generation"]
     assert {target["strategy"] for target in g3_targets} == {
         "real_adaptation",
-        "real_plus_synthetic_adaptation",
-    }
+        "real_plus_population_synthetic_adaptation",
+        "real_plus_subject_synthetic_adaptation",
+    }, "D29: without the population-conditioned slice, a surviving advantage is unattributable"
     assert len({tuple(target["artifact_axes"]) for target in g3_targets}) == 1
 
 

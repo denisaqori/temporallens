@@ -195,11 +195,12 @@ calibration strategies:
 |---|---|---|
 | `population_no_adaptation` | Use the unchanged F1 population head; no held-out-subject data | The horizontal population reference |
 | `real_adaptation` | Start from the F1 head and fine-tune it on all valid windows from the *k* selected real trials | **D5 baseline** — what ordinary head adaptation buys |
-| `real_plus_synthetic_adaptation` | Start from the same F1 head and fine-tune the same parameters on those real windows plus subject-conditioned synthetic latent windows | **The headline** — does synthesis reduce real trial burden beyond matched adaptation? |
+| `real_plus_population_synthetic_adaptation` | The same, plus synthetic windows conditioned on the **population** embedding | **The control (D29)** — what generic balanced replay buys on its own |
+| `real_plus_subject_synthetic_adaptation` | The same, plus synthetic windows conditioned on **this subject's** calibration-derived embedding | **The headline** — does subject conditioning add anything beyond generic replay? |
 
-Three curves on one axis. The headline number is the horizontal gap: how many fewer real gesture
-trials `real_plus_synthetic_adaptation` needs to reach the accuracy `real_adaptation` reaches at a
-given *k*. Name the result `real_gesture_trials_saved`; never shorten it to "samples saved," which
+Four curves on one axis (D29). The headline number is the horizontal gap: how many fewer real
+gesture trials `real_plus_subject_synthetic_adaptation` needs to reach the accuracy
+`real_adaptation` reaches at a given *k*. Name the result `real_gesture_trials_saved`; never shorten it to "samples saved," which
 would obscure the unit.
 
 The **unit and name** of that statistic are frozen; its numerical extraction is not. Before the
@@ -213,17 +214,65 @@ Without `real_adaptation`, the contribution is unquantified. It is cheap because
 entire harness and needs no generator. Scope is **head-only fine-tuning**. For *k*>0, the two
 trainable strategies use the same F1 initialization, trainable surface, optimizer schedule, and
 optimizer-step budget; full fine-tuning and test-time adaptation are follow-ups. At *k*=0,
-`real_adaptation` is a no-op and coincides with `population_no_adaptation`, while
-`real_plus_synthetic_adaptation` may update the head using population-conditioned synthetic
-windows. That synthetic-only point is a diagnostic, not a matched real-versus-synthetic treatment
-comparison, because no real-only optimizer-step budget exists at *k*=0.
+`real_adaptation` is a no-op and coincides with `population_no_adaptation`, and the two replay arms
+are **one shared run**: both condition on the population embedding there, so reporting them
+separately would imply independent evidence that does not exist. That synthetic-only point is a
+diagnostic, not a matched real-versus-synthetic comparison, because no real-only optimizer-step
+budget exists at *k*=0.
 
-The matched-step rule does not yet define the adaptation objective. Optimizer, loss, class-weight
-source, learning rate, regularization, and behavior for classes absent from a small-*k* support set
-remain Pending and fail closed. A population-conditioned class-balanced replay control is also
-Pending: without it, a gain from `real_plus_synthetic_adaptation` could reflect generic balanced
-rehearsal rather than calibration-derived subject information. Until that control is decided, keep
-the causal claim narrow.
+### The adaptation objective (D28)
+
+$$J_{\text{real}} = L_{\text{real}} + \beta R_{\text{SP}}
+\qquad
+J_{\text{replay},c} = J_{\text{real}} + \lambda_{\text{syn}} L_{\text{synthetic},c}$$
+
+**Additive, not averaged.** The replay objective embeds the entire real-only objective *with its
+coefficient unchanged* and adds exactly one intervention. An averaged form,
+$(L_{\text{real}}+L_{\text{synthetic}})/2$, would halve the real term's coefficient — changing two
+things at once in a comparison designed to change one.
+
+Be precise about what that buys. The additive form preserves the **algebraic coefficient** of the
+real-only objective and nothing more. The realized update, the parameter trajectory, the gradient
+norm and the effective step size all change — intentionally, because that is the intervention. In
+particular, the combined gradient norm is *not* guaranteed to grow: $\|g_{\text{real}} + \lambda
+g_{\text{syn}}\|$ can rise or fall depending on alignment, and Adam normalizes by its second
+moment, so a loss rescaling does not translate into a proportionally larger update at all.
+
+| Term | Definition | Why |
+|---|---|---|
+| $L_{\text{real}}$ | $\sum_i w_{y_i}\mathrm{CE}_i \big/ \sum_i w_{y_i}$ | A weighted **mean**. The real set spans ~97 windows at *k*=1 to ~3,300 at *k*=34, so an unnormalized sum would make the loss scale a function of *k* and the curve would partly measure that |
+| $L_{\text{synthetic}}$ | $\frac{1}{N_{\text{syn}}}\sum_j \mathrm{CE}_j$, **unweighted** | Inverse-frequency weights exist to flatten a skewed distribution. The synthetic bank is already flat at 50 windows per class, so weighting it would *de-balance* it toward rare population classes |
+| $R_{\text{SP}}$ | $\|\theta - \theta_{\text{F1}}\|^2$, summed over head parameters | **L2-SP**: anchor to the pretrained solution, not toward zero. Adam's `weight_decay` is set to **0**, or the two regularizers compete silently with opposite targets |
+| $\lambda_{\text{syn}}$ | **Frozen at 1.0** | With both sources normalized to a per-source mean this has a principled value, and freezing it means the replay arms carry **no hyperparameters of their own** |
+| Class weights | F1 population weights, from the development fold's 28 subjects; all 32 for the final pipeline | Defined even when a subject's calibration set omits classes. Fitting on 32 during development would leak the validation subjects' class distribution, the same rule as §3.3's normalization statistics |
+
+**Full-batch, restarted at every *k*.** Head-only latent adaptation at the largest *k* is ~3,300
+real plus 900 synthetic 256-d latents — a few megabytes. Full-batch removes minibatch composition
+and cycling as protocol variables entirely, and every real window contributes to every step. Each
+*k* restarts from the F1 head with a fresh optimizer; **never warm-start *k*=2 from *k*=1**, which
+would make the curve a cumulative process rather than independent *k*-shot adaptation.
+
+Matched optimizer steps means matched *between strategies at the same k* — D15 does not fix one
+count across all *k*. It also does not mean matched FLOPs: the replay arms process 900 extra
+examples per step, which is acceptable and must be reported.
+
+**All 18 output rows stay active.** Classes absent from a small-*k* support set receive only
+negative gradient, and `real_adaptation` may therefore fall *below* `population_no_adaptation` at
+small *k*. That is a legitimate finding — naive adaptation can hurt before it helps — and masking
+or freezing absent classes would shrink the very gap the headline reports.
+
+**Tuning, and what is still open.** Shared hyperparameters are selected on `real_adaptation` only,
+then frozen for both replay arms: treatment-specific tuning is the thing to avoid. The resulting
+bias direction is **not known** — under the additive objective a fixed anchor is relatively weaker
+against a larger data loss, so this is an unbiased-selection choice rather than a conservative one.
+Selection runs through the D16 folds: one fixed-budget development model per fold trained on its 28
+subjects at D18's refit budget and *never* selected on the outer four, with normalization, class
+weights, latent centroids, population embedding and generator all fitted from those same 28,
+calibrating from {1,4} and evaluating on {2,3,5,6}. *k*=0 is excluded, since real adaptation is a
+no-op there. Those eight development fits are shared infrastructure for the whole arm, not a cost
+charged to adaptation tuning — and **D27's centring reference must come from the same 28**, or
+development silently mixes populations. The numeric `candidate_grid` is still Pending: a grid
+declared after results are inspected is not a selection protocol.
 
 **Design requirement.** `calibration_strategy` must be a **pluggable axis** in the runner from
 the first line of code. Bolted on afterwards it means rewriting the loop.
@@ -370,9 +419,9 @@ before G0/G1 implementation.
 | Key | What it is |
 |---|---|
 | `accuracy_vs_k_curve` | Decoding accuracy against *k*, one curve per `calibration_strategy`. The deliverable |
-| `real_gesture_trials_saved` | **The headline.** Horizontal gap between the two adapted curves: how many fewer real gesture trials `real_plus_synthetic_adaptation` needs to match `real_adaptation`. D15's unmatched synthetic *k*=0 diagnostic is excluded |
-| `calibration_seen_gesture_accuracy` | Accuracy restricted to gesture classes the subject demonstrated in their *k* trials |
-| `calibration_unseen_gesture_accuracy` | Accuracy restricted to classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask |
+| `real_gesture_trials_saved` | **The headline.** Horizontal gap: how many fewer real gesture trials `real_plus_subject_synthetic_adaptation` needs to match `real_adaptation`. D15's unmatched synthetic *k*=0 diagnostic is excluded |
+| `calibration_seen_gesture_macro_recall` | **Mean per-class recall** over gesture classes the subject demonstrated in their *k* trials — subgroup balanced accuracy (D30) |
+| `calibration_unseen_gesture_macro_recall` | The same over classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask; `NA` from *k*=17, where one trial per gesture gives full coverage |
 | `rest_accuracy` | Accuracy on the rest class, reported separately because rest is an evaluation class that never increments *k* |
 | `demonstrated_gesture_count` | How many distinct gesture classes the *k* trials covered. Without it the seen/unseen split cannot be read at a given *k* |
 

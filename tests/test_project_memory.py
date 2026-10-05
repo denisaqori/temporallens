@@ -44,7 +44,13 @@ def _table_blocks(text: str) -> list[list[str]]:
 
 
 def _titles(rows: list[str]) -> set[str]:
-    """First three significant words of each row's leading bolded title, lowercased."""
+    """First three significant words of each row's leading bolded title, lowercased.
+
+    This imposes a naming constraint worth knowing about: two rows must differ within their
+    first three significant words, and a STATUS bullet must open with the same three as its
+    Pending row. "G3 adaptation objective" and "G3 adaptation objective candidate grid" collide,
+    which is why the latter is named "G3 adaptation candidate grid" instead.
+    """
     out = set()
     for row in rows:
         first = row.strip().strip("|").split("|")[0]
@@ -82,6 +88,23 @@ def test_no_blank_line_splits_a_markdown_table(path: Path) -> None:
             f"{path.name}: a table block starts without a delimiter row, so a blank line above "
             f"it split the table. First row: {header[:90]}"
         )
+
+
+@pytest.mark.parametrize("path", (STATUS, DECISIONS), ids=lambda p: p.name)
+def test_no_two_table_rows_share_a_line(path: Path) -> None:
+    """The other half of the same mistake.
+
+    Inserting rows against an anchor whose leading newline is the one terminating the previous
+    row concatenates two rows onto one line. Nothing renders the second row, and the diff looks
+    like a single very long line. The blank-line check above cannot see it.
+    """
+    for line in path.read_text().split("\n"):
+        if not line.startswith("| D"):
+            continue
+        rest = line[1:]
+        assert (
+            "| D1" not in rest and "| D2" not in rest and "| D3" not in rest
+        ), f"{path.name}: two decision rows share a line: {line[:110]}"
 
 
 # --- fail-closed configs must fail closed on something real --------------------------------

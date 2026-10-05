@@ -667,8 +667,9 @@ The trial budget, grid, acquisition schedule, and class-coverage reporting are s
 [generative-arm.md](generative-arm.md), G3.
 
 **D15 — G3 uses matched F1-head adaptation strategies.** The population reference is not adapted;
-`real_adaptation` and `real_plus_synthetic_adaptation` share initialization, trainable surface,
-optimizer schedule, and optimizer-step budget for *k*>0. See G3 and D5 below.
+the adapted arms share initialization, trainable surface, optimizer schedule, and optimizer-step
+budget for *k*>0. **Amended by D29**: the single synthetic arm became two, split by conditioning
+source, so there are four curves. See G3 and D5 below.
 
 ---
 
@@ -733,17 +734,18 @@ for that held-out subject. The encoder stays frozen. Full fine-tuning, test-time
 (entropy minimization or normalization-stat updates), and a fresh randomly initialized head are
 follow-ups, not v1 alternatives.
 
-For *k*>0, its matched synthetic counterpart, `real_plus_synthetic_adaptation`, starts from the
-same F1 head and trains the same head parameters with the same optimizer schedule and
-optimizer-step budget; the treatment difference is adding subject-conditioned synthetic latent
-windows. Exact batch composition, real-window exposure, synthetic weighting, and the numerical
-step budget remain Pending. The unchanged F1 head is retained as `population_no_adaptation`, a
-horizontal population reference. At *k*=0, `real_adaptation` is the same no-op reference, while
-the synthetic arm may update the head using population-conditioned synthetic windows because no
-subject-specific information exists. That synthetic-only point is a diagnostic, not a matched
-treatment comparison.
+For *k*>0 it has two matched synthetic counterparts (D29) — `real_plus_population_synthetic_adaptation`
+and `real_plus_subject_synthetic_adaptation` — which start from the same F1 head, train the same
+parameters under the same schedule and step budget, and differ from each other *only* by the
+conditioning embedding. The objective, loss reductions, regularizer and full-batch rule are fixed
+by D28; only the numeric candidate grid remains Pending. The unchanged F1 head is retained as
+`population_no_adaptation`, a horizontal population reference. At *k*=0, `real_adaptation` is the
+same no-op reference and the two replay arms are one shared run, since both condition on the
+population embedding there. That synthetic-only point is a diagnostic, not a matched treatment
+comparison.
 
 Build the personalization runner with a pluggable `calibration_strategy` axis
-(`population_no_adaptation` | `real_adaptation` | `real_plus_synthetic_adaptation`) from the first
-line of code. These names replace the ambiguous prior labels, under which `real_only` and
-`real_plus_adaptation` could describe the same operation.
+(`population_no_adaptation` | `real_adaptation` | `real_plus_population_synthetic_adaptation` |
+`real_plus_subject_synthetic_adaptation`) from the first line of code. These names replace the
+ambiguous prior labels, under which `real_only` and `real_plus_adaptation` could describe the same
+operation.

@@ -1,8 +1,8 @@
 # G3 — THE HEADLINE. For each held-out subject, decoding accuracy as a function of k, the total
 # number of complete real gesture trials the subject supplies. Every valid window wholly inside a
 # selected trial is used, but windows are not calibration units. The headline is the HORIZONTAL
-# gap: how many fewer real gesture trials real_plus_synthetic_adaptation needs to match
-# real_adaptation.
+# gap: how many fewer real gesture trials real_plus_subject_synthetic_adaptation needs to match
+# real_adaptation, with real_plus_population_synthetic_adaptation as the control (D29).
 #
 # Gated on G2: do not report this if the synthetic-quality gate failed.
 #
@@ -16,12 +16,11 @@ protocol:
   status: blocked_pending_decisions
   blocked_on:
     - personalization.rest_calibration_policy
+    # D28 fixed the objective's FORM; the numeric grid is still undeclared, and a grid
+    # declared after results are inspected is not a selection protocol.
+    - personalization.adaptation.objective.candidate_grid
     - personalization.trial_selection.reproducibility
-    - personalization.adaptation.training_budget
-    - personalization.adaptation.objective
-    - personalization.synthetic.replay_control
     - evaluation.headline_extraction
-    - evaluation.subgroup_aggregation
 experiment:
   name: gen_personalization_efficiency
   seed: 42
@@ -67,7 +66,11 @@ personalization:
   calibration_strategy:
     - population_no_adaptation
     - real_adaptation
-    - real_plus_synthetic_adaptation
+    # D29: the two replay arms differ ONLY by the conditioning embedding. Everything else --
+    # synthetic labels, latent-noise draws, real data, initialization, ordering -- is shared, so
+    # the pair is a matched comparison rather than two independent runs.
+    - real_plus_population_synthetic_adaptation
+    - real_plus_subject_synthetic_adaptation
   synthetic:
     windows_per_class: 50
     class_scope: all_output_classes
@@ -75,43 +78,109 @@ personalization:
     conditioning_at_k0: population_embedding
     # k>0: conditioning derived ONLY from windows in the k permitted trials (leakage rule 3)
     conditioning_at_k: calibration_derived_from_k_only
-    # Needed to separate subject-conditioned synthesis from generic class-balanced replay.
+    # D29. Generic generative replay is a known way to reduce forgetting, so without a
+    # population-conditioned arm a gain cannot be attributed to subject conditioning at all.
     replay_control:
-      status: pending_decision
-      strategy: null
+      strategy: paired_population_and_subject_conditioned_arms
+      shared_across_the_two_replay_arms:
+        - synthetic_class_labels
+        - latent_noise_draws
+        - real_calibration_windows
+        - head_initialization
+        - example_ordering
+      # Both arms use the population embedding at k=0, so they are ONE run and one result.
+      # Reporting two numbers there would imply independent evidence that does not exist.
+      k0_is_a_single_shared_run: true
+      # This control separates subject conditioning from generic replay. It does NOT control
+      # replay-versus-real compute, and it does not isolate class balance: both arms are
+      # class-balanced. If the two curves agree, the finding is "no detected incremental
+      # subject-conditioning benefit" -- not equivalence, absent a pre-declared margin.
+      isolates: subject_conditioning_beyond_generic_replay
   adaptation:
     type: head_only_finetune
     initialization: f1_population_head
     matched_optimizer_steps_at_k_gt_0: true
+    # D28. Full-batch, so minibatch composition and cycling stop being protocol variables.
+    # At the largest k that is ~3,300 real plus 900 synthetic 256-d latents through a small
+    # head -- a few MB.
     training_budget:
-      status: pending_decision
-      optimizer_steps: null
-      batch_size: null
-      real_synthetic_batch_mix: null
-      synthetic_loss_weight: null
+      batching: full_batch
+      # D15 matches steps BETWEEN strategies at the same k. It does not fix one count across
+      # all k, so the step count may vary with k under a declared rule.
+      optimizer_steps: matched_between_strategies_at_each_k
+      optimizer_steps_rule: selected_on_development_folds
+      # Every k restarts from the F1 head with a fresh optimizer. Warm-starting k=2 from k=1
+      # would make the curve a cumulative process, not independent k-shot adaptation.
+      warm_start_along_the_curve: forbidden
+      synthetic_loss_weight: 1.0
     objective:
-      status: pending_decision
-      optimizer: null
-      loss: null
-      class_weight_source: null
-      learning_rate: null
-      regularization: null
-      absent_class_handling: null
+      optimizer: adam
+      # ADDITIVE, not averaged. J_real = L_real + beta*R_SP; J_replay = J_real + lambda*L_syn.
+      # This embeds the entire real-only objective with its coefficient unchanged and adds
+      # exactly one intervention. It preserves the ALGEBRAIC COEFFICIENT of the real objective
+      # and nothing else: the realized update, trajectory, gradient norm and effective step all
+      # change, by design, because that is the intervention.
+      loss: additive_real_plus_weighted_synthetic
+      real_loss: weight_normalised_class_weighted_cross_entropy
+      synthetic_loss: unweighted_mean_cross_entropy
+      # Both sources are normalised to a per-source MEAN. The real set spans ~97 windows at k=1
+      # to ~3,300 at k=34, so an unnormalised sum would make the loss scale a function of k and
+      # the curve would partly measure that. Normalised, lambda_syn=1 means one unit of average
+      # synthetic loss against one unit of average real loss.
+      real_loss_reduction: sum_w_times_ce_over_sum_w
+      synthetic_loss_reduction: mean_over_synthetic_windows
+      # Inverse-frequency weights exist to flatten a skewed distribution. The synthetic bank is
+      # already flat at 50 windows per class, so weighting it would DE-balance it toward rare
+      # population classes.
+      synthetic_is_unweighted_because: bank_is_already_class_balanced
+      class_weight_source: f1_population_class_weights
+      class_weight_fitted_on: development_fold_28_subjects_then_all_32_for_the_final_pipeline
+      # L2-SP: anchor to the pretrained solution, not toward zero. Ordinary weight decay would
+      # pull toward a degenerate head and would silently compete with this anchor.
+      regularization: l2_sp_to_f1_head
+      l2_sp_scope: head_parameters
+      l2_sp_reduction: sum_over_head_parameters
+      adam_weight_decay: 0.0
+      # Shared hyperparameters are tuned on real_adaptation ONLY, then frozen for both replay
+      # arms: treatment-specific tuning is the thing to avoid. The resulting bias direction is
+      # NOT known -- under the additive objective the fixed anchor is relatively weaker against
+      # a larger data loss, so it is not a conservative choice, just an unbiased-selection one.
+      shared_hyperparameters_tuned_on: real_adaptation_only
+      learning_rate: selected_on_development_folds
+      candidate_grid:
+        status: pending_decision
+        learning_rate: null
+        optimizer_steps: null
+        l2_sp_beta: null          # must include 0.0 so "no anchoring" stays available
+        selection_metric: null
+        tie_break: null
+      # All 18 output rows stay active. Seen/unseen degradation is the phenomenon G3 measures,
+      # so masking or freezing absent classes would shrink the gap the headline reports.
+      absent_class_handling: all_outputs_remain_active
 evaluation:
   fixed_evaluation_set: true   # never varies with k or strategy (leakage rule 5)
   report_per_subject: true     # a mean over 8 subjects can hide one at chance
   headline_extraction: pending_decision
+  # D30. Mean per-class recall within the subgroup -- subgroup balanced accuracy. Pooling over
+  # windows would be dominated by whichever gestures have more windows, the same reason macro_f1
+  # and not accuracy is the headline.
   subgroup_aggregation:
-    status: pending_decision
-    aggregation: null
+    aggregation: mean_per_class_recall_within_subgroup
     empty_group_result: null_metric
+    # Seen is empty at k=0; unseen is empty from k=17, where one trial per gesture gives full
+    # coverage. NA, never 0.
+    seen_group_is_na_at: k_equals_0
+    unseen_group_is_na_from: k_equals_17
+    # Schedules, adaptation seeds and synthetic draws are summarised WITHIN subject before
+    # D26's paired subject-level comparison.
+    within_subject_summary_precedes_paired_comparison: true
   metrics:
     - accuracy
     - macro_f1
     - per_subject_accuracy
     - per_subject_macro_f1
-    - calibration_seen_gesture_accuracy
-    - calibration_unseen_gesture_accuracy
+    - calibration_seen_gesture_macro_recall
+    - calibration_unseen_gesture_macro_recall
     - rest_accuracy
     - demonstrated_gesture_count
     - accuracy_vs_k_curve
