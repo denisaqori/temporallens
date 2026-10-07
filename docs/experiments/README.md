@@ -31,7 +31,7 @@ embedding space improve decoding, calibration, or failure reporting beyond a wel
 encoder?* The deliverable is a comparison with two controls attached. A clean negative result
 is a valid outcome and must be reported as one.
 
-A result in one arm is never evidence for the other. Do not merge them into a single headline.
+A result in one arm is never evidence for the other.
 
 ---
 
@@ -39,18 +39,18 @@ A result in one arm is never evidence for the other. Do not merge them into a si
 
 These words were being used loosely. They are now defined, and the definitions are binding.
 
-| Term | Precise meaning | Frequently confused with |
-|---|---|---|
-| **Encoder** | The 1-D CNN mapping a raw EMG window to a 256-d embedding. Trained in Milestone 0, then **frozen** for both arms. | — |
-| **Projector** | The small trainable MLP mapping the 256-d encoder embedding to *N* soft-prefix embeddings of the LLM's hidden size. In configs this is the `adapter:` block, whose `type` is `mlp_projector`. | "Adapter" |
-| **Adapter** | In this project, a synonym for **projector** — the same object. It is *not* a PEFT/LoRA adapter. Nothing is ever inserted into the language model's own weights. | LoRA adapters |
-| **Head** | The trainable classifier on the frozen model's final hidden state. Produces the 18-class logits. Separate from, and downstream of, the projector. | Projector; the LLM's own LM head |
-| **Soft prefix** | Continuous embedding vectors prepended to the text-prompt embeddings, passed via `inputs_embeds`. They are **not** discrete tokens and never index the vocabulary. | "Token space", prompt text |
-| **Frozen** | `requires_grad=False` on every parameter of that module, and the module in `eval()` mode. The encoder and the language model are frozen; the projector and head are not. | "Not updated this step" |
-| **Readout** | *How* a class prediction is extracted. **Discriminative** = trainable head on a pooled hidden state. **Generative** = the model's own LM head emits a label token. See Section 4. | The input path |
-| **Input path** | *What* the model receives: soft-prefix embeddings, or engineered text, or nothing (encoder-only). Orthogonal to readout. | The readout |
-| **Calibration** (two senses!) | (a) **Subject calibration** — the *k* complete labelled gesture trials a new user provides in total; all contained windows are derived training examples, not additional calibration units. (b) **Probability calibration** — whether predicted confidence matches accuracy (ECE). Always qualify which. | each other |
-| **Generative** (two senses!) | (a) The **generative arm** — the conditional VAE synthesizing EMG. (b) A **generative readout** — reading a class out of an LM head. Unrelated. Always qualify. | each other |
+| Term                          | Precise meaning                                                                                                                                                                                                                                                                                          | Frequently confused with         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Encoder**                   | The 1-D CNN mapping a raw EMG window to a 256-d embedding. Trained in Milestone 0, then **frozen** for both arms.                                                                                                                                                                                        | —                                |
+| **Projector**                 | The small trainable MLP mapping the 256-d encoder embedding to *N* soft-prefix embeddings of the LLM's hidden size. In configs this is the `adapter:` block, whose `type` is `mlp_projector`.                                                                                                            | "Adapter"                        |
+| **Adapter**                   | In this project, a synonym for **projector** — the same object. It is *not* a PEFT/LoRA adapter. Nothing is ever inserted into the language model's own weights.                                                                                                                                         | LoRA adapters                    |
+| **Head**                      | The trainable classifier on the frozen model's final hidden state. Produces the 18-class logits. Separate from, and downstream of, the projector.                                                                                                                                                        | Projector; the LLM's own LM head |
+| **Soft prefix**               | Continuous embedding vectors prepended to the text-prompt embeddings, passed via `inputs_embeds`. They are **not** discrete tokens and never index the vocabulary.                                                                                                                                       | "Token space", prompt text       |
+| **Frozen**                    | `requires_grad=False` on every parameter of that module, and the module in `eval()` mode. The encoder and the language model are frozen; the projector and head are not.                                                                                                                                 | "Not updated this step"          |
+| **Readout**                   | *How* a class prediction is extracted. **Discriminative** = trainable head on a pooled hidden state. **Generative** = the model's own LM head emits a label token. See Section 4.                                                                                                                        | The input path                   |
+| **Input path**                | *What* the model receives: soft-prefix embeddings, or engineered text, or nothing (encoder-only). Orthogonal to readout.                                                                                                                                                                                 | The readout                      |
+| **Calibration** (two senses!) | (a) **Subject calibration** — the *k* complete labelled gesture trials a new user provides in total; all contained windows are derived training examples, not additional calibration units. (b) **Probability calibration** — whether predicted confidence matches accuracy (ECE). Always qualify which. | each other                       |
+| **Generative** (two senses!)  | (a) The **generative arm** — the conditional VAE synthesizing EMG. (b) A **generative readout** — reading a class out of an LM head. Unrelated. Always qualify.                                                                                                                                          | each other                       |
 
 ---
 
@@ -198,23 +198,23 @@ the generative-arm leakage rules; this never permits subject-specific normalizat
 
 ### 3.4 Metrics
 
-| Metric | What it captures | Why it is here |
-|---|---|---|
-| `accuracy` | Overall correctness | Baseline readability; misleading alone under class imbalance |
-| `macro_f1` | Mean per-class F1, unweighted | Rest is over-represented; macro-F1 stops a model from coasting on it |
-| `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance |
-| `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts |
-| `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away |
-| `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
-| `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
-| `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
-| `per_subject_macro_f1` | Macro-F1 for each evaluation subject separately | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too |
-| `per_subject_brier_score` | Brier score for each evaluation subject separately | Same rule as ECE: a pooled proper score can hide one badly-scored subject |
-| `per_subject_overconfidence_error` | Overconfidence error for each evaluation subject separately | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number |
-| `overconfidence_error` | Confidence-weighted **positive** gap, summed over bins: `Σ (|Bₘ|/n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
-| `mean_confidence_when_wrong` | Mean confidence over misclassified windows | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |
-| `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
-| `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
+| Metric                                   | What it captures                                             | Why it is here                                                                                                                                                                            |                                        |                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `accuracy`                               | Overall correctness                                          | Baseline readability; misleading alone under class imbalance                                                                                                                              |                                        |                                                                                                                                    |
+| `macro_f1`                               | Mean per-class F1, unweighted                                | Rest is over-represented; macro-F1 stops a model from coasting on it                                                                                                                      |                                        |                                                                                                                                    |
+| `per_subject_accuracy`                   | Accuracy for each held-out subject separately                | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance                                                                    |                                        |                                                                                                                                    |
+| `per_class_precision`                    | Precision for each of the 18 classes separately              | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts                                                                                      |                                        |                                                                                                                                    |
+| `per_class_recall`                       | Recall for each of the 18 classes separately                 | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away                                                          |                                        |                                                                                                                                    |
+| `confusion_matrix`                       | Which movements are mistaken for which                       | Anatomically adjacent gestures confuse; the pattern is a result                                                                                                                           |                                        |                                                                                                                                    |
+| `expected_calibration_error`             | Gap between confidence and accuracy                          | Probability calibration. A wearable that is confidently wrong is worse than one that abstains                                                                                             |                                        |                                                                                                                                    |
+| `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject          | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration                                                                                     |                                        |                                                                                                                                    |
+| `per_subject_macro_f1`                   | Macro-F1 for each evaluation subject separately              | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too                                                                                          |                                        |                                                                                                                                    |
+| `per_subject_brier_score`                | Brier score for each evaluation subject separately           | Same rule as ECE: a pooled proper score can hide one badly-scored subject                                                                                                                 |                                        |                                                                                                                                    |
+| `per_subject_overconfidence_error`       | Overconfidence error for each evaluation subject separately  | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number                                                                                                       |                                        |                                                                                                                                    |
+| `overconfidence_error`                   | Confidence-weighted **positive** gap, summed over bins: `Σ ( | Bₘ                                                                                                                                                                                        | /n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
+| `mean_confidence_when_wrong`             | Mean confidence over misclassified windows                   | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |                                        |                                                                                                                                    |
+| `brier_score`                            | Mean squared error of the predicted probability vector       | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23)                                                                  |                                        |                                                                                                                                    |
+| `robustness_drop`                        | Accuracy loss from clean → perturbed                         | Robustness experiments only                                                                                                                                                               |                                        |                                                                                                                                    |
 
 The table above is the shared metric registry; the "Metrics reference" tables in
 [generative-arm.md](generative-arm.md) register generation-specific keys. Every value under an
@@ -373,11 +373,12 @@ Rest is over-represented in DB2 Exercise B — measured on subject 2 at `stride:
 that predicted rest and nothing else would score 50% accuracy, which is why `macro_f1` and not
 `accuracy` is the headline. Handle the imbalance in the loss, never by resampling:
 
-| | Rule |
-|---|---|
-| Training | `class_weighted_cross_entropy` — weights inversely proportional to class frequency in the current training partition |
-| Resampling | **Never.** No oversampling, no undersampling, on any split |
-| Test set | **Never balanced.** A balanced test set does not estimate deployment performance |
+|                                                  | Rule                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Population-model training                        | `class_weighted_cross_entropy` — weights inversely proportional to class frequency in the current training partition                                                                                                                                                                                                                                           |
+| G3/G4 adaptation (D28; amends D11 for this case) | Reuse the F1 population-weight vector for the real source in all three adapted strategies: fit on each fold's 28 training subjects during development and all 32 for the final pipeline. A small-*k* subject support set omits classes, so recomputing inverse-frequency weights there is undefined. The class-balanced synthetic bank uses unweighted mean CE |
+| Resampling                                       | **Never.** No oversampling, no undersampling, on any split                                                                                                                                                                                                                                                                                                     |
+| Test set                                         | **Never balanced.** A balanced test set does not estimate deployment performance                                                                                                                                                                                                                                                                               |
 
 The group's [prior work](https://arxiv.org/abs/2303.10336) oversamples within each subject to
 equalize classes. That is fine for discrete trials, but not for this data. Windows are 400
@@ -386,9 +387,11 @@ copies of the same signal into a batch. §3.2 and §3.3 both warn against that c
 oversampling would let it back in. Weighting the loss rebalances the classes without duplicating
 anything.
 
-Do not do both. Macro-F1 already accounts for the imbalance and the weighted loss already
-corrects for it. Resampling on top would leave `accuracy` describing a class distribution the
-model never meets in deployment.
+Do not combine class weighting with class-balancing resampling. Macro-F1 already accounts for the
+imbalance and the population-model weighted loss already corrects for it. In G3/G4, D28's
+class-balanced synthetic bank is an explicit intervention with an unweighted source loss; the real
+support is never resampled. Resampling on top would leave `accuracy` describing a class
+distribution the model never meets in deployment.
 
 Debug-only `max_windows_per_subject` caps are a non-reportable plumbing exception, not a class-
 balancing method. Their seeded subsample retains every class present so the smoke test exercises
@@ -441,10 +444,30 @@ head:
 A generative readout remains available as an explicitly secondary ablation (L5) on the
 frozen-LLM method only — never as a control's readout.
 
-**Easily missed — `pooling: last_token` assumes right-padding.** With a causal model and
-left-padded batches, the final position is a pad token and the pooled vector is garbage;
-training still runs and loss still decreases, so this fails silently. Either pin the tokenizer
-to right-padding or pool the true last non-pad index per sequence. Assert it in code.
+**Easily missed — `pooling: last_token` means the last non-padding token, never literally the
+final position.** Defining the pooled quantity this way, rather than by which padding side the
+tokenizer happens to use, is what keeps the implementation from drifting from the intent.
+
+| How you index it | Correct when |
+|---|---|
+| `hidden_states[:, -1]` | **Left**-padding only |
+| `attention_mask.sum(-1) - 1` | **Right**-padding only, and only with no interior zeros in the mask |
+| Rightmost index where the mask is 1 — `L - 1 - mask.flip(-1).argmax(-1)` | **Either** padding, and under interior masking |
+
+Prefer the third. Note that `sum(-1) - 1` is *not* a general "find the last real token" formula
+even though it reads from the mask: it assumes the real tokens occupy indices `0..n-1`, so it
+returns 1 instead of 2 for a left-padded `[0,1,1]`.
+
+**Then assert**, because the general form still degrades silently on an all-pad row — `argmax`
+returns 0, the index becomes `L-1`, and you pool a pad again. Check that every row has at least
+one unmasked token and that the mask at the chosen index is 1.
+
+**Why this hides.** The longest sequence in a batch is correct under either padding, so the bug
+corrupts only the short rows of mixed-length batches. Training runs and loss falls.
+
+**Left-padding's second trap:** unless `position_ids` are derived from the attention mask, the real
+tokens sit at positions offset by the pad count. Pass explicit `position_ids`, or confirm the model
+builds them from the mask.
 
 **Easily missed — `input_dim: auto_from_llm_config` is load-bearing.** The hidden size must be
 read from the model's own config at runtime, never hard-coded. Llama 3.2 1B and 3B have
@@ -740,9 +763,10 @@ parameters under the same schedule and step budget, and differ from each other *
 conditioning embedding. The objective, loss reductions, regularizer and full-batch rule are fixed
 by D28; only the numeric candidate grid remains Pending. The unchanged F1 head is retained as
 `population_no_adaptation`, a horizontal population reference. At *k*=0, `real_adaptation` is the
-same no-op reference and the two replay arms are one shared run, since both condition on the
-population embedding there. That synthetic-only point is a diagnostic, not a matched treatment
-comparison.
+same no-op reference. The replay aliases share one population-conditioned head per recorded
+`(adaptation_seed, synthetic_draw_id)`, since subject and schedule provide no input there; each
+held-out subject is still evaluated once per repeat. That synthetic-only point is a diagnostic, not
+a matched treatment comparison.
 
 Build the personalization runner with a pluggable `calibration_strategy` axis
 (`population_no_adaptation` | `real_adaptation` | `real_plus_population_synthetic_adaptation` |

@@ -15,7 +15,7 @@ agreement**.
 > architecture and calibration clarifications recorded under
 > [Known open items](#known-open-items-not-yet-scheduled).
 
-_Last updated: 2026-10-01_
+_Last updated: 2026-10-05_
 
 ## Latest changes
 
@@ -28,22 +28,22 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- G3/G4 adaptation is specified and reconciled (D28–D30). The objective is additive rather than
+  averaged, so the replay arms embed the whole real-only objective with its coefficient unchanged
+  and add exactly one intervention; both loss sources are normalised to per-source means, because
+  the real set
+  spans roughly 97 to 3,300 active-gesture windows across the grid before any permitted rest, and
+  an unnormalised sum would make the loss scale a function of *k*. Regularisation is L2-SP to the F1
+  head with Adam weight decay zeroed. Adaptation is full-batch and restarts at every *k*. The two
+  replay arms now encode their conditioning separately, share paired RNG and fixed bank draws, and
+  deduplicate both pairs of identical *k*=0 results; D28 explicitly amends D11 for adaptation, and
+  D29 propagates through G4 and all three adapted robustness slices. Seen/unseen reporting is mean
+  per-class recall. The numeric candidate grid and repeat-domain/aggregation contract stay open.
 - Repository consistency pass hardened raw/processed DB2 validation, made debug window caps
   class-covering, repaired run-log serialization and worktree provenance, reconciled config/spec
   metric contracts, corrected stale implementation claims, and added metadata-only acquisition
   provenance. The F1 architecture and remaining calibration choices are recorded below for owner
   resolution; no protocol decision was silently supplied by the implementation.
-- G3's adaptation is specified (D28–D30). The objective is additive rather than averaged, so the
-  replay arms embed the whole real-only objective with its coefficient unchanged and add exactly
-  one intervention; both loss sources are normalised to per-source means, because the real set
-  spans ~97 to ~3,300 windows across the grid and an unnormalised sum would make the loss scale a
-  function of *k*. Regularisation is L2-SP to the F1 head with Adam weight decay zeroed, so the two
-  anchors cannot compete. Adaptation is full-batch and restarts at every *k*, which removes
-  minibatch composition and warm-starting as protocol variables. The single synthetic arm became
-  two, split by conditioning source with paired synthetic draws and one shared *k*=0 run, so a gain
-  can be attributed to subject conditioning rather than generic replay — this amends D15 and adds a
-  third G3 robustness slice. Seen/unseen reporting is mean per-class recall, renamed to
-  `*_macro_recall`. The numeric candidate grid stays open.
 - Corrective pass on D25–D27 after Codex review. Added the per-subject macro-F1, Brier and
   overconfidence keys D26 promised but no config could emit (F2 exempted, and the reason written
   into the config: its test windows come from subjects that are in training, so a per-subject
@@ -153,8 +153,9 @@ end to end yet.
   Hardened across four review rounds with Codex; see DECISIONS.
 - Agent re-rooting complete: every work surface (Codex desktop, Claude terminal CLI, Claude desktop)
   resolves to this repository; the ChatGPT-project mirror is retired as a work surface.
-- G3 calibration-budget and strategy choices frozen (D14, D15); specifications and configs
-  reconciled. The remaining reporting and training-policy choices stay open below.
+- G3 calibration-budget and strategy choices frozen (D14, D15 as amended by D28–D30);
+  specifications and configs reconciled. The numeric candidate grid and remaining reporting
+  choices stay open below.
 - Split manifest and verified loader landed (D16).
 
 ## In progress
@@ -197,18 +198,19 @@ what is done, what remains, which branch, and the next concrete step.
      class-composition probe needs a target, subject-grouped split, score and threshold before it
      can gate anything.
    - **G3 adaptation candidate grid.** D28 fixed the objective's form, losses,
-     regulariser and full-batch rule; the numeric learning-rate / step / L2-SP grid, selection
-     metric and tie-break are undeclared, and a grid declared after results are seen is not a
-     selection protocol.
+     regulariser and full-batch rule; the numeric learning-rate / step / L2-SP grid, global-versus-
+     per-*k* step scope, selection metric and aggregation, and tie-break are undeclared. A grid
+     declared after results are seen is not a selection protocol.
    - **G0/G1 VAE objective components.** The minimized objective is correctly named
      `negative_elbo`; the reconstruction likelihood/reduction, units, and raw-versus-weighted KL
      reporting remain open.
    - **G2 quality-metric and acceptance contract.** Fix grouped discriminator evaluation, AUC orientation and
      dependence-aware CI, CI/per-class gate behavior, nearest-neighbour semantics, and a genuine
      diversity or coverage diagnostic.
-   - **G3/G4 within-subject repeated-run aggregation.** Fix aggregation across the persisted
-     schedule/seed/draw runs without duplicating the population reference or treating reused
-     evaluation windows as independent observations; record adaptation-seed and synthetic-draw IDs.
+   - **G3/G4 within-subject repeated-run aggregation.** Fix the adaptation-seed and synthetic-draw
+     counts/derivations, whether those axes are paired or crossed, and aggregation across the
+     persisted schedule/seed/draw runs without duplicating the population reference or treating
+     reused evaluation windows as independent observations.
    - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
      headline, supplemental, or omitted.
 
@@ -222,8 +224,11 @@ what is done, what remains, which branch, and the next concrete step.
 
 - Robustness configs are target-agnostic in schema but **not executable** until the eval logic and
   the arm models exist (`evaluate.py` is a stub).
-- G3 robustness expansion across held-out subject × schedule × *k* is declared for both adapted
-  strategies, but the runner must resolve `latest` to an immutable run ID before evaluating them.
+- G3 robustness expansion across held-out subject × schedule × *k* is declared for all three
+  adapted strategies, including adaptation-seed and replay-only synthetic-draw axes. The runner
+  must resolve `latest` to an immutable run ID, deduplicate both strategy pairs' shared *k*=0 head
+  artifacts while still evaluating each held-out subject, and wait for the Pending repeat-domain
+  and within-subject aggregation rules before reportable evaluation.
 - Evaluation outputs currently mix primitive metrics, grouped curves, metadata, uncertainty, and
   derived estimands. Define and validate a result schema that separates those roles alongside the
   F0/F1 evaluator, then migrate the G-series configs before their runners are implemented.
@@ -253,10 +258,11 @@ what is done, what remains, which branch, and the next concrete step.
   entries span multiple lines. Concurrent deletion/reordering can retain stale fragments instead of
   conflicting. Decide whether to restore normal merges or restructure project memory before relying
   on union merge as collision protection.
-- The new G0/G1 objective-component and G3/G4 repeated-run Pending choices are not yet wired into
-  runner-enforced config schemas; add the appropriate execution/reportability gates when
-  implementing their runners.
-- `head.pooling: last_token` assumes right-padding; the L-series trainer must pin the tokenizer or
-  pool the true last non-pad index (silent failure otherwise).
+- The G0/G1 objective-component Pending choice is not yet wired into a runner-enforced config
+  schema; add the appropriate execution/reportability gate when implementing that runner. G3/G4's
+  repeated-run contract is now fail-closed in both generation configs and the robustness registry.
+- `head.pooling: last_token` means the last non-padding token: the L-series trainer must gather the
+  rightmost unmasked index rather than the final position, assert the row has an unmasked token, and
+  pass mask-derived `position_ids` under left-padding (silent failure otherwise).
 - The interface-only Make targets listed in AGENTS.md reference scripts that are not written yet.
 - GitHub Issues/Project sync deferred to Tier-2 (`gh` not installed).

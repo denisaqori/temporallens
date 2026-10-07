@@ -44,22 +44,41 @@ targets:
   # survives shift, and without the population-conditioned slice it cannot say whether any
   # surviving advantage came from subject conditioning rather than generic replay.
   # The future runner must resolve `latest` to an immutable recorded run ID and expand every
-  # declared artifact axis before scoring.
+  # declared artifact axis before scoring. Adaptation seeds apply to all adapted strategies;
+  # synthetic-draw IDs apply only to replay strategies, so copying one common axis list would
+  # duplicate real_adaptation rather than create independent evidence. Aggregation across these
+  # repeats is still Pending and therefore remains fail-closed here.
   - name: g3_real_adaptation
     arm: generation
     strategy: real_adaptation
-    artifact_axes: [held_out_subject, schedule_index, calibration_trials]
+    artifact_axes: [held_out_subject, schedule_index, calibration_trials, adaptation_seed]
+    repeat_axis_source: gen_personalization_efficiency.personalization.repeated_run_reproducibility
+    within_subject_repeat_aggregation: pending_decision
+    k0_artifact_scope:
+      model_artifact: one_global_shared_no_adaptation_head
+      evaluation_scope: each_held_out_subject_once
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
   - name: g3_population_synthetic_adaptation
     arm: generation
     strategy: real_plus_population_synthetic_adaptation
-    artifact_axes: [held_out_subject, schedule_index, calibration_trials]
+    artifact_axes:
+      [held_out_subject, schedule_index, calibration_trials, adaptation_seed, synthetic_draw_id]
+    repeat_axis_source: gen_personalization_efficiency.personalization.repeated_run_reproducibility
+    within_subject_repeat_aggregation: pending_decision
+    k0_artifact_scope:
+      model_artifact: one_per_adaptation_seed_and_synthetic_draw_id_shared_across_subjects_and_schedules
+      evaluation_scope: each_held_out_subject_once_per_repeat
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
   - name: g3_subject_synthetic_adaptation
     arm: generation
     strategy: real_plus_subject_synthetic_adaptation
-    artifact_axes: [held_out_subject, schedule_index, calibration_trials]
+    artifact_axes:
+      [held_out_subject, schedule_index, calibration_trials, adaptation_seed, synthetic_draw_id]
+    repeat_axis_source: gen_personalization_efficiency.personalization.repeated_run_reproducibility
+    within_subject_repeat_aggregation: pending_decision
+    # D29: at k=0 this is the exact same run as the population-conditioned replay target.
+    shared_k0_with: g3_population_synthetic_adaptation
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest

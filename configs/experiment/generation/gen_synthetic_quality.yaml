@@ -54,8 +54,9 @@ development_gate:
   status: pending_decision
   subject_source: null
   fold_aggregation: null
-  # Must cover the population-conditioned k=0 distribution and the subject-conditioned k>0
-  # distributions that G3 actually consumes, rather than one pooled unconditional AUC.
+  # Must cover the population-conditioned distribution used by replay at every k and the
+  # subject-conditioned k>0 distributions that G3 consumes, rather than one pooled unconditional
+  # AUC. At k=0 the two replay arms share the population-conditioned distribution.
   conditioning_coverage: null
 final_test_diagnostic:
   status: pending_decision

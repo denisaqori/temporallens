@@ -110,9 +110,15 @@ from parameter count.
   study and becomes a bigger-model study.
 - `adapter.output_dim: auto_from_llm_config` — read `hidden_size` from the model config at
   runtime. Hard-coding it is the likeliest cause of "worked locally, failed on the pod."
-- **Padding side.** `head.pooling: last_token` with a causal model assumes right-padding. Under
-  left-padding the pooled vector is a pad embedding; training still runs and loss still falls,
-  so this fails *silently*. Pin the tokenizer or pool the true last non-pad index, and assert it.
+- **`head.pooling: last_token` means the last non-padding token**, not literally the final
+  position. `hidden_states[:, -1]` is correct only under left-padding; `attention_mask.sum(-1) - 1`
+  only under right-padding and only without interior zeros. Use the rightmost index where the mask
+  is 1 — `L - 1 - mask.flip(-1).argmax(-1)` — which holds either way, then assert every row has an
+  unmasked token and that the mask at the chosen index is 1 (an all-pad row sends `argmax` to 0 and
+  silently reselects the final position). This hides because the longest sequence in a batch is
+  right under either padding, so only the short rows of mixed-length batches are corrupted: training
+  runs and loss falls. Under left-padding, also pass mask-derived `position_ids`, or real tokens sit
+  at positions offset by the pad count.
 - Effective batch is `batch_size × gradient_accumulation_steps` = 4 × 8 = 32. Changing only
   `batch_size` to fit memory silently changes the optimization, not just the memory profile.
 - `wandb_mode: online` here. Requires `wandb login` on the pod; the local JSON logger is still

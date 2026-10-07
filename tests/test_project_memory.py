@@ -91,20 +91,26 @@ def test_no_blank_line_splits_a_markdown_table(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", (STATUS, DECISIONS), ids=lambda p: p.name)
-def test_no_two_table_rows_share_a_line(path: Path) -> None:
-    """The other half of the same mistake.
+def test_markdown_table_rows_keep_the_header_column_count(path: Path) -> None:
+    """Catch any two table rows concatenated onto one physical line.
 
-    Inserting rows against an anchor whose leading newline is the one terminating the previous
-    row concatenates two rows onto one line. Nothing renders the second row, and the diff looks
-    like a single very long line. The blank-line check above cannot see it.
+    Counting unescaped pipes applies to every rendered table in both files, rather than only
+    decision IDs beginning D1/D2/D3. A concatenated row necessarily carries a second row's full set
+    of delimiters and therefore cannot match its table header.
     """
-    for line in path.read_text().split("\n"):
-        if not line.startswith("| D"):
+
+    def unescaped_pipe_count(line: str) -> int:
+        return len(re.findall(r"(?<!\\)\|", line))
+
+    for block in _table_blocks(path.read_text()):
+        if len(block) < 2 or not re.match(r"^\|[\s:|-]+\|$", block[1]):
             continue
-        rest = line[1:]
-        assert (
-            "| D1" not in rest and "| D2" not in rest and "| D3" not in rest
-        ), f"{path.name}: two decision rows share a line: {line[:110]}"
+        expected = unescaped_pipe_count(block[0])
+        for row in block[1:]:
+            assert unescaped_pipe_count(row) == expected, (
+                f"{path.name}: table row has a different column count from its header; "
+                f"it may contain two concatenated rows: {row[:110]}"
+            )
 
 
 # --- fail-closed configs must fail closed on something real --------------------------------

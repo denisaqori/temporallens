@@ -20,6 +20,7 @@ protocol:
     # declared after results are inspected is not a selection protocol.
     - personalization.adaptation.objective.candidate_grid
     - personalization.trial_selection.reproducibility
+    - personalization.repeated_run_reproducibility
     - evaluation.headline_extraction
 experiment:
   name: gen_personalization_efficiency
@@ -63,6 +64,16 @@ personalization:
       persist_selected_trial_ids: true
   # MAT inspection established that assignment is feasible; the ownership rule remains Pending.
   rest_calibration_policy: pending_decision
+  # D29/D30 require persisted adaptation-seed and synthetic-draw identities, but their domain and
+  # deterministic derivation are not yet chosen. Keep execution blocked instead of inventing them.
+  repeated_run_reproducibility:
+    status: pending_decision
+    adaptation_seed_count: null
+    adaptation_seed_derivation: null
+    synthetic_draw_count: null
+    synthetic_draw_seed_derivation: null
+    repeat_axis_pairing: null
+    persist_adaptation_seed_and_synthetic_draw_id: true
   calibration_strategy:
     - population_no_adaptation
     - real_adaptation
@@ -74,10 +85,25 @@ personalization:
   synthetic:
     windows_per_class: 50
     class_scope: all_output_classes
-    # k=0: no subject-specific information exists, by definition (leakage rule 2)
-    conditioning_at_k0: population_embedding
-    # k>0: conditioning derived ONLY from windows in the k permitted trials (leakage rule 3)
-    conditioning_at_k: calibration_derived_from_k_only
+    # D29: encode the treatment difference per strategy. A single shared conditioning_at_k field
+    # could silently apply the subject embedding to the population control and collapse the contrast.
+    conditioning_by_strategy:
+      real_plus_population_synthetic_adaptation:
+        at_k0: population_embedding
+        at_k_gt_0: population_embedding
+      real_plus_subject_synthetic_adaptation:
+        # k=0 has no subject-specific information, by definition (leakage rule 2).
+        at_k0: population_embedding
+        # At k>0, use ONLY windows from the permitted trials (leakage rule 3).
+        at_k_gt_0: calibration_derived_from_k_only
+    # Generate each paired bank set once per recorded draw and reuse it for every optimizer step.
+    # k=0 has no subject or schedule input, so duplicating that bank along either axis would create
+    # fake replicates; for k>0 the subject-conditioned member is specific to the selected support.
+    bank_lifetime:
+      at_k0: once_per_synthetic_draw_id_shared_across_subjects_and_schedules
+      at_k_gt_0: once_per_subject_schedule_k_and_synthetic_draw_id
+    reuse_bank_across_optimizer_steps: true
+    persist_synthetic_draw_id: true
     # D29. Generic generative replay is a known way to reduce forgetting, so without a
     # population-conditioned arm a gain cannot be attributed to subject conditioning at all.
     replay_control:
@@ -85,17 +111,36 @@ personalization:
       shared_across_the_two_replay_arms:
         - synthetic_class_labels
         - latent_noise_draws
+        - synthetic_draw_id
         - real_calibration_windows
         - head_initialization
         - example_ordering
-      # Both arms use the population embedding at k=0, so they are ONE run and one result.
-      # Reporting two numbers there would imply independent evidence that does not exist.
-      k0_is_a_single_shared_run: true
+        - adaptation_seed
+      # Both arms use the population embedding at k=0, so each recorded repeat produces ONE shared
+      # replay head. It is shared across subjects/schedules and evaluated on each subject; it is not
+      # one total run when multiple adaptation seeds or synthetic draws are declared.
+      k0_shared_head_scope: one_per_adaptation_seed_and_synthetic_draw_id_across_subjects_and_schedules
       # This control separates subject conditioning from generic replay. It does NOT control
       # replay-versus-real compute, and it does not isolate class balance: both arms are
       # class-balanced. If the two curves agree, the finding is "no detected incremental
       # subject-conditioning benefit" -- not equivalence, absent a pre-declared margin.
       isolates: subject_conditioning_beyond_generic_replay
+  # At k=0 there are two unique head variants per recorded replay repeat, not four independently
+  # estimated strategy results. Heads are shared; evaluation remains per held-out subject.
+  k0_execution_aliases:
+    population_no_adaptation: shared_no_adaptation_head
+    real_adaptation: shared_no_adaptation_head
+    real_plus_population_synthetic_adaptation: shared_population_conditioned_replay_head
+    real_plus_subject_synthetic_adaptation: shared_population_conditioned_replay_head
+  k0_artifact_scope:
+    shared_no_adaptation_head:
+      repeat_identity: none
+      shared_across_subjects_and_schedules: true
+      evaluation_scope: each_held_out_subject_once
+    shared_population_conditioned_replay_head:
+      repeat_identity: [adaptation_seed, synthetic_draw_id]
+      shared_across_subjects_and_schedules: true
+      evaluation_scope: each_held_out_subject_once_per_repeat
   adaptation:
     type: head_only_finetune
     initialization: f1_population_head
@@ -120,7 +165,7 @@ personalization:
       # exactly one intervention. It preserves the ALGEBRAIC COEFFICIENT of the real objective
       # and nothing else: the realized update, trajectory, gradient norm and effective step all
       # change, by design, because that is the intervention.
-      loss: additive_real_plus_weighted_synthetic
+      loss: additive_weighted_real_plus_unweighted_synthetic
       real_loss: weight_normalised_class_weighted_cross_entropy
       synthetic_loss: unweighted_mean_cross_entropy
       # Both sources are normalised to a per-source MEAN. The real set spans ~97 windows at k=1
@@ -144,15 +189,24 @@ personalization:
       # Shared hyperparameters are tuned on real_adaptation ONLY, then frozen for both replay
       # arms: treatment-specific tuning is the thing to avoid. The resulting bias direction is
       # NOT known -- under the additive objective the fixed anchor is relatively weaker against
-      # a larger data loss, so it is not a conservative choice, just an unbiased-selection one.
+      # a larger data loss. This is a shared anti-cherry-picking rule, not an unbiased estimator.
       shared_hyperparameters_tuned_on: real_adaptation_only
       learning_rate: selected_on_development_folds
+      development_selection:
+        population_fit: fold_training_complement_28_subjects
+        model_training_budget: d18_global_development_refit_budget
+        checkpoint_selection_on_outer_four: forbidden
+        # The common D18 budget was selected across all development folds, so these scores are
+        # tuning diagnostics, not an unbiased outer-fold performance estimate.
+        result_role: hyperparameter_selection_only
       candidate_grid:
         status: pending_decision
         learning_rate: null
         optimizer_steps: null
+        optimizer_steps_scope: null  # one global count or a predeclared k-to-steps mapping
         l2_sp_beta: null          # must include 0.0 so "no anchoring" stays available
         selection_metric: null
+        selection_aggregation: null
         tie_break: null
       # All 18 output rows stay active. Seen/unseen degradation is the phenomenon G3 measures,
       # so masking or freezing absent classes would shrink the gap the headline reports.
@@ -184,5 +238,5 @@ evaluation:
     - rest_accuracy
     - demonstrated_gesture_count
     - accuracy_vs_k_curve
-    - real_gesture_trials_saved  # headline: horizontal gap between the two adapted curves
+    - real_gesture_trials_saved  # subject-replay versus real-adaptation horizontal gap
   save_predictions: true

@@ -39,9 +39,9 @@ treated as **no result**.
 
 **Easily missed:** the most common leak is not in the generator at all — it is fitting *any*
 statistic (normalization, subject embedding, class prior) on data the protocol has not yet
-"paid" for. No strategy may see more than the selected *k* trials: both adapted strategies use
-exactly that same set, while `population_no_adaptation` deliberately uses none. Their overlapping
-windows are derived examples, not additional calibration units.
+"paid" for. No strategy may see more than the selected *k* trials: all three adapted strategies use
+exactly that same real set, while `population_no_adaptation` deliberately uses none. Their
+overlapping windows are derived examples, not additional calibration units.
 
 ---
 
@@ -130,8 +130,8 @@ per-draw rather than global, and needs no separate mechanism.
 **Carry this forward.** At small *k* the embedding may carry almost no information — *k*=1 is one
 gesture from one session, so its residual is noisy and gesture-specific. That is a possible result,
 not a defect, but it means a small-*k* gain could come from class-balanced rehearsal rather than
-subject conditioning. The population-replay control is what separates those, and until it is
-decided the causal claim cannot be made.
+subject conditioning. D29's paired population-replay control separates those explanations; the
+causal claim depends on preserving that matched contrast.
 
 G1 still fails closed on the VAE objective components (`training.objective_components`): D22 fixed
 the objective's sign and name, not its reconstruction likelihood, reductions, units or KL-warmup
@@ -188,7 +188,7 @@ quality-metric/acceptance contract remain Pending.
 **Config:** `gen_personalization_efficiency.yaml` · **Runs:** cloud CUDA · **Mode:** `evaluate`
 
 **What it measures.** For each held-out subject, decoding accuracy as a function of the total
-number of real calibration gesture trials *k* ∈ **{0, 1, 2, 5, 10, 17, 20, 34}**, under three
+number of real calibration gesture trials *k* ∈ **{0, 1, 2, 5, 10, 17, 20, 34}**, under four
 calibration strategies:
 
 | `calibration_strategy` | Operation | Answers |
@@ -211,14 +211,15 @@ reaches the target. Those remain Pending rather than being hidden in evaluation 
 **Why the adaptation strategy is here (D5).** It is the first question anyone asks about the
 headline: *why synthesize data instead of just fine-tuning on the real trials you already have?*
 Without `real_adaptation`, the contribution is unquantified. It is cheap because it shares this
-entire harness and needs no generator. Scope is **head-only fine-tuning**. For *k*>0, the two
+entire harness and needs no generator. Scope is **head-only fine-tuning**. For *k*>0, all three
 trainable strategies use the same F1 initialization, trainable surface, optimizer schedule, and
 optimizer-step budget; full fine-tuning and test-time adaptation are follow-ups. At *k*=0,
-`real_adaptation` is a no-op and coincides with `population_no_adaptation`, and the two replay arms
-are **one shared run**: both condition on the population embedding there, so reporting them
-separately would imply independent evidence that does not exist. That synthetic-only point is a
-diagnostic, not a matched real-versus-synthetic comparison, because no real-only optimizer-step
-budget exists at *k*=0.
+`real_adaptation` is a no-op and coincides with `population_no_adaptation`. The two replay aliases
+share one population-conditioned head per recorded `(adaptation_seed, synthetic_draw_id)` across
+subjects and schedules, because neither supplies an input there; predictions and metrics are still
+computed once per held-out subject and repeat. That synthetic-only point is a diagnostic, not a
+matched real-versus-synthetic comparison, because no real-only optimizer-step budget exists at
+*k*=0.
 
 ### The adaptation objective (D28)
 
@@ -243,14 +244,26 @@ moment, so a loss rescaling does not translate into a proportionally larger upda
 | $L_{\text{real}}$ | $\sum_i w_{y_i}\mathrm{CE}_i \big/ \sum_i w_{y_i}$ | A weighted **mean**. The real set spans ~97 windows at *k*=1 to ~3,300 at *k*=34, so an unnormalized sum would make the loss scale a function of *k* and the curve would partly measure that |
 | $L_{\text{synthetic}}$ | $\frac{1}{N_{\text{syn}}}\sum_j \mathrm{CE}_j$, **unweighted** | Inverse-frequency weights exist to flatten a skewed distribution. The synthetic bank is already flat at 50 windows per class, so weighting it would *de-balance* it toward rare population classes |
 | $R_{\text{SP}}$ | $\|\theta - \theta_{\text{F1}}\|^2$, summed over head parameters | **L2-SP**: anchor to the pretrained solution, not toward zero. Adam's `weight_decay` is set to **0**, or the two regularizers compete silently with opposite targets |
-| $\lambda_{\text{syn}}$ | **Frozen at 1.0** | With both sources normalized to a per-source mean this has a principled value, and freezing it means the replay arms carry **no hyperparameters of their own** |
+| $\lambda_{\text{syn}}$ | **Frozen at 1.0** | With both sources normalized to a per-source mean, this is a transparent pre-declared equal-source coefficient; it is not claimed to be uniquely optimal. Freezing it means the replay arms add **no separately tuned loss coefficient** |
 | Class weights | F1 population weights, from the development fold's 28 subjects; all 32 for the final pipeline | Defined even when a subject's calibration set omits classes. Fitting on 32 during development would leak the validation subjects' class distribution, the same rule as §3.3's normalization statistics |
 
-**Full-batch, restarted at every *k*.** Head-only latent adaptation at the largest *k* is ~3,300
-real plus 900 synthetic 256-d latents — a few megabytes. Full-batch removes minibatch composition
-and cycling as protocol variables entirely, and every real window contributes to every step. Each
-*k* restarts from the F1 head with a fresh optimizer; **never warm-start *k*=2 from *k*=1**, which
-would make the curve a cumulative process rather than independent *k*-shot adaptation.
+At *k*=0 no real support exists, so the shared replay diagnostic minimizes
+$\beta R_{\text{SP}} + \lambda_{\text{syn}}L_{\text{synthetic,population}}$. The unchanged
+population head and the real-adaptation no-op are the other shared model variant. Cache the
+unchanged head once. For replay, each recorded `(adaptation_seed, synthetic_draw_id)` produces one
+population-conditioned head shared across subjects, schedules, and both replay-strategy aliases;
+do not collapse distinct recorded repeats, but do not present four independent strategy estimates.
+
+**Full-batch, restarted at every *k*.** Head-only latent adaptation at the largest *k* has roughly
+3,300 active-gesture real windows before any rest admitted by the still-Pending ownership rule,
+plus 900 synthetic 256-d latents — still only a few megabytes. At *k*>0, generate each paired
+population/subject bank set once per recorded `(subject, schedule, k, synthetic_draw_id)`; at *k*=0,
+generate one population-conditioned bank per `synthetic_draw_id` and share it across subjects and
+schedules. In both cases reuse the fixed bank across optimizer steps; redrawing 50/class every step
+would silently multiply the data budget. Full-batch removes minibatch composition and cycling as
+protocol variables, and every permitted real window contributes to every step. Each *k* restarts
+from the F1 head with a fresh optimizer; **never warm-start *k*=2 from *k*=1**, which would make the
+curve cumulative rather than independent *k*-shot adaptation.
 
 Matched optimizer steps means matched *between strategies at the same k* — D15 does not fix one
 count across all *k*. It also does not mean matched FLOPs: the replay arms process 900 extra
@@ -264,15 +277,19 @@ or freezing absent classes would shrink the very gap the headline reports.
 **Tuning, and what is still open.** Shared hyperparameters are selected on `real_adaptation` only,
 then frozen for both replay arms: treatment-specific tuning is the thing to avoid. The resulting
 bias direction is **not known** — under the additive objective a fixed anchor is relatively weaker
-against a larger data loss, so this is an unbiased-selection choice rather than a conservative one.
+against a larger data loss. This is a shared anti-cherry-picking rule, not an unbiased estimator.
 Selection runs through the D16 folds: one fixed-budget development model per fold trained on its 28
-subjects at D18's refit budget and *never* selected on the outer four, with normalization, class
-weights, latent centroids, population embedding and generator all fitted from those same 28,
-calibrating from {1,4} and evaluating on {2,3,5,6}. *k*=0 is excluded, since real adaptation is a
-no-op there. Those eight development fits are shared infrastructure for the whole arm, not a cost
-charged to adaptation tuning — and **D27's centring reference must come from the same 28**, or
-development silently mixes populations. The numeric `candidate_grid` is still Pending: a grid
-declared after results are inspected is not a selection protocol.
+subjects, with model weights never checkpoint-selected on the outer four. Its common epoch budget
+is D18's globally development-selected refit budget, which was derived across all eight validation
+groups; these are therefore hyperparameter-selection diagnostics, not unbiased outer-fold
+performance estimates. Normalization, class weights, latent centroids, population embedding and
+generator are all fitted from the same 28, calibrating from {1,4} and evaluating on {2,3,5,6}.
+*k*=0 is excluded, since real adaptation is a no-op there. Those eight development fits are shared
+infrastructure for the whole arm, not a cost charged to adaptation tuning — and **D27's centring
+reference must come from the same 28**, or development silently mixes populations. The numeric
+`candidate_grid` is still Pending: it must fix whether steps are one global count across nonzero
+*k* or a pre-declared *k*→steps mapping, the metric's aggregation order, and a deterministic
+tie-break before results are inspected.
 
 **Design requirement.** `calibration_strategy` must be a **pluggable axis** in the runner from
 the first line of code. Bolted on afterwards it means rewriting the loop.
@@ -338,17 +355,17 @@ replicates of the acquisition policy, not additional subjects or independent inf
 
 **Easily missed.**
 - **Class coverage is part of the treatment.** In addition to overall accuracy and macro-F1,
-  report accuracy for calibration-seen active gestures, calibration-unseen active gestures, and
-  rest separately, plus the number of distinct demonstrated gesture classes. Otherwise which
+  report D30's mean per-class recall for calibration-seen and calibration-unseen active gestures,
+  rest accuracy separately, and the number of demonstrated gesture classes. Otherwise which
   gestures happened to be selected can masquerade as a method effect. An empty subgroup is `NA`,
-  never zero; the subgroup aggregation rule (pooled-window versus class-macro) remains Pending.
+  never zero.
 - **Report per-subject curves, not only the mean.** A mean over eight held-out subjects can
   conceal one stuck at chance, and the variance between subjects is a finding in its own right.
 - **The real and synthetic units differ.** *k* counts gesture trials; the generator budget counts
-  latent windows per class. Name and report both. Match optimizer steps across the two trainable
-  strategies so extra compute cannot masquerade as a synthetic-data effect. Exact batch size,
-  real/synthetic minibatch composition, real-window exposure, synthetic loss weight, and the
-  meaning of an "epoch" over unequal datasets remain Pending and must be fixed before the runner.
+  latent windows per class. Name and report both. D28 uses full-batch steps matched across all three
+  adapted strategies at each *k*>0 and freezes the synthetic source coefficient at 1.0. Replay
+  still processes 900 additional latents per step, so report source counts and compute rather than
+  calling the comparison compute-matched. Only the numerical step/LR/L2-SP grid remains Pending.
 - **Rest ownership remains open.** Rest is the eighteenth output class, but it is not an ordinary
   prompted gesture trial and does not increment *k*. Inspection established that corrected rest
   intervals carry repetition indices, so unique trial-to-rest assignment is feasible; the owner
@@ -363,7 +380,7 @@ replicates of the acquisition policy, not additional subjects or independent inf
 **Config:** `gen_calibration_efficiency.yaml` · **Runs:** cloud CUDA · **Mode:** `evaluate`
 
 **What it measures.** Expected calibration error and overconfidence-on-wrong-predictions as a
-function of *k*, for the same three strategies as G3. This is *probability* calibration, over a
+function of *k*, for the same four strategies as G3. This is *probability* calibration, over a
 *subject-calibration* axis — the collision of terms README §2 warns about.
 
 **Why it exists.** Augmentation could raise accuracy while making the model confidently wrong,
@@ -419,7 +436,7 @@ before G0/G1 implementation.
 | Key | What it is |
 |---|---|
 | `accuracy_vs_k_curve` | Decoding accuracy against *k*, one curve per `calibration_strategy`. The deliverable |
-| `real_gesture_trials_saved` | **The headline.** Horizontal gap: how many fewer real gesture trials `real_plus_subject_synthetic_adaptation` needs to match `real_adaptation`. D15's unmatched synthetic *k*=0 diagnostic is excluded |
+| `real_gesture_trials_saved` | **The headline.** Horizontal gap: how many fewer real gesture trials `real_plus_subject_synthetic_adaptation` needs to match `real_adaptation`. D29's shared population-conditioned replay diagnostic at *k*=0 is excluded |
 | `calibration_seen_gesture_macro_recall` | **Mean per-class recall** over gesture classes the subject demonstrated in their *k* trials — subgroup balanced accuracy (D30) |
 | `calibration_unseen_gesture_macro_recall` | The same over classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask; `NA` from *k*=17, where one trial per gesture gives full coverage |
 | `rest_accuracy` | Accuracy on the rest class, reported separately because rest is an evaluation class that never increments *k* |
@@ -431,10 +448,11 @@ before G0/G1 implementation.
 |---|---|
 | `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy |
 Several registered metrics remain non-executable under DECISIONS → Pending. Existing blockers
-cover the G1 subject embedding, G2 development/final-test population, G3 headline and subgroup
-semantics, and the overconfidence-error definition. The additional VAE objective,
-G2 quality-gate, within-subject repeated-run, and G4 headline-ECE contracts raised by the metric
-audit are recorded there as well. Implementers must not fill any of these gaps with defaults.
+cover G1 embedding operational details, both G2 contracts, G3 headline extraction, rest ownership,
+schedule reproducibility, the adaptation candidate grid, repeated-run domains and within-subject
+aggregation, the VAE objective components, and G4 headline-ECE aggregation. D25 and D30 have
+already settled the overconfidence-error and subgroup semantics; implementers must not reopen them
+or fill the remaining gaps with defaults.
 
 ---
 
@@ -445,12 +463,18 @@ encoder. The question is whether accuracy bought with synthetic data survives re
 test-time shift — augmentation that improves clean accuracy while degrading robustness has not
 solved the deployment problem it claims to address.
 
-The `g3_synthetic_adaptation` target is already listed in
+The registry carries `g3_real_adaptation`, `g3_population_synthetic_adaptation`, and
+`g3_subject_synthetic_adaptation` slices in
 [`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml).
-Unlike the encoder and adapter targets it is **run-shaped, not file-shaped**: G3 trains
-per-subject decoders on the fly, so the target points at a `run_dir` rather than a single
-`refit.pt`, and the runner treats it as not-present until that directory is populated. See
-README §6.
+Unlike encoder and adapter targets they are **run-shaped, not file-shaped**: G3 trains per-subject
+decoders on the fly, so each target points at a `run_dir` rather than one `refit.pt`. The two replay
+targets share each population-conditioned *k*=0 head for the same `(adaptation_seed,
+synthetic_draw_id)`; the runner must resolve that artifact alias across strategies, subjects, and
+schedules, then still score it once on every held-out subject for that repeat. The unchanged head is
+likewise one shared artifact at *k*=0, without schedule or adaptation-seed replication, but still has
+one evaluation per held-out subject. Real adaptation carries an `adaptation_seed` axis at *k*>0,
+while replay also carries `synthetic_draw_id`; their counts, derivations, pairing and within-subject
+aggregation remain Pending and fail-closed in the registry. See README §6.
 
 ---
 
@@ -461,7 +485,10 @@ Before any G-series number leaves this repository:
 - [ ] G2 gate passed and reported (AUC with CI, per class, plus memorization and
       diversity/coverage diagnostics)
 - [ ] All five leakage rules verified for the reported configuration
-- [ ] All three D15 strategies on the curve, with matched training for the two adapted heads
+- [ ] All four D29 strategies on the curve, with matched training for the three adapted heads
+- [ ] At *k*=0, the unchanged head is cached once and each replay repeat is stored once, with both
+      strategy pairs exposed only as aliases
+- [ ] Replay controls share synthetic labels/noise, adaptation seed and fixed-bank draw IDs
 - [ ] Per-subject curves shown, not only the mean
 - [ ] Multiple nested, class-aware schedules per subject, shared across strategies, with spread
 - [ ] *k* stated as total complete active-gesture trials per subject; contained windows also reported

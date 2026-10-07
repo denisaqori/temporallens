@@ -8,9 +8,14 @@
 # being an adapter study. adapter.output_dim is auto_from_llm_config: hard-coding the hidden
 # size is the most likely cause of "worked locally, failed on the pod".
 #
-# head.pooling: last_token assumes RIGHT-padding. Under left-padding the pooled vector is a pad
-# embedding — training still runs and loss still falls, so this fails SILENTLY. Pin the
-# tokenizer or pool the true last non-pad index, and assert it.
+# head.pooling: last_token means the LAST NON-PADDING token, not literally the final position.
+# hidden_states[:, -1] is correct only under left-padding; attention_mask.sum(-1) - 1 only under
+# right-padding, and only with no interior zeros. Use the rightmost unmasked index,
+# L - 1 - mask.flip(-1).argmax(-1), then ASSERT the row has an unmasked token and the mask at that
+# index is 1 -- an all-pad row sends argmax to 0 and silently reselects the final position. This
+# hides because the longest sequence in a batch is right either way, so only short rows of
+# mixed-length batches break: training runs and loss falls. Under left-padding also pass
+# mask-derived position_ids, or real tokens sit at offset positions.
 #
 # Effective batch = batch_size x gradient_accumulation_steps = 32. Changing batch_size alone to
 # fit memory silently changes the optimization, not just the memory profile.

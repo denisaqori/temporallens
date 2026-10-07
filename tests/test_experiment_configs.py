@@ -238,18 +238,97 @@ def test_g1_still_fails_closed_on_the_vae_objective_components() -> None:
         "configs/experiment/generation/gen_personalization_efficiency.yaml",
     ),
 )
-def test_g3_g4_fail_closed_on_schedule_objective_and_replay_control(
+def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     relative_path: str,
 ) -> None:
     config = _load(relative_path)
     personalization = config["personalization"]
     assert personalization["rest_calibration_policy"] == "pending_decision"
     assert personalization["trial_selection"]["reproducibility"]["prng"] is None
-    # D28/D29 settled the objective form and the replay control. What did NOT land is the
-    # numeric grid, and a grid declared after results are inspected is not a protocol.
-    grid = personalization["adaptation"]["objective"]["candidate_grid"]
+    repeat_reproducibility = personalization["repeated_run_reproducibility"]
+    assert repeat_reproducibility["status"] == "pending_decision"
+    assert repeat_reproducibility["adaptation_seed_count"] is None
+    assert repeat_reproducibility["adaptation_seed_derivation"] is None
+    assert repeat_reproducibility["synthetic_draw_count"] is None
+    assert repeat_reproducibility["synthetic_draw_seed_derivation"] is None
+    assert repeat_reproducibility["repeat_axis_pairing"] is None
+    assert "personalization.repeated_run_reproducibility" in config["protocol"]["blocked_on"]
+
+    expected_strategies = {
+        "population_no_adaptation",
+        "real_adaptation",
+        "real_plus_population_synthetic_adaptation",
+        "real_plus_subject_synthetic_adaptation",
+    }
+    assert set(personalization["calibration_strategy"]) == expected_strategies
+
+    synthetic = personalization["synthetic"]
+    conditioning = synthetic["conditioning_by_strategy"]
+    population = conditioning["real_plus_population_synthetic_adaptation"]
+    subject = conditioning["real_plus_subject_synthetic_adaptation"]
+    assert population == {
+        "at_k0": "population_embedding",
+        "at_k_gt_0": "population_embedding",
+    }
+    assert subject == {
+        "at_k0": "population_embedding",
+        "at_k_gt_0": "calibration_derived_from_k_only",
+    }
+    assert synthetic["bank_lifetime"] == {
+        "at_k0": "once_per_synthetic_draw_id_shared_across_subjects_and_schedules",
+        "at_k_gt_0": "once_per_subject_schedule_k_and_synthetic_draw_id",
+    }
+    assert synthetic["reuse_bank_across_optimizer_steps"] is True
+    assert synthetic["persist_synthetic_draw_id"] is True
+
+    replay = synthetic["replay_control"]
+    assert replay["strategy"] == "paired_population_and_subject_conditioned_arms"
+    assert replay["k0_shared_head_scope"] == (
+        "one_per_adaptation_seed_and_synthetic_draw_id_across_subjects_and_schedules"
+    )
+    assert set(replay["shared_across_the_two_replay_arms"]) == {
+        "synthetic_class_labels",
+        "latent_noise_draws",
+        "synthetic_draw_id",
+        "real_calibration_windows",
+        "head_initialization",
+        "example_ordering",
+        "adaptation_seed",
+    }
+
+    aliases = personalization["k0_execution_aliases"]
+    assert len(set(aliases.values())) == 2
+    assert aliases["population_no_adaptation"] == aliases["real_adaptation"]
+    assert (
+        aliases["real_plus_population_synthetic_adaptation"]
+        == aliases["real_plus_subject_synthetic_adaptation"]
+    )
+    scope = personalization["k0_artifact_scope"]
+    assert scope["shared_no_adaptation_head"] == {
+        "repeat_identity": "none",
+        "shared_across_subjects_and_schedules": True,
+        "evaluation_scope": "each_held_out_subject_once",
+    }
+    assert scope["shared_population_conditioned_replay_head"] == {
+        "repeat_identity": ["adaptation_seed", "synthetic_draw_id"],
+        "shared_across_subjects_and_schedules": True,
+        "evaluation_scope": "each_held_out_subject_once_per_repeat",
+    }
+
+    objective = personalization["adaptation"]["objective"]
+    assert objective["loss"] == "additive_weighted_real_plus_unweighted_synthetic"
+    assert objective["real_loss"] == "weight_normalised_class_weighted_cross_entropy"
+    assert objective["synthetic_loss"] == "unweighted_mean_cross_entropy"
+    assert objective["adam_weight_decay"] == 0.0
+    assert objective["development_selection"]["result_role"] == "hyperparameter_selection_only"
+
+    # D28/D29 settled the objective form and replay control. The numeric grid remains open, and a
+    # grid declared after results are inspected is not a protocol.
+    grid = objective["candidate_grid"]
     assert grid["status"] == "pending_decision"
     assert grid["learning_rate"] is None and grid["l2_sp_beta"] is None
+    assert grid["optimizer_steps_scope"] is None
+    assert grid["selection_aggregation"] is None
 
 
 def test_g4_records_pending_headline_ece_aggregation() -> None:
@@ -286,7 +365,7 @@ def test_robustness_uses_the_frozen_target_temperature(relative_path: str) -> No
     assert config["evaluation"]["ece"]["temperature_source"] == "checkpoint_model_config"
 
 
-def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
+def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
     registry = _load("configs/experiment/robustness_targets.yaml")
     g3_targets = [target for target in registry["targets"] if target["arm"] == "generation"]
     assert {target["strategy"] for target in g3_targets} == {
@@ -294,7 +373,42 @@ def test_robustness_registry_compares_both_adapted_g3_strategies() -> None:
         "real_plus_population_synthetic_adaptation",
         "real_plus_subject_synthetic_adaptation",
     }, "D29: without the population-conditioned slice, a surviving advantage is unattributable"
-    assert len({tuple(target["artifact_axes"]) for target in g3_targets}) == 1
+    by_name = {target["name"]: target for target in g3_targets}
+    assert by_name["g3_real_adaptation"]["artifact_axes"] == [
+        "held_out_subject",
+        "schedule_index",
+        "calibration_trials",
+        "adaptation_seed",
+    ]
+    assert by_name["g3_real_adaptation"]["k0_artifact_scope"] == {
+        "model_artifact": "one_global_shared_no_adaptation_head",
+        "evaluation_scope": "each_held_out_subject_once",
+    }
+    replay_axes = [
+        "held_out_subject",
+        "schedule_index",
+        "calibration_trials",
+        "adaptation_seed",
+        "synthetic_draw_id",
+    ]
+    assert by_name["g3_population_synthetic_adaptation"]["artifact_axes"] == replay_axes
+    assert by_name["g3_subject_synthetic_adaptation"]["artifact_axes"] == replay_axes
+    assert {target["within_subject_repeat_aggregation"] for target in g3_targets} == {
+        "pending_decision"
+    }
+    assert by_name["g3_population_synthetic_adaptation"]["k0_artifact_scope"] == {
+        "model_artifact": (
+            "one_per_adaptation_seed_and_synthetic_draw_id_shared_across_subjects_and_schedules"
+        ),
+        "evaluation_scope": "each_held_out_subject_once_per_repeat",
+    }
+    assert {target["repeat_axis_source"] for target in g3_targets} == {
+        "gen_personalization_efficiency.personalization.repeated_run_reproducibility"
+    }
+    assert (
+        by_name["g3_subject_synthetic_adaptation"]["shared_k0_with"]
+        == "g3_population_synthetic_adaptation"
+    )
 
 
 METRIC_REFERENCE_SECTIONS = (
