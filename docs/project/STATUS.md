@@ -302,5 +302,21 @@ what is done, what remains, which branch, and the next concrete step.
 - `head.pooling: last_token` means the last non-padding token: the L-series trainer must gather the
   rightmost unmasked index rather than the final position, assert the row has an unmasked token, and
   pass mask-derived `position_ids` under left-padding (silent failure otherwise).
+- **Config keys that nothing reads** (found by the 2026-10-08 review). `training.device`,
+  `model.type` and `dataset.normalize` are declared in the foundation configs but no code consumes
+  them: the device comes from `get_device()`, the model is constructed as `Cnn1dClassifier` directly
+  rather than through `build_model`, and the normalization policy is fixed by D31. A config asking
+  for something else is silently overruled. `debug_tiny.yaml` also omits `weight_decay`, so F0 falls
+  back to the dataclass default 0.0 while F1 declares 1e-4. `scripts/train_encoder.py` is the right
+  place to close this — it should reject keys it does not consume rather than dropping them — and
+  F0's weight decay needs a deliberate value rather than a default.
+- **Protocol gating is fail-open by absence.** `source_protocol_blockers` returns no blockers when a
+  config has no `protocol:` block, and only the four generation configs have one. So `f1_encoder`,
+  `l2_frozen_llm`, `l3_random_transformer` and `l4_text_summary` all resolve as dispatchable, even
+  though the open items above record unresolved blockers for them (D23's temperature rule for F1,
+  the missing selection contract for L2–L4). The mechanism is sound; the declarations are missing.
+- `invalid_shared_k0_aliases` checks only that a `shared_k0_with` target exists, not that the graph
+  is acyclic. A self-reference or an A→B→A cycle passes validation and would leave a future runner's
+  *k*=0 deduplication unresolvable. No cycle exists in the registry today.
 - The interface-only Make targets listed in AGENTS.md reference scripts that are not written yet.
 - GitHub Issues/Project sync deferred to Tier-2 (`gh` not installed).
