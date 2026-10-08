@@ -6,6 +6,13 @@
 # NOTE: `encoder` and `adapter` are deliberately absent — this baseline has no
 # projector and no soft prefix; features enter the frozen LLM purely as text.
 # The only trainable module is the classifier head below (see `head:`).
+protocol:
+  # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
+  # what is blocked is quoting numbers from it. The evaluator must reject any status other than
+  # `ready`, and pending values never get defaults.
+  status: blocked_pending_decisions
+  blocked_on:
+    - training.selection
 experiment:
   name: adapter_text_summary_only
   seed: 42
@@ -70,6 +77,12 @@ training:
   num_workers: 4
   device: cuda
   save_checkpoint: true
+  # L2-L4 report overconfidence_error (D25) but encode no cross-validation/refit selection
+  # contract, so there is no gate deciding which checkpoint those numbers come from.
+  selection:
+    cross_validation_scheme: null
+    epoch_selection: null
+    refit_rule: null
 evaluation:
   # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
   ece:

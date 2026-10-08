@@ -42,6 +42,7 @@ from temporallens.evaluation.robustness import (
     duplicate_target_names,
     invalid_shared_k0_aliases,
     pending_field_paths,
+    protocol_blockers,
     source_protocol_blockers,
 )
 
@@ -84,6 +85,16 @@ def main() -> int:
     args = parser.parse_args()
 
     perturbation_cfg = load_yaml(args.config)
+    # The perturbation gates itself before any target is considered. A type and a level list are
+    # not an operational definition: without the application order, sampling, seeds, repetitions
+    # and aggregation, every target would be scored against an undefined transform. This is one
+    # refusal rather than a per-target skip because the axis itself is what is unresolved.
+    own_blockers = protocol_blockers(perturbation_cfg, origin=str(args.config))
+    if own_blockers:
+        parser.error(
+            f"perturbation config {args.config} is not protocol-ready "
+            f"(unresolved: {', '.join(own_blockers)})"
+        )
     perturbation = perturbation_cfg["perturbation"]
     registry = load_yaml(args.targets)
     targets: list[dict[str, Any]] = registry["targets"]

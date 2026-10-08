@@ -283,16 +283,28 @@ optimally scaled"*, which is stronger and harder. It is also safe to add: T > 0 
 logit equally, so argmax is preserved and `accuracy`, `macro_f1`, the per-class family and the
 confusion matrix **cannot** change.
 
-**Where T comes from.** The 8-fold cross-validation already yields out-of-fold predictions
-covering all 32 training subjects, each held out exactly once — the right data for a post-hoc
-calibrator, and never the test subjects. The refit, which has no validation set by construction
-(§5.1), uses the **median of the 8 fold temperatures**, mirroring D18's median-epoch rule. Store T
-in the checkpoint's `model_config`; it is a fitted parameter, and a consumer that rebuilds without
-it gets a differently calibrated model.
+**Where T comes from — UNRESOLVED, and the configs fail closed.** Two things are settled. The
+calibrator is fitted on training-subject data only, never on the test subjects; and T is stored in
+the checkpoint's `model_config`, because it is a fitted parameter and a consumer that rebuilds
+without it gets a differently calibrated model.
 
-*Known approximation:* those fold temperatures come from models trained on 28 subjects and are
-applied to a refit trained on 32. That is the same lineage mismatch as the reference row (§5.3).
-Median-of-folds is a defensible answer, not a derived one.
+What is *not* settled is which of two procedures produces it, and earlier revisions of this section
+asserted both:
+
+1. **One pooled temperature.** The 8-fold cross-validation yields out-of-fold predictions covering
+   all 32 training subjects, each held out exactly once. Fit a single T on that pooled set.
+2. **Median of the 8 fold temperatures**, mirroring D18's median-epoch rule, since the refit has no
+   validation set by construction (§5.1).
+
+These are different estimators and cannot both be the procedure. Until one is chosen,
+`evaluation.ece.temperature_source` is `pending_decision` in the F1 and F2 configs and those
+configs carry a `protocol.status` that blocks reportable evaluation — a default here would silently
+become the protocol. F2 constrains the choice further: it is a random window split with no folds at
+all, so any fold-derived answer is unavailable to it and it needs its own rule either way.
+
+*Known approximation, under either option:* fold temperatures come from models trained on 28
+subjects and are applied to a refit trained on 32. That is the same lineage mismatch as the
+reference row (§5.3) — a defensible answer, not a derived one.
 
 **Easily missed — resample subjects, never windows.** Windows overlap 75% at stride 100, and the
 ~154 windows from one five-second contraction are one event seen 154 times. Bootstrapping windows
@@ -649,11 +661,26 @@ two axes are separate files. Each `robustness_*.yaml` describes only the perturb
 no checkpoint. The models to evaluate live in one shared registry,
 [`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml),
 and `scripts/evaluate.py` evaluates the perturbation against every registry target whose
-checkpoint or run directory exists. Targets carrying an unresolved `pending_*` sentinel, or whose
-declared source config has a non-ready protocol status, are blocked before artifact lookup; ready
-targets with absent artifacts are skipped with a log line. The suite therefore runs incrementally:
-today it resolves to F1 only (and F1's checkpoint appears once F1 is trained); the language and
-generative targets light up as those arms land, with no config change.
+checkpoint or run directory exists.
+
+**Two gates, in order.** First the perturbation config gates *itself*: a `type` and a level list are
+not an operational definition, and without the application order relative to normalization, the
+sampling rule, the seed derivation, the repetition count and the level aggregation, every target
+would be scored against an undefined transform. That is one refusal for the whole run rather than a
+per-target skip, because the unresolved thing is the axis. F3–F5 declare those five fields as `null`
+today, so all three currently refuse. Second, per target: an unresolved `pending_*` sentinel, or a
+source config whose `protocol.status` is not `ready`, blocks before artifact lookup; ready targets
+with absent artifacts are skipped with a log line.
+
+**Readiness is declared, never inferred from silence.** A config with no `protocol:` block produces
+no blockers, which is indistinguishable from someone having written `status: ready`. Every config
+named by the registry therefore has to declare a status, and a test enforces that. Before this rule
+the four non-generation targets resolved as dispatchable while blockers stood recorded against them.
+
+The suite runs incrementally, but **today it resolves to nothing**: all three perturbations and all
+seven targets are blocked. F1 clears once D23's temperature source is chosen, L2–L4 once they encode
+a selection contract, and the G3 slices once their repeat-aggregation and run-selection rules land —
+each with no structural change, only a resolved field.
 
 A file-shaped target is just `(name, checkpoint)` — no `model_type`. That relies on the
 **checkpoint contract**: every checkpoint is saved as `{model_state, model_config}`, so any

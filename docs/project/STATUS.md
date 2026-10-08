@@ -28,6 +28,14 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Protocol gating closed and the architecture ratified. Eight configs gained `protocol:` blocks, so
+  all seven robustness targets are blocked rather than four of them silently dispatchable; readiness
+  is now a declaration a test requires instead of something inferred from a missing block. The
+  perturbation config also gates itself, because a type and a level list are not an operational
+  definition — F3–F5 declare the five missing fields as `null` and refuse as a whole. D23's
+  temperature source turned out to be asserted two incompatible ways in the spec; §3.4 now names
+  both candidates and settles neither, and F1/F2 fail closed on it. D32 freezes the `cnn1d` layer
+  stack, D11 gains the absent-class rule, and D31 is marked reviewed.
 - Repository-wide consistency review over every source file, config, spec, and script. It found no
   mismatch between a stated decision value and its implementation across 23 checks, and no dangling
   decision or section reference. Three defects in the F0 training path were fixed: the run config
@@ -209,6 +217,11 @@ what is done, what remains, which branch, and the next concrete step.
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
+   - **Config surface for architecture internals.** D32 froze the `cnn1d` stack; what is open
+     is whether the config declares only `model.type` (internals frozen in code as the
+     definition of that name, resolved values recorded into the checkpoint's `model_config`) or
+     also exposes kernels and pool factors as tunables. Blocks closing the F1-reconstructibility
+     item below.
    - **G2 gate population and final-test policy.** Fix the development folds/aggregation and
      one-shot final diagnostic, including coverage of the conditional distributions used across
      *k*.
@@ -261,25 +274,19 @@ what is done, what remains, which branch, and the next concrete step.
 - Evaluation outputs currently mix primitive metrics, grouped curves, metadata, uncertainty, and
   derived estimands. Define and validate a result schema that separates those roles alongside the
   F0/F1 evaluator, then migrate the G-series configs before their runners are implemented.
-- D23's temperature rule is internally inconsistent: one pooled out-of-fold temperature and eight
-  per-fold temperatures whose median feeds the refit cannot both be the procedure. F2 also has no
-  subject-CV folds from which its configured temperature could come. Resolve both before calibrated
-  F1/F2 evaluation; robustness runs consume the frozen target checkpoint's stored temperature.
+- **D23's temperature source is unresolved and now fails closed.** One pooled out-of-fold
+  temperature and the median of eight per-fold temperatures are different estimators and cannot both
+  be the procedure; the spec asserted both. §3.4 now names both candidates and settles neither, and
+  F1/F2 declare `temperature_source: pending_decision` behind a blocking `protocol.status`. F2
+  constrains the choice further — it is a random window split with no folds, so it needs its own rule
+  under either option. Robustness runs consume the frozen target checkpoint's stored temperature.
 - Calibration execution still needs exact Brier reduction/reporting, bootstrap level/count/seed,
   deterministic equal-mass tie handling, and distinct result keys for raw versus scaled ECE.
 - Retain the simulation or analysis artifact that justified D23's M=10 choice, and recompute any
   finite-sample ECE detection threshold for each actual evaluation design rather than reusing 0.037.
-- The F1 reference architecture and optimizer are still not frozen in the spec: layer stack,
-  kernels/pooling/activation/normalization, optimizer/scheduler, initialization, and gradient
-  handling. The F0 implementation had to pick concrete values to run at all, so those choices now
-  exist in code ahead of the freeze and need ratifying or replacing — they are not a specification.
-- **Owner review owed on implementation choices made without it** (the owner approved proceeding and
-  asked to be reminded): D31's normalization fitting set and the decision to store the statistics in
-  `model_config`; the CNN's internals (three Conv-BN-ReLU blocks, kernels 7/5/3, two MaxPool(4),
-  adaptive average pooling, dropout, linear embedding); reading `frozen` as `eval()` mode in addition
-  to `requires_grad=False`; weighting an absent class at 0 rather than excluding it; and F0 being
-  forbidden from writing either D7 checkpoint name. Each is recorded where it is implemented, so
-  review can start from code rather than from this list.
+- The F1 reference **optimizer** is still not frozen: scheduler, initialization and gradient
+  handling are undeclared. D32 froze the layer stack, so what remains is the optimizer side plus the
+  config-surface question above.
 - Processed NPZ recordings load eagerly and are not memory-mappable. The F1 batching/normalization
   path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
   is 0 as the safe local default until a measured lazy/memory-mapped design exists.
@@ -309,12 +316,13 @@ what is done, what remains, which branch, and the next concrete step.
   for something else is silently overruled. `debug_tiny.yaml` also omits `weight_decay`, so F0 falls
   back to the dataclass default 0.0 while F1 declares 1e-4. `scripts/train_encoder.py` is the right
   place to close this — it should reject keys it does not consume rather than dropping them — and
-  F0's weight decay needs a deliberate value rather than a default.
-- **Protocol gating is fail-open by absence.** `source_protocol_blockers` returns no blockers when a
-  config has no `protocol:` block, and only the four generation configs have one. So `f1_encoder`,
-  `l2_frozen_llm`, `l3_random_transformer` and `l4_text_summary` all resolve as dispatchable, even
-  though the open items above record unresolved blockers for them (D23's temperature rule for F1,
-  the missing selection contract for L2–L4). The mechanism is sound; the declarations are missing.
+  F0's weight decay needs a deliberate value rather than a default. Owner's instruction is
+  config-first: declare in the config, then extract to fields, with `device` an enumerated set
+  rather than a single value. Blocked only on the config-surface question above.
+- Debug configs deliberately carry no `protocol:` block: their results are never reportable, so a
+  reportability gate on them would mean nothing. They are also absent from the robustness registry,
+  which is what the declared-readiness test keys on. If a debug config is ever added to the
+  registry, it needs a status like every other entry.
 - `invalid_shared_k0_aliases` checks only that a `shared_k0_with` target exists, not that the graph
   is acyclic. A self-reference or an A→B→A cycle passes validation and would leave a future runner's
   *k*=0 deduplication unresolvable. No cycle exists in the registry today.

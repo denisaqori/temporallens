@@ -4,6 +4,14 @@
 # arms load, so nothing else can start until this is done and its accuracy honestly recorded.
 # Expect modest, variable cross-subject accuracy — that is the point, not a bug.
 # Spec: docs/experiments/README.md, section 6 (Foundation). Epoch protocol: D18–D21.
+protocol:
+  # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
+  # what is blocked is quoting numbers from it. The evaluator must reject any status other than
+  # `ready`, and pending values never get defaults.
+  status: blocked_pending_decisions
+  blocked_on:
+    - evaluation.ece.temperature_source
+    - evaluation.calibration_execution
 experiment:
   name: baseline_cnn_subject_split
   seed: 42
@@ -74,8 +82,17 @@ evaluation:
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    temperature_source: pooled_out_of_fold_folds
+    # D23 is internally inconsistent: one pooled out-of-fold temperature and eight per-fold
+    # temperatures whose median feeds the refit cannot both be the procedure. Encoding either
+    # half here would assert a rule the spec does not actually settle, so this fails closed.
+    temperature_source: pending_decision
     report: [raw, temperature_scaled]
+  # Still undeclared, and a runner default would silently become the protocol.
+  calibration_execution:
+    brier_reduction: null
+    equal_mass_tie_handling: null
+    bootstrap_seed: null
+    raw_versus_scaled_result_keys: null
   uncertainty_resampling_unit: subject
   metric_source: frozen_checkpoint_predictions
   requires_frozen_checkpoints:

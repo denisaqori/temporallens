@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 import yaml
 
 from temporallens.evaluation.robustness import (
@@ -191,3 +192,74 @@ def test_nonready_source_protocol_never_dispatches_existing_artifact(
     assert "source_config.protocol.status=blocked_pending_decisions" in output
     assert "source_config.personalization.adaptation.objective.candidate_grid" in output
     assert "run     blocked_g3" not in output
+
+
+def test_unready_perturbation_refuses_before_any_target_is_considered(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """An undefined perturbation is one refusal, not a per-target skip.
+
+    A type and a level list are not an operational definition. If the application order,
+    sampling, seeds, repetitions or aggregation are unresolved, every target would be scored
+    against an undefined transform — so the axis itself is refused, and a ready target with a
+    present artifact must not be reached.
+    """
+    evaluate = _load_evaluate_script()
+    perturbation_path = tmp_path / "perturbation.yaml"
+    perturbation_path.write_text(
+        yaml.safe_dump(
+            {
+                "protocol": {
+                    "status": "blocked_pending_decisions",
+                    "blocked_on": ["perturbation.seed_derivation"],
+                },
+                "perturbation": {"type": "noise", "levels": [0.1], "seed_derivation": None},
+            }
+        )
+    )
+    checkpoint = tmp_path / "refit.pt"
+    checkpoint.write_bytes(b"")
+    registry_path = tmp_path / "targets.yaml"
+    registry_path.write_text(
+        yaml.safe_dump({"targets": [{"name": "ready_target", "checkpoint": str(checkpoint)}]})
+    )
+
+    def fail_if_called(*_args, **_kwargs) -> None:
+        raise AssertionError("an unresolved perturbation reached run_target")
+
+    monkeypatch.setattr(evaluate, "run_target", fail_if_called)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["evaluate.py", "--config", str(perturbation_path), "--targets", str(registry_path)],
+    )
+
+    with pytest.raises(SystemExit) as exit_info:
+        evaluate.main()
+    assert exit_info.value.code == 2
+    message = capsys.readouterr().err
+    assert "is not protocol-ready" in message
+    assert "perturbation.seed_derivation" in message
+    assert "ready_target" not in message
+
+
+def test_every_registry_source_config_declares_a_protocol_block() -> None:
+    """Gating must not depend on absence.
+
+    `protocol_blockers` returns nothing when a config has no `protocol:` block, so a target whose
+    source config simply never declares one resolves as dispatchable. That is indistinguishable
+    from a deliberate `status: ready` and is how four targets were silently dispatchable. Requiring
+    the declaration makes readiness a statement someone made rather than a gap nobody noticed.
+    """
+    registry = yaml.safe_load(
+        (REPO_ROOT / "configs" / "experiment" / "robustness_targets.yaml").read_text()
+    )
+    missing = []
+    for target in registry["targets"]:
+        source = target.get("source_config")
+        assert source, f"target {target['name']!r} declares no source_config"
+        config = yaml.safe_load((REPO_ROOT / source).read_text())
+        protocol = config.get("protocol")
+        if not isinstance(protocol, dict) or "status" not in protocol:
+            missing.append(f"{target['name']} -> {source}")
+    assert not missing, f"registry source configs with no protocol.status: {missing}"

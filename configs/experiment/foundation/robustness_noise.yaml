@@ -5,6 +5,17 @@
 # the model(s) to evaluate come from configs/experiment/robustness_targets.yaml, and the runner
 # evaluates this perturbation against every target whose checkpoint exists (D2 — every arm, not
 # just the encoder). Spec: docs/experiments/README.md, section 6.
+protocol:
+  # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
+  # what is blocked is quoting numbers from it. The evaluator must reject any status other than
+  # `ready`, and pending values never get defaults.
+  status: blocked_pending_decisions
+  blocked_on:
+    - perturbation.apply_order_relative_to_normalization
+    - perturbation.sampling
+    - perturbation.seed_derivation
+    - perturbation.repetitions_per_level
+    - perturbation.level_aggregation
 experiment:
   name: robustness_noise
   seed: 42
@@ -21,6 +32,13 @@ dataset:
 perturbation:
   type: additive_noise
   levels: [0.01, 0.05, 0.10, 0.20]
+  # F3-F5 are not executable yet: the perturbation has a type and levels but no operational
+  # definition. A runner default for any of these would quietly become the protocol.
+  apply_order_relative_to_normalization: null
+  sampling: null
+  seed_derivation: null
+  repetitions_per_level: null
+  level_aggregation: null
 evaluation:
   # D23: use the target checkpoint's already-fitted T; never recalibrate on perturbed test data.
   ece:

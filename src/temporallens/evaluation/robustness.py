@@ -44,6 +44,33 @@ def invalid_shared_k0_aliases(targets: list[dict[str, Any]]) -> dict[str, str]:
     }
 
 
+def protocol_blockers(
+    config: dict[str, Any], *, prefix: str = "", origin: str = "config"
+) -> list[str]:
+    """Return blocker paths when a loaded config's own protocol block is not ready.
+
+    Shared by both gates so they cannot drift: a perturbation config checks itself, and a
+    registry target checks the experiment that produced it. ``prefix`` is what the reported
+    paths are relative to, so a caller can tell its own unresolved field from a target's.
+    """
+    protocol = config.get("protocol")
+    if protocol is None:
+        return []
+    if not isinstance(protocol, dict):
+        raise ValueError(f"{origin} protocol must be a mapping")
+
+    status = protocol.get("status")
+    if status in (None, "ready"):
+        return []
+
+    blockers = [f"{prefix}protocol.status={status}"]
+    blocked_on = protocol.get("blocked_on", [])
+    if not isinstance(blocked_on, list):
+        raise ValueError(f"{origin} protocol.blocked_on must be a list")
+    blockers.extend(f"{prefix}{path}" for path in blocked_on)
+    return blockers
+
+
 def source_protocol_blockers(target: dict[str, Any]) -> list[str]:
     """Return blocker paths when a target's source experiment is not protocol-ready."""
     source = target.get("source_config")
@@ -55,19 +82,4 @@ def source_protocol_blockers(target: dict[str, Any]) -> list[str]:
     if not isinstance(config, dict):
         raise ValueError(f"source config {source_path} must contain a YAML mapping")
 
-    protocol = config.get("protocol")
-    if protocol is None:
-        return []
-    if not isinstance(protocol, dict):
-        raise ValueError(f"source config {source_path} protocol must be a mapping")
-
-    status = protocol.get("status")
-    if status in (None, "ready"):
-        return []
-
-    blockers = [f"source_config.protocol.status={status}"]
-    blocked_on = protocol.get("blocked_on", [])
-    if not isinstance(blocked_on, list):
-        raise ValueError(f"source config {source_path} protocol.blocked_on must be a list")
-    blockers.extend(f"source_config.{path}" for path in blocked_on)
-    return blockers
+    return protocol_blockers(config, prefix="source_config.", origin=f"source config {source_path}")
