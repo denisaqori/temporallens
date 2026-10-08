@@ -647,3 +647,43 @@ def test_vae_configs_minimize_and_report_negative_elbo(relative_path: str) -> No
         assert {"negative_elbo_is_finite", "parameters_updated"} <= set(
             config["evaluation"]["checks"]
         )
+
+
+def test_every_blocked_on_path_resolves_to_an_unresolved_field() -> None:
+    """A `blocked_on` entry must name a field that exists and is actually still open.
+
+    Two silent failures this closes. A path naming a field that does not exist reports a blocker
+    nobody can act on, and reads as protection while protecting nothing — this file has carried
+    such a path before. A path naming a field that has since been *resolved* keeps a finished
+    experiment blocked, which trains the owner to override the gate.
+    """
+    for config_path in sorted(REPO_ROOT.glob("configs/experiment/**/*.yaml")):
+        config = yaml.safe_load(config_path.read_text())
+        if not isinstance(config, dict):
+            continue
+        protocol = config.get("protocol")
+        if not isinstance(protocol, dict):
+            continue
+        relative = config_path.relative_to(REPO_ROOT)
+        for path in protocol.get("blocked_on") or []:
+            node: Any = config
+            for part in str(path).split("."):
+                assert (
+                    isinstance(node, dict) and part in node
+                ), f"{relative}: protocol.blocked_on names {path!r}, but {part!r} does not exist"
+                node = node[part]
+            if isinstance(node, dict):
+                open_values = [
+                    value
+                    for value in node.values()
+                    if value is None or (isinstance(value, str) and value.startswith("pending_"))
+                ]
+                assert open_values, (
+                    f"{relative}: protocol.blocked_on names {path!r}, but nothing under it is "
+                    f"still open (no null and no pending_* sentinel)"
+                )
+            else:
+                assert node is None or (isinstance(node, str) and node.startswith("pending_")), (
+                    f"{relative}: protocol.blocked_on names {path!r}, but its value {node!r} is "
+                    f"already resolved"
+                )
