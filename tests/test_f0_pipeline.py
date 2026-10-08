@@ -204,3 +204,34 @@ def test_a_debug_run_refuses_to_write_a_reportable_checkpoint_name(prepared) -> 
     result = train_encoder(_config(data_dir, out_dir, save_checkpoint=True))
     assert result.checkpoint_path is not None
     assert result.checkpoint_path.name != "refit.pt"
+
+
+def test_a_config_declaring_another_loss_is_refused(prepared) -> None:
+    """D11 permits one loss here, so the config's declaration has to be load-bearing.
+
+    Before this, EncoderRunConfig had no `loss` field at all: the trainer hardcoded weighted
+    cross-entropy and a config saying otherwise would have been silently overridden.
+    """
+    data_dir, out_dir = prepared
+    with pytest.raises(ValueError, match="class_weighted_cross_entropy"):
+        _config(data_dir, out_dir, loss="cross_entropy")
+
+
+def test_the_boundary_audit_agrees_with_an_independent_count(prepared) -> None:
+    """The vectorised audit must match the naive nested loop it replaced."""
+    from temporallens.data.ninapro import load_processed, processed_path
+    from temporallens.data.windows import index_recording, segment_spans
+    from temporallens.training.encoder import _count_boundary_crossing
+
+    data_dir, _ = prepared
+    subject = TRAIN[0]
+    recording = load_processed(processed_path(data_dir, subject))
+    index = index_recording(recording, window_size=400, stride=200)
+
+    spans = segment_spans(recording.label, recording.repetition)
+    naive = sum(
+        0 if any(a <= s and s + index.window_size <= b for a, b in spans) else 1
+        for s in index.start
+    )
+    assert _count_boundary_crossing(index, {subject: recording}) == naive
+    assert naive == 0, "the windower should not be producing boundary-crossing windows at all"

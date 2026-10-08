@@ -28,11 +28,30 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Repository-wide consistency review over every source file, config, spec, and script. It found no
+  mismatch between a stated decision value and its implementation across 23 checks, and no dangling
+  decision or section reference. Three defects in the F0 training path were fixed: the run config
+  silently ignored its declared loss (it now carries and validates the field, so a config asking for
+  anything but class-weighted cross-entropy is refused rather than quietly retrained), the
+  window-boundary audit was quadratic and is now a vectorised search, and a dead parameter was
+  removed. Normalization statistics are pinned to the covered-once fitting set and required inside
+  the checkpoint (D31).
 - Protocol and rendering repair: G3/G4 now fail closed on within-subject repeat aggregation and the
   synthetic-only *k*=0 step budget; D28's fold-complement development artifacts have explicit build,
   locator, and provenance contracts; robustness dispatch blocks pending sentinels and validates
   aliases; and the language path has tested mask-derived pooling and position helpers. Markdown
   tables and source wrapping were repaired and protected by repository-wide structural tests.
+- F0 training path: the window dataset, inverse-frequency class weights (D11, absent classes at
+  weight 0), the single-split training loop, and `scripts/prepare_dataset.py`, which converts raw
+  `.mat` recordings to the processed format. `docs/api/README.md` records why each module exists and
+  which decision it implements rather than restating signatures, and a test asserts every public
+  function is documented there.
+- F0 model layer: the 1-D CNN encoder and classification head behind `build_model`, the checkpoint
+  contract (`{model_state, model_config}`, refused without normalization statistics), channel
+  normalization, and the metric set — accuracy, confusion matrices, per-class precision/recall/F1,
+  macro-F1, Brier, adaptive-bin ECE, overconfidence error, per-subject reduction, and the paired
+  bootstrap interval. `frozen` is enforced as `requires_grad=False` plus a `train()` override that
+  keeps a frozen encoder in eval mode.
 - G3/G4 adaptation is specified and reconciled (D28–D30). The objective is additive rather than
   averaged, so the replay arms embed the whole real-only objective with its coefficient unchanged
   and add exactly one intervention. Both loss sources are normalised to per-source means because the
@@ -134,10 +153,11 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
 ## Phase
 
 Week 0–1 (Setup → Milestone 0). Local environment complete and verified. **Milestone 0 (F0→F1) has
-started**: NinaPro DB2 Exercise B is downloaded locally and the data layer (reader, processed
-format, windower) is implemented and tested. Normalization, the encoder and head, the training
-loop, `prepare_dataset.py` and `train_encoder.py` are still to write, so no run has executed
-end to end yet.
+started**: NinaPro DB2 Exercise B is downloaded locally, and the data layer (reader, processed
+format, windower), normalization, the 1-D CNN encoder and head, the checkpoint contract, the metric
+set, class weights, the window dataset, the F0 training loop and `prepare_dataset.py` are all
+implemented and tested. What remains before the first end-to-end run is the `scripts/train_encoder.py`
+entry point and the `make debug` wiring, so no run has executed end to end yet.
 
 ## Done
 
@@ -220,10 +240,13 @@ what is done, what remains, which branch, and the next concrete step.
    - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
      headline, supplemental, or omitted.
 
-2. **P1 — F0→F1 vertical slice**: implement normalization + `prepare_dataset.py`, the 1-D CNN
-   encoder + head, and the training loop; get `make debug` (F0) passing end to end, then run the F1
-   baseline under D18–D21. The F1 trainer must honor the checkpoint contract
-   (`{model_state, model_config}`) as an acceptance criterion, not a later task.
+2. **P1 — F0→F1 vertical slice.** Normalization, `prepare_dataset.py`, the encoder and head, the
+   checkpoint contract, the metrics, and the F0 training loop are implemented and tested. Remaining:
+   write `scripts/train_encoder.py` (YAML config + split manifest → run config), wire `make debug`,
+   and get F0 passing end to end. Then the F1 harness — 8-fold CV, D18–D21 selection with D19
+   escalation, the refit, D10's refit-minus-fold-mean cross-check, and D23 temperature scaling. The
+   F1 trainer must honor the checkpoint contract (`{model_state, model_config}`) as an acceptance
+   criterion, not a later task.
 3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
 ## Known open items (not yet scheduled)
@@ -246,9 +269,17 @@ what is done, what remains, which branch, and the next concrete step.
   deterministic equal-mass tie handling, and distinct result keys for raw versus scaled ECE.
 - Retain the simulation or analysis artifact that justified D23's M=10 choice, and recompute any
   finite-sample ECE detection threshold for each actual evaluation design rather than reusing 0.037.
-- The F1 reference architecture and optimizer are not fully reconstructible from its config: layer
-  stack, kernels/pooling/activation/normalization, optimizer/scheduler, initialization, and gradient
-  handling must be frozen before implementing `model_config` and the trainer.
+- The F1 reference architecture and optimizer are still not frozen in the spec: layer stack,
+  kernels/pooling/activation/normalization, optimizer/scheduler, initialization, and gradient
+  handling. The F0 implementation had to pick concrete values to run at all, so those choices now
+  exist in code ahead of the freeze and need ratifying or replacing — they are not a specification.
+- **Owner review owed on implementation choices made without it** (the owner approved proceeding and
+  asked to be reminded): D31's normalization fitting set and the decision to store the statistics in
+  `model_config`; the CNN's internals (three Conv-BN-ReLU blocks, kernels 7/5/3, two MaxPool(4),
+  adaptive average pooling, dropout, linear embedding); reading `frozen` as `eval()` mode in addition
+  to `requires_grad=False`; weighting an absent class at 0 rather than excluding it; and F0 being
+  forbidden from writing either D7 checkpoint name. Each is recorded where it is implemented, so
+  review can start from code rather than from this list.
 - Processed NPZ recordings load eagerly and are not memory-mappable. The F1 batching/normalization
   path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
   is 0 as the safe local default until a measured lazy/memory-mapped design exists.
