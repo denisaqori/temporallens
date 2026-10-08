@@ -11,11 +11,11 @@
 # head.pooling: last_token means the LAST NON-PADDING token, not literally the final position.
 # hidden_states[:, -1] is correct only under left-padding; attention_mask.sum(-1) - 1 only under
 # right-padding, and only with no interior zeros. Use the rightmost unmasked index,
-# L - 1 - mask.flip(-1).argmax(-1), then ASSERT the row has an unmasked token and the mask at that
-# index is 1 -- an all-pad row sends argmax to 0 and silently reselects the final position. This
-# hides because the longest sequence in a batch is right either way, so only short rows of
-# mixed-length batches break: training runs and loss falls. Under left-padding also pass
-# mask-derived position_ids, or real tokens sit at offset positions.
+# L - 1 - mask.to(torch.int64).flip(-1).argmax(-1), then ASSERT the row has an unmasked token and
+# the mask at that index is 1. Prepend N ones for the soft prefix to the tokenizer mask, and derive
+# both the pooling index and explicit position_ids from that combined mask before calling Llama with
+# inputs_embeds. Left-padded text creates interior zeros between the prefix and text; default
+# sequential positions would offset the text by the pad count.
 #
 # Effective batch = batch_size x gradient_accumulation_steps = 32. Changing batch_size alone to
 # fit memory silently changes the optimization, not just the memory profile.
@@ -56,7 +56,7 @@ head:
   # cross-arm difference is the input path, never the readout. Changing it here
   # without changing it there invalidates the ablation.
   type: mlp
-  pooling: last_token            # Llama is causal — classify from the final token position
+  pooling: last_token            # Llama is causal — classify from the last non-padding token
   input_dim: auto_from_llm_config  # LLM hidden size, read from the model config (never hard-coded)
   hidden_dim: 256
   dropout: 0.1

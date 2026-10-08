@@ -16,8 +16,10 @@ protocol:
     # D28 fixed the objective's FORM; the numeric grid is still undeclared, and a grid
     # declared after results are inspected is not a selection protocol.
     - personalization.adaptation.objective.candidate_grid
+    - personalization.adaptation.training_budget.synthetic_only_k0_optimizer_steps
     - personalization.trial_selection.reproducibility
     - personalization.repeated_run_reproducibility
+    - evaluation.within_subject_repeat_aggregation
     - evaluation.headline_ece_aggregation_status
 experiment:
   name: gen_calibration_efficiency
@@ -27,6 +29,8 @@ tracking:
   json_logging: true
   wandb_mode: offline
 checkpoint:
+  # Final all-32-subject pipeline only. Development selection builds fresh fold-local artifacts
+  # under personalization.adaptation.objective.development_selection; it must not reuse these.
   generator: checkpoints/gen_vae_train/refit.pt
   encoder: checkpoints/baseline_cnn_subject_split/refit.pt
 dataset:
@@ -130,6 +134,11 @@ personalization:
       # all k, so the step count may vary with k under a declared rule.
       optimizer_steps: matched_between_strategies_at_each_k
       optimizer_steps_rule: selected_on_development_folds
+      # Real adaptation is a no-op at k=0, so it cannot select the step count for the synthetic-only
+      # replay diagnostic. Keep this explicit and blocked rather than inheriting a runner default.
+      synthetic_only_k0_optimizer_steps:
+        status: pending_decision
+        assignment_rule: null
       # Every k restarts from the F1 head with a fresh optimizer. Warm-starting k=2 from k=1
       # would make the curve a cumulative process, not independent k-shot adaptation.
       warm_start_along_the_curve: forbidden
@@ -169,9 +178,39 @@ personalization:
       shared_hyperparameters_tuned_on: real_adaptation_only
       learning_rate: selected_on_development_folds
       development_selection:
+        split_manifest: configs/splits/subject_independent_v1.yaml
+        fold_index_source: split_manifest.folds[].index
+        # k=0 is excluded because real adaptation is a no-op there; its synthetic-only replay
+        # diagnostic has the separate pending step assignment declared in training_budget.
+        selection_k_values: [1, 2, 5, 10, 17, 20, 34]
         population_fit: fold_training_complement_28_subjects
+        scoring_subjects: fold_validation_4_subjects
+        training_subject_rule: split_manifest.training_subjects_minus_current_fold_validation_subjects
+        scoring_subject_rule: current_fold_validation_subjects
         model_training_budget: d18_global_development_refit_budget
         checkpoint_selection_on_outer_four: forbidden
+        artifact_resolution:
+          source: build_from_frozen_source_configs_and_persist
+          encoder_source_config: configs/experiment/foundation/baseline_cnn_subject_split.yaml
+          generator_source_config: configs/experiment/generation/gen_vae_train.yaml
+          generator_encoder_source: fold_local_fixed_budget_encoder
+          encoder_checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+          generator_checkpoint_pattern: checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt
+          all_32_refit_reuse: forbidden
+          fold_fitted_components:
+            - normalization_statistics
+            - class_weights
+            - encoder_and_population_head
+            - latent_centroids
+            - population_embedding
+            - generator
+          required_provenance:
+            - manifest_hash
+            - fold_index
+            - training_subject_ids
+            - scoring_subject_ids
+            - component_config_digests
+            - training_budget
         result_role: hyperparameter_selection_only
       candidate_grid:
         status: pending_decision
@@ -187,6 +226,16 @@ personalization:
       absent_class_handling: all_outputs_remain_active
 evaluation:
   fixed_evaluation_set: true
+  # Repeat aggregation is distinct from the headline ECE aggregation below. Both remain blocked:
+  # first summarize schedules/seeds/draws within subject, then choose the across-subject headline.
+  within_subject_repeat_aggregation:
+    status: pending_decision
+    applicable_repeat_axes: strategy_specific
+    point_summary: null
+    spread_summary: null
+    axis_order_or_joint_reduction: null
+    shared_population_reference: deduplicate_before_summary
+    reused_evaluation_windows_are_independent: false
   # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
   ece:
     bins: 10

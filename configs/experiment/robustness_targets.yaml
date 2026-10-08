@@ -1,9 +1,12 @@
 # Robustness target registry (D2).
 #
 # Single source of truth for WHICH trained models get the robustness suite. Each F3/F4/F5
-# perturbation is evaluated against every target listed here whose artifact exists: a checkpoint
-# file for F1/language targets or a run directory for G3. Targets without an artifact yet are
-# skipped by scripts/evaluate.py with a clear log line, so the suite is runnable incrementally.
+# perturbation is evaluated against every ready target listed here whose artifact exists: a
+# checkpoint file for F1/language targets or a run directory for G3. A target carrying any
+# unresolved `pending_*` sentinel is blocked before artifact lookup. Its `source_config` is also
+# checked, and a non-ready source protocol blocks dispatch. A ready target without an artifact yet
+# is skipped by scripts/evaluate.py with a clear log line, so the suite is runnable incrementally
+# without treating an unresolved protocol as executable.
 #
 # This file is shared infrastructure, not an ablation — hence it sits at the experiment root,
 # beside foundation/, generation/, language/, rather than inside any one of them.
@@ -13,27 +16,32 @@
 # plus one artifact locator (`checkpoint` or `run_dir`) with NO model_type — the old model_type
 # field could not describe the adapter stacks (encoder + projector + backbone + head) and is gone.
 #
-# WHICH checkpoint: targets point at refit.pt — the model refit on the full training-subject set
-# using the cross-validated hyperparameters. It is the only checkpoint any downstream consumer
-# reads. The per-fold checkpoints (folds/fold{k}/best.pt) are for extended analysis, never for
-# consumption; "best" means best-epoch-by-validation within a fold, which is why the refit
-# artifact carries a different name instead of overloading that word.
+# WHICH checkpoint: file-shaped targets point at refit.pt — the model refit on the full
+# training-subject set using the cross-validated hyperparameters. It is the only checkpoint any
+# downstream consumer reads. The per-fold checkpoints (folds/fold{k}/best.pt) are for extended
+# analysis, never for consumption; "best" means best-epoch-by-validation within a fold, which is
+# why the refit artifact carries a different name instead of overloading that word. Run-shaped G3
+# targets instead resolve their per-subject heads from the declared run directory.
 
 targets:
   # --- Foundation ---
   - name: f1_encoder
     arm: foundation
+    source_config: configs/experiment/foundation/baseline_cnn_subject_split.yaml
     checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
 
   # --- Language arm (D2: robustness on the adapter stacks, not only the encoder) ---
   - name: l2_frozen_llm
     arm: language
+    source_config: configs/experiment/language/adapter_llama3b_subject_split.yaml
     checkpoint: checkpoints/adapter_llama3b_subject_split/refit.pt
   - name: l3_random_transformer
     arm: language
+    source_config: configs/experiment/language/adapter_random_transformer.yaml
     checkpoint: checkpoints/adapter_random_transformer/refit.pt
   - name: l4_text_summary
     arm: language
+    source_config: configs/experiment/language/adapter_text_summary_only.yaml
     checkpoint: checkpoints/adapter_text_summary_only/refit.pt
 
   # --- Generative arm ---
@@ -50,6 +58,7 @@ targets:
   # repeats is still Pending and therefore remains fail-closed here.
   - name: g3_real_adaptation
     arm: generation
+    source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
     strategy: real_adaptation
     artifact_axes: [held_out_subject, schedule_index, calibration_trials, adaptation_seed]
     repeat_axis_source: gen_personalization_efficiency.personalization.repeated_run_reproducibility
@@ -57,10 +66,13 @@ targets:
     k0_artifact_scope:
       model_artifact: one_global_shared_no_adaptation_head
       evaluation_scope: each_held_out_subject_once
+    # D29: real adaptation is the unchanged F1 population model at k=0.
+    shared_k0_with: f1_encoder
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
   - name: g3_population_synthetic_adaptation
     arm: generation
+    source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
     strategy: real_plus_population_synthetic_adaptation
     artifact_axes:
       [held_out_subject, schedule_index, calibration_trials, adaptation_seed, synthetic_draw_id]
@@ -73,6 +85,7 @@ targets:
     run_dir: results/runs/gen_personalization_efficiency/latest
   - name: g3_subject_synthetic_adaptation
     arm: generation
+    source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
     strategy: real_plus_subject_synthetic_adaptation
     artifact_axes:
       [held_out_subject, schedule_index, calibration_trials, adaptation_seed, synthetic_draw_id]

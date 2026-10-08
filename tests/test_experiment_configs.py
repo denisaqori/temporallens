@@ -33,6 +33,14 @@ DEBUG_CONFIGS = (
     "configs/experiment/language/adapter_mock_debug.yaml",
 )
 
+LANGUAGE_LAST_TOKEN_CONFIGS = (
+    "configs/experiment/language/adapter_llama1b_local.yaml",
+    "configs/experiment/language/adapter_mock_debug.yaml",
+    "configs/experiment/language/adapter_llama3b_subject_split.yaml",
+    "configs/experiment/language/adapter_random_transformer.yaml",
+    "configs/experiment/language/adapter_text_summary_only.yaml",
+)
+
 ECE_CONFIGS = (
     "configs/experiment/foundation/baseline_cnn_random_split.yaml",
     "configs/experiment/foundation/baseline_cnn_subject_split.yaml",
@@ -83,18 +91,22 @@ def test_debug_configs_use_an_explicit_nonreportable_subject_subset(relative_pat
     assert "held_out_subjects" not in dataset
 
 
-@pytest.mark.parametrize(
-    "relative_path",
-    (
-        "configs/experiment/language/adapter_llama1b_local.yaml",
-        "configs/experiment/language/adapter_mock_debug.yaml",
-    ),
-)
-def test_language_smoke_configs_define_the_classifier_head(relative_path: str) -> None:
+@pytest.mark.parametrize("relative_path", LANGUAGE_LAST_TOKEN_CONFIGS)
+def test_language_configs_define_the_classifier_head(relative_path: str) -> None:
     config = _load(relative_path)
     assert config["head"]["type"] == "mlp"
     assert config["head"]["pooling"] == "last_token"
     assert config["head"]["num_classes"] == 18
+
+
+def test_language_spec_pins_the_combined_soft_prefix_mask_contract() -> None:
+    readme = (REPO_ROOT / "docs/experiments/README.md").read_text()
+    language_spec = (REPO_ROOT / "docs/experiments/language-arm.md").read_text()
+    for text in (readme, language_spec):
+        assert "combined_attention_mask" in text
+        assert "position_ids" in text
+        assert "mask.to(torch.int64).flip(-1).argmax(-1)" in text
+    assert "cat([prefix_mask, text_attention_mask], dim=-1)" in readme
 
 
 @pytest.mark.parametrize(
@@ -242,6 +254,7 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     relative_path: str,
 ) -> None:
     config = _load(relative_path)
+    assert config["protocol"]["status"] == "blocked_pending_decisions"
     personalization = config["personalization"]
     assert personalization["rest_calibration_policy"] == "pending_decision"
     assert personalization["trial_selection"]["reproducibility"]["prng"] is None
@@ -254,12 +267,25 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     assert repeat_reproducibility["repeat_axis_pairing"] is None
     assert "personalization.repeated_run_reproducibility" in config["protocol"]["blocked_on"]
 
+    repeat_aggregation = config["evaluation"]["within_subject_repeat_aggregation"]
+    assert repeat_aggregation == {
+        "status": "pending_decision",
+        "applicable_repeat_axes": "strategy_specific",
+        "point_summary": None,
+        "spread_summary": None,
+        "axis_order_or_joint_reduction": None,
+        "shared_population_reference": "deduplicate_before_summary",
+        "reused_evaluation_windows_are_independent": False,
+    }
+    assert "evaluation.within_subject_repeat_aggregation" in config["protocol"]["blocked_on"]
+
     expected_strategies = {
         "population_no_adaptation",
         "real_adaptation",
         "real_plus_population_synthetic_adaptation",
         "real_plus_subject_synthetic_adaptation",
     }
+    assert len(personalization["calibration_strategy"]) == len(expected_strategies)
     assert set(personalization["calibration_strategy"]) == expected_strategies
 
     synthetic = personalization["synthetic"]
@@ -320,7 +346,58 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     assert objective["real_loss"] == "weight_normalised_class_weighted_cross_entropy"
     assert objective["synthetic_loss"] == "unweighted_mean_cross_entropy"
     assert objective["adam_weight_decay"] == 0.0
-    assert objective["development_selection"]["result_role"] == "hyperparameter_selection_only"
+    development = objective["development_selection"]
+    assert development["result_role"] == "hyperparameter_selection_only"
+    assert development["split_manifest"] == config["dataset"]["split_manifest"]
+    assert development["fold_index_source"] == "split_manifest.folds[].index"
+    assert development["selection_k_values"] == [
+        k for k in personalization["calibration_trials"] if k > 0
+    ]
+    assert development["population_fit"] == "fold_training_complement_28_subjects"
+    assert development["scoring_subjects"] == "fold_validation_4_subjects"
+    assert (
+        development["training_subject_rule"]
+        == "split_manifest.training_subjects_minus_current_fold_validation_subjects"
+    )
+    assert development["scoring_subject_rule"] == "current_fold_validation_subjects"
+    assert development["checkpoint_selection_on_outer_four"] == "forbidden"
+    artifacts = development["artifact_resolution"]
+    assert artifacts["source"] == "build_from_frozen_source_configs_and_persist"
+    assert (
+        artifacts["encoder_source_config"]
+        == "configs/experiment/foundation/baseline_cnn_subject_split.yaml"
+    )
+    assert (
+        artifacts["generator_source_config"] == "configs/experiment/generation/gen_vae_train.yaml"
+    )
+    assert artifacts["generator_encoder_source"] == "fold_local_fixed_budget_encoder"
+    assert artifacts["all_32_refit_reuse"] == "forbidden"
+    for key in ("encoder_checkpoint_pattern", "generator_checkpoint_pattern"):
+        assert "development/fold{fold_index}/fixed_budget.pt" in artifacts[key]
+        assert artifacts[key] not in config["checkpoint"].values()
+    assert set(artifacts["fold_fitted_components"]) == {
+        "normalization_statistics",
+        "class_weights",
+        "encoder_and_population_head",
+        "latent_centroids",
+        "population_embedding",
+        "generator",
+    }
+    assert set(artifacts["required_provenance"]) == {
+        "manifest_hash",
+        "fold_index",
+        "training_subject_ids",
+        "scoring_subject_ids",
+        "component_config_digests",
+        "training_budget",
+    }
+
+    k0_steps = personalization["adaptation"]["training_budget"]["synthetic_only_k0_optimizer_steps"]
+    assert k0_steps == {"status": "pending_decision", "assignment_rule": None}
+    assert (
+        "personalization.adaptation.training_budget.synthetic_only_k0_optimizer_steps"
+        in config["protocol"]["blocked_on"]
+    )
 
     # D28/D29 settled the objective form and replay control. The numeric grid remains open, and a
     # grid declared after results are inspected is not a protocol.
@@ -329,6 +406,33 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     assert grid["learning_rate"] is None and grid["l2_sp_beta"] is None
     assert grid["optimizer_steps_scope"] is None
     assert grid["selection_aggregation"] is None
+
+
+def test_g3_encodes_d30_subgroup_reporting() -> None:
+    config = _load("configs/experiment/generation/gen_personalization_efficiency.yaml")
+    subgroup = config["evaluation"]["subgroup_aggregation"]
+    assert subgroup == {
+        "aggregation": "mean_per_class_recall_within_subgroup",
+        "empty_group_result": "null_metric",
+        "seen_group_is_na_at": "k_equals_0",
+        "unseen_group_is_na_from": "k_equals_17",
+        "within_subject_summary_precedes_paired_comparison": True,
+    }
+    assert {
+        "calibration_seen_gesture_macro_recall",
+        "calibration_unseen_gesture_macro_recall",
+        "rest_accuracy",
+    } <= set(config["evaluation"]["metrics"])
+    assert "calibration_seen_gesture_macro_accuracy" not in config["evaluation"]["metrics"]
+    assert "calibration_unseen_gesture_macro_accuracy" not in config["evaluation"]["metrics"]
+
+
+def test_g3_g4_share_the_same_development_selection_contract() -> None:
+    g3 = _load("configs/experiment/generation/gen_personalization_efficiency.yaml")
+    g4 = _load("configs/experiment/generation/gen_calibration_efficiency.yaml")
+    g3_selection = g3["personalization"]["adaptation"]["objective"]["development_selection"]
+    g4_selection = g4["personalization"]["adaptation"]["objective"]["development_selection"]
+    assert g3_selection == g4_selection
 
 
 def test_g4_records_pending_headline_ece_aggregation() -> None:
@@ -367,7 +471,13 @@ def test_robustness_uses_the_frozen_target_temperature(relative_path: str) -> No
 
 def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
     registry = _load("configs/experiment/robustness_targets.yaml")
+    all_names = [target["name"] for target in registry["targets"]]
+    assert len(all_names) == len(set(all_names)), "target names must be unique"
+    assert all(
+        (REPO_ROOT / target["source_config"]).is_file() for target in registry["targets"]
+    ), "every target must identify a versioned source experiment config"
     g3_targets = [target for target in registry["targets"] if target["arm"] == "generation"]
+    assert len(g3_targets) == 3
     assert {target["strategy"] for target in g3_targets} == {
         "real_adaptation",
         "real_plus_population_synthetic_adaptation",
@@ -384,6 +494,7 @@ def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
         "model_artifact": "one_global_shared_no_adaptation_head",
         "evaluation_scope": "each_held_out_subject_once",
     }
+    assert by_name["g3_real_adaptation"]["shared_k0_with"] == "f1_encoder"
     replay_axes = [
         "held_out_subject",
         "schedule_index",
@@ -405,9 +516,18 @@ def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
     assert {target["repeat_axis_source"] for target in g3_targets} == {
         "gen_personalization_efficiency.personalization.repeated_run_reproducibility"
     }
+    assert {target["source_config"] for target in g3_targets} == {
+        "configs/experiment/generation/gen_personalization_efficiency.yaml"
+    }
     assert (
         by_name["g3_subject_synthetic_adaptation"]["shared_k0_with"]
         == "g3_population_synthetic_adaptation"
+    )
+    target_names = set(all_names)
+    assert all(
+        target.get("shared_k0_with") in target_names
+        for target in registry["targets"]
+        if "shared_k0_with" in target
     )
 
 
@@ -497,6 +617,18 @@ def test_every_evaluation_metric_is_registered_in_a_metric_reference_table() -> 
     assert not unregistered, (
         "evaluation.metrics keys missing from the metric-reference tables: " f"{unregistered}"
     )
+
+
+def test_shared_metric_registry_is_a_three_column_markdown_table() -> None:
+    section = _section_between(
+        "docs/experiments/README.md",
+        "### 3.4 Metrics",
+        "### 3.5 Reproducibility",
+    )
+    table = next(block for block in section.split("\n\n") if block.startswith("| Metric |"))
+    rows = table.splitlines()
+    assert rows[0].split("|")[1:-1] == [" Metric ", " What it captures ", " Why it is here "]
+    assert all(len(row.split("|")[1:-1]) == 3 for row in rows)
 
 
 @pytest.mark.parametrize(

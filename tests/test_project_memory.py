@@ -18,6 +18,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATUS = REPO_ROOT / "docs" / "project" / "STATUS.md"
 DECISIONS = REPO_ROOT / "docs" / "project" / "DECISIONS.md"
+MARKDOWN_FILES = tuple(sorted([*REPO_ROOT.glob("*.md"), *(REPO_ROOT / "docs").rglob("*.md")]))
 
 #: Pending rows deliberately absent from STATUS's "Still open" list: repo housekeeping rather
 #: than protocol choices that gate an experiment.
@@ -71,7 +72,11 @@ def _section(text: str, start: str, end: str | None) -> str:
 # --- the rendering bug ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("path", (STATUS, DECISIONS), ids=lambda p: p.name)
+@pytest.mark.parametrize(
+    "path",
+    MARKDOWN_FILES,
+    ids=lambda path: str(path.relative_to(REPO_ROOT)),
+)
 def test_no_blank_line_splits_a_markdown_table(path: Path) -> None:
     """A blank line ends a table, so later rows render as a separate headerless one.
 
@@ -79,18 +84,24 @@ def test_no_blank_line_splits_a_markdown_table(path: Path) -> None:
     the rendered output is wrong.
     """
     for block in _table_blocks(path.read_text()):
-        if len(block) < 3:
-            continue
+        assert len(block) >= 2, (
+            f"{path.relative_to(REPO_ROOT)}: a one-row pipe block is not a rendered Markdown "
+            f"table. First row: {block[0][:90]}"
+        )
         header = block[0]
         # A real table's second line is the delimiter. A block whose first row is a data row
         # means an earlier blank line orphaned it from its header.
         assert re.match(r"^\|[\s:|-]+\|$", block[1]), (
-            f"{path.name}: a table block starts without a delimiter row, so a blank line above "
+            f"{path.relative_to(REPO_ROOT)}: a table block starts without a delimiter row, so a blank line above "
             f"it split the table. First row: {header[:90]}"
         )
 
 
-@pytest.mark.parametrize("path", (STATUS, DECISIONS), ids=lambda p: p.name)
+@pytest.mark.parametrize(
+    "path",
+    MARKDOWN_FILES,
+    ids=lambda path: str(path.relative_to(REPO_ROOT)),
+)
 def test_markdown_table_rows_keep_the_header_column_count(path: Path) -> None:
     """Catch any two table rows concatenated onto one physical line.
 
@@ -103,12 +114,11 @@ def test_markdown_table_rows_keep_the_header_column_count(path: Path) -> None:
         return len(re.findall(r"(?<!\\)\|", line))
 
     for block in _table_blocks(path.read_text()):
-        if len(block) < 2 or not re.match(r"^\|[\s:|-]+\|$", block[1]):
-            continue
+        assert len(block) >= 2 and re.match(r"^\|[\s:|-]+\|$", block[1])
         expected = unescaped_pipe_count(block[0])
         for row in block[1:]:
             assert unescaped_pipe_count(row) == expected, (
-                f"{path.name}: table row has a different column count from its header; "
+                f"{path.relative_to(REPO_ROOT)}: table row has a different column count from its header; "
                 f"it may contain two concatenated rows: {row[:110]}"
             )
 

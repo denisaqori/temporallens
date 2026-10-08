@@ -5,38 +5,42 @@ starts here to see what is done, what changed most recently, and what to pick up
 it in the same change that moves the work.
 
 **Scope: this file holds _work_ and is mutable** — items enter, move, and leave. *Choices* (what was
-decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technical rationale lives in
-[../experiments/README.md](../experiments/README.md). Reference a decision by ID here; never restate
-its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md → Working
-agreement**.
+decided, by whom, when) are append-only in [DECISIONS.md](DECISIONS.md); technical rationale lives
+in [../experiments/README.md](../experiments/README.md). Reference a decision by ID here; never
+restate its rationale. Update rules, autonomy tiers, and the session-end sweep: see **AGENTS.md →
+Working agreement**.
 
 > 👉 **Next developer task:** continue the F0→F1 vertical slice. **Next owner task:** settle the
 > remaining protocol choices in [Next up](#next-up-priority-order), beginning with the F1
 > architecture and calibration clarifications recorded under
 > [Known open items](#known-open-items-not-yet-scheduled).
 
-_Last updated: 2026-10-05_
+_Last updated: 2026-10-08_
 
 ## Latest changes
 
-**A curated highlight list of shipped work, newest first — deliberately no commit hashes.** `git
-log --oneline` is the complete, live record; duplicating hashes here only creates bookkeeping that
-goes stale. This list answers "what actually changed lately?" in prose, at a glance.
+**A curated highlight list of shipped work, newest first — deliberately no commit hashes.**
+`git log --oneline` is the complete, live record; duplicating hashes here only creates bookkeeping
+that goes stale. This list answers "what actually changed lately?" in prose, at a glance.
 
 Entries are added when work lands. Coordination commits (`Claim …` / `Release … in STATUS`) are
 omitted — they are workflow bookkeeping, not changes to the project, and listing them would bury
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Protocol and rendering repair: G3/G4 now fail closed on within-subject repeat aggregation and the
+  synthetic-only *k*=0 step budget; D28's fold-complement development artifacts have explicit build,
+  locator, and provenance contracts; robustness dispatch blocks pending sentinels and validates
+  aliases; and the language path has tested mask-derived pooling and position helpers. Markdown
+  tables and source wrapping were repaired and protected by repository-wide structural tests.
 - G3/G4 adaptation is specified and reconciled (D28–D30). The objective is additive rather than
   averaged, so the replay arms embed the whole real-only objective with its coefficient unchanged
-  and add exactly one intervention; both loss sources are normalised to per-source means, because
-  the real set
-  spans roughly 97 to 3,300 active-gesture windows across the grid before any permitted rest, and
-  an unnormalised sum would make the loss scale a function of *k*. Regularisation is L2-SP to the F1
-  head with Adam weight decay zeroed. Adaptation is full-batch and restarts at every *k*. The two
-  replay arms now encode their conditioning separately, share paired RNG and fixed bank draws, and
-  deduplicate both pairs of identical *k*=0 results; D28 explicitly amends D11 for adaptation, and
+  and add exactly one intervention. Both loss sources are normalised to per-source means because the
+  real set spans roughly 97 to 3,300 active-gesture windows across the grid before any permitted
+  rest; an unnormalised sum would make the loss scale a function of *k*. Regularisation is L2-SP to
+  the F1 head with Adam weight decay zeroed. Adaptation is full-batch and restarts at every *k*. The
+  two replay arms encode their conditioning separately, share paired RNG and fixed bank draws, and
+  deduplicate both pairs of identical *k*=0 results. D28 explicitly amends D11 for adaptation, and
   D29 propagates through G4 and all three adapted robustness slices. Seen/unseen reporting is mean
   per-class recall. The numeric candidate grid and repeat-domain/aggregation contract stay open.
 - Repository consistency pass hardened raw/processed DB2 validation, made debug window caps
@@ -113,9 +117,9 @@ the real entries. Uncommitted state belongs to `git status`; in-flight work belo
 - Metric set settled (D8): per-class precision and recall added beside the confusion matrix on the
   six classification configs; spec §3.4 now states that cross-validation and testing run the same
   metric set, and that fold confusion matrices are averaged element-wise rather than summed.
-- Checkpoint naming split in two (D7): `refit.pt` is the one artifact downstream consumers read;
-  per-fold checkpoints moved to `folds/fold{k}/best.pt`. Swept through the robustness registry, the
-  language and generation configs, all three spec documents, and `evaluate.py`; spec §5.1 defines
+- Checkpoint naming separated by purpose (D7, narrowly amended by D28): `refit.pt` is the final
+  downstream artifact; `folds/fold{k}/best.pt` is analysis-only; and
+  `development/fold{k}/fixed_budget.pt` is used only for D28 adaptation selection. Spec §5.1 defines
   the distinction.
 - Validation scheme settled (D6): 8-fold CV over the training subjects, refit on all 32 downstream.
 - Worktree mechanism: `scripts/worktree.sh` + `tests/test_worktree.sh` (`make test-worktree`);
@@ -142,7 +146,8 @@ end to end yet.
 - NinaPro DB2 Exercise B acquisition and verification completed for all 40 subjects; repository
   provenance/checksums live in `docs/data/`, while the archives and MAT files remain ignored.
 - Experiment specification authored: `docs/experiments/` (shared protocol + generative + language
-  arms); every ablation maps 1:1 to a config under `configs/experiment/{foundation,generation,language}/`.
+  arms); every ablation maps 1:1 to a config under
+  `configs/experiment/{foundation,generation,language}/`.
 - Protocol and workflow choices recorded in DECISIONS.md.
 - Repo on GitHub over SSH: `git@github.com:denisaqori/temporallens.git`, `main` pushed.
 - Robustness evaluation decoupled from the target model (D2): shared `robustness_targets.yaml`,
@@ -184,8 +189,9 @@ what is done, what remains, which branch, and the next concrete step.
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
-   - **G2 gate population and final-test policy.** Fix the development folds/aggregation and one-shot
-     final diagnostic, including coverage of the conditional distributions used across *k*.
+   - **G2 gate population and final-test policy.** Fix the development folds/aggregation and
+     one-shot final diagnostic, including coverage of the conditional distributions used across
+     *k*.
    - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
      monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
    - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
@@ -197,16 +203,16 @@ what is done, what remains, which branch, and the next concrete step.
      vector, but rotation *selection* inherits D14's Pending PRNG convention and the
      class-composition probe needs a target, subject-grouped split, score and threshold before it
      can gate anything.
-   - **G3 adaptation candidate grid.** D28 fixed the objective's form, losses,
-     regulariser and full-batch rule; the numeric learning-rate / step / L2-SP grid, global-versus-
-     per-*k* step scope, selection metric and aggregation, and tie-break are undeclared. A grid
-     declared after results are seen is not a selection protocol.
+   - **G3 adaptation candidate grid.** D28 fixed the objective's form, losses, regulariser and
+     full-batch rule. The numeric learning-rate / step / L2-SP grid, global-versus-per-*k* step
+     scope, separate synthetic-only *k*=0 step assignment, selection metric and aggregation, and
+     tie-break are undeclared. A grid declared after results are seen is not a selection protocol.
    - **G0/G1 VAE objective components.** The minimized objective is correctly named
      `negative_elbo`; the reconstruction likelihood/reduction, units, and raw-versus-weighted KL
      reporting remain open.
-   - **G2 quality-metric and acceptance contract.** Fix grouped discriminator evaluation, AUC orientation and
-     dependence-aware CI, CI/per-class gate behavior, nearest-neighbour semantics, and a genuine
-     diversity or coverage diagnostic.
+   - **G2 quality-metric and acceptance contract.** Fix grouped discriminator evaluation, AUC
+     orientation and dependence-aware CI, CI/per-class gate behavior, nearest-neighbour semantics,
+     and a genuine diversity or coverage diagnostic.
    - **G3/G4 within-subject repeated-run aggregation.** Fix the adaptation-seed and synthetic-draw
      counts/derivations, whether those axes are paired or crossed, and aggregation across the
      persisted schedule/seed/draw runs without duplicating the population reference or treating
@@ -247,8 +253,9 @@ what is done, what remains, which branch, and the next concrete step.
   path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
   is 0 as the safe local default until a measured lazy/memory-mapped design exists.
 - D10 requires the refit-minus-fold-mean result, but its output key/schema is not yet defined.
-- L2–L4 do not yet encode a cross-validation/refit selection contract and request `overconfidence_error` (settled as
-  D25) without an evaluation gate; settle the selection contract before language-arm execution.
+- L2–L4 do not yet encode a cross-validation/refit selection contract and request
+  `overconfidence_error` (settled as D25) without an evaluation gate; settle the selection contract
+  before language-arm execution.
 - F3–F5 still need executable perturbation definitions (order relative to normalization,
   noise/channel-mask sampling and seeds, repetitions, and aggregation).
 - Governance wording still conflicts: AGENTS calls DECISIONS rows append-only while DECISIONS moves

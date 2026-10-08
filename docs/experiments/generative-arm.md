@@ -200,8 +200,8 @@ calibration strategies:
 
 Four curves on one axis (D29). The headline number is the horizontal gap: how many fewer real
 gesture trials `real_plus_subject_synthetic_adaptation` needs to reach the accuracy
-`real_adaptation` reaches at a given *k*. Name the result `real_gesture_trials_saved`; never shorten it to "samples saved," which
-would obscure the unit.
+`real_adaptation` reaches at a given *k*. Name the result `real_gesture_trials_saved`; never shorten
+it to "samples saved," which would obscure the unit.
 
 The **unit and name** of that statistic are frozen; its numerical extraction is not. Before the
 runner is implemented, fix the target-accuracy rule, subject-level versus aggregate computation,
@@ -234,10 +234,11 @@ things at once in a comparison designed to change one.
 
 Be precise about what that buys. The additive form preserves the **algebraic coefficient** of the
 real-only objective and nothing more. The realized update, the parameter trajectory, the gradient
-norm and the effective step size all change — intentionally, because that is the intervention. In
-particular, the combined gradient norm is *not* guaranteed to grow: $\|g_{\text{real}} + \lambda
-g_{\text{syn}}\|$ can rise or fall depending on alignment, and Adam normalizes by its second
-moment, so a loss rescaling does not translate into a proportionally larger update at all.
+norm and the effective step size all change — intentionally, because that is the intervention. The
+combined gradient norm is *not* guaranteed to grow. The quantity
+$\|g_{\text{real}} + \lambda g_{\text{syn}}\|$ can rise or fall depending on gradient alignment.
+Adam normalizes by its second moment, so loss rescaling does not translate into a proportionally
+larger update at all.
 
 | Term | Definition | Why |
 |---|---|---|
@@ -253,6 +254,9 @@ population head and the real-adaptation no-op are the other shared model variant
 unchanged head once. For replay, each recorded `(adaptation_seed, synthetic_draw_id)` produces one
 population-conditioned head shared across subjects, schedules, and both replay-strategy aliases;
 do not collapse distinct recorded repeats, but do not present four independent strategy estimates.
+Its optimizer-step assignment remains Pending: real adaptation is a no-op at *k*=0, so neither that
+arm nor a nonzero-*k* mapping can silently select the synthetic-only diagnostic's step count. G3 and
+G4 remain blocked until the config's explicit `synthetic_only_k0_optimizer_steps` rule is resolved.
 
 **Full-batch, restarted at every *k*.** Head-only latent adaptation at the largest *k* has roughly
 3,300 active-gesture real windows before any rest admitted by the still-Pending ownership rule,
@@ -278,12 +282,20 @@ or freezing absent classes would shrink the very gap the headline reports.
 then frozen for both replay arms: treatment-specific tuning is the thing to avoid. The resulting
 bias direction is **not known** — under the additive objective a fixed anchor is relatively weaker
 against a larger data loss. This is a shared anti-cherry-picking rule, not an unbiased estimator.
-Selection runs through the D16 folds: one fixed-budget development model per fold trained on its 28
-subjects, with model weights never checkpoint-selected on the outer four. Its common epoch budget
-is D18's globally development-selected refit budget, which was derived across all eight validation
-groups; these are therefore hyperparameter-selection diagnostics, not unbiased outer-fold
-performance estimates. Normalization, class weights, latent centroids, population embedding and
-generator are all fitted from the same 28, calibrating from {1,4} and evaluating on {2,3,5,6}.
+Selection runs through the D16 folds: one fixed-budget development model per fold is trained on the
+manifest's 28-subject complement, with model weights never checkpoint-selected on the outer four.
+Its common epoch budget is D18's globally development-selected refit budget, which was derived
+across all eight validation groups; these are therefore hyperparameter-selection diagnostics, not
+unbiased outer-fold performance estimates. Build and persist the fold-local population model at
+`checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt` and its
+generator at `checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt`. The generator
+must consume that fold-local encoder. The all-32 `refit.pt` artifacts and validation-selected
+`folds/fold{fold_index}/best.pt` artifacts are forbidden for this selection machinery.
+
+Normalization, class weights, latent centroids, population embedding and generator are all fitted
+from the same 28, calibrating from {1,4} and evaluating on {2,3,5,6}. Each development artifact
+records the manifest hash, fold index, exact training/scoring subject IDs, source-config digests and
+fixed training budget; the runner verifies that provenance before scoring a candidate.
 *k*=0 is excluded, since real adaptation is a no-op there. Those eight development fits are shared
 infrastructure for the whole arm, not a cost charged to adaptation tuning — and **D27's centring
 reference must come from the same 28**, or development silently mixes populations. The numeric
@@ -352,6 +364,10 @@ persisted with the run so another implementation can reconstruct the exact sched
 
 Repeat schedules over fixed seeds and report the within-subject spread. Schedules are Monte Carlo
 replicates of the acquisition policy, not additional subjects or independent inferential units.
+The point summary, spread summary, and joint-versus-ordered reduction across schedules, adaptation
+seeds and synthetic draws remain Pending in `evaluation.within_subject_repeat_aggregation`.
+Deduplicate shared population artifacts before that summary, and never treat repeated scoring on
+the same evaluation windows as independent observations.
 
 **Easily missed.**
 - **Class coverage is part of the treatment.** In addition to overall accuracy and macro-F1,
@@ -390,7 +406,9 @@ than improving accuracy alone.
 **Easily missed.** D23 fixes top-label ECE to 10 equal-mass bins. ECE computed on a small
 per-subject test set is high-variance, while pooling predictions can hide subject-level
 miscalibration and overweight subjects or repeated evaluation windows. The schedule-within-subject
-summary, subject aggregation, and role of pooled ECE remain Pending; always show per-subject values.
+summary is separately blocked by `evaluation.within_subject_repeat_aggregation`; subject weighting
+and the role of pooled ECE remain blocked by `evaluation.headline_ece_aggregation_status`. Always
+show per-subject values.
 
 ---
 
@@ -468,13 +486,14 @@ The registry carries `g3_real_adaptation`, `g3_population_synthetic_adaptation`,
 [`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml).
 Unlike encoder and adapter targets they are **run-shaped, not file-shaped**: G3 trains per-subject
 decoders on the fly, so each target points at a `run_dir` rather than one `refit.pt`. The two replay
-targets share each population-conditioned *k*=0 head for the same `(adaptation_seed,
-synthetic_draw_id)`; the runner must resolve that artifact alias across strategies, subjects, and
-schedules, then still score it once on every held-out subject for that repeat. The unchanged head is
-likewise one shared artifact at *k*=0, without schedule or adaptation-seed replication, but still has
-one evaluation per held-out subject. Real adaptation carries an `adaptation_seed` axis at *k*>0,
-while replay also carries `synthetic_draw_id`; their counts, derivations, pairing and within-subject
-aggregation remain Pending and fail-closed in the registry. See README §6.
+targets share each population-conditioned *k*=0 head for the same
+`(adaptation_seed, synthetic_draw_id)`; the runner must resolve that artifact alias across
+strategies, subjects, and schedules, then still score it once on every held-out subject for that
+repeat. The unchanged head is likewise one shared artifact at *k*=0, without schedule or
+adaptation-seed replication, but still has one evaluation per held-out subject. Real adaptation
+carries an `adaptation_seed` axis at *k*>0, while replay also carries `synthetic_draw_id`; their
+counts, derivations, pairing and within-subject aggregation remain Pending and fail-closed in the
+registry. See README §6.
 
 ---
 
@@ -491,8 +510,11 @@ Before any G-series number leaves this repository:
 - [ ] Replay controls share synthetic labels/noise, adaptation seed and fixed-bank draw IDs
 - [ ] Per-subject curves shown, not only the mean
 - [ ] Multiple nested, class-aware schedules per subject, shared across strategies, with spread
-- [ ] *k* stated as total complete active-gesture trials per subject; contained windows also reported
+- [ ] *k* stated as total complete active-gesture trials per subject; contained windows also
+      reported
 - [ ] Calibration-seen gestures, calibration-unseen gestures, and rest reported separately
 - [ ] Rest ownership fixed from an inspected MAT file and enforced without sample overlap
-- [ ] The headline "N fewer real gesture trials" claim states the synthetic-window and compute budgets
-- [ ] `{1, 4}` result described as session-representative offline calibration, not chronological onboarding
+- [ ] The headline "N fewer real gesture trials" claim states the synthetic-window and compute
+      budgets
+- [ ] `{1, 4}` result described as session-representative offline calibration, not chronological
+      onboarding

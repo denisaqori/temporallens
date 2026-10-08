@@ -150,8 +150,8 @@ The metric set, including the decision-bearing cases.
 | `paired_bootstrap_interval` | **D26** — seeded percentile bootstrap over subjects, never windows. A window-level bootstrap gave an interval 20× too narrow on identical data |
 
 ### `evaluation.robustness`
-Validators for robustness-target plan resolution — fail-closed sentinels, duplicate target names,
-and shared-*k*=0 alias checks.
+Validators for robustness-target plan resolution — fail-closed target sentinels and source
+protocols, duplicate target names, and shared-*k*=0 alias checks.
 
 ### `utils.device`, `utils.run_logger`
 Portable device selection, and always-on local JSON logging. §3.5 makes the logger non-optional and

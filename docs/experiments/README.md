@@ -44,7 +44,7 @@ These words were being used loosely. They are now defined, and the definitions a
 | **Encoder**                   | The 1-D CNN mapping a raw EMG window to a 256-d embedding. Trained in Milestone 0, then **frozen** for both arms.                                                                                                                                                                                        | —                                |
 | **Projector**                 | The small trainable MLP mapping the 256-d encoder embedding to *N* soft-prefix embeddings of the LLM's hidden size. In configs this is the `adapter:` block, whose `type` is `mlp_projector`.                                                                                                            | "Adapter"                        |
 | **Adapter**                   | In this project, a synonym for **projector** — the same object. It is *not* a PEFT/LoRA adapter. Nothing is ever inserted into the language model's own weights.                                                                                                                                         | LoRA adapters                    |
-| **Head**                      | The trainable classifier on the frozen model's final hidden state. Produces the 18-class logits. Separate from, and downstream of, the projector.                                                                                                                                                        | Projector; the LLM's own LM head |
+| **Head**                      | The trainable classifier on the frozen model's pooled last-non-padding hidden state. Produces the 18-class logits. Separate from, and downstream of, the projector.                                                                                                                                     | Projector; the LLM's own LM head |
 | **Soft prefix**               | Continuous embedding vectors prepended to the text-prompt embeddings, passed via `inputs_embeds`. They are **not** discrete tokens and never index the vocabulary.                                                                                                                                       | "Token space", prompt text       |
 | **Frozen**                    | `requires_grad=False` on every parameter of that module, and the module in `eval()` mode. The encoder and the language model are frozen; the projector and head are not.                                                                                                                                 | "Not updated this step"          |
 | **Readout**                   | *How* a class prediction is extracted. **Discriminative** = trainable head on a pooled hidden state. **Generative** = the model's own LM head emits a label token. See Section 4.                                                                                                                        | The input path                   |
@@ -198,23 +198,23 @@ the generative-arm leakage rules; this never permits subject-specific normalizat
 
 ### 3.4 Metrics
 
-| Metric                                   | What it captures                                             | Why it is here                                                                                                                                                                            |                                        |                                                                                                                                    |
-| ---------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `accuracy`                               | Overall correctness                                          | Baseline readability; misleading alone under class imbalance                                                                                                                              |                                        |                                                                                                                                    |
-| `macro_f1`                               | Mean per-class F1, unweighted                                | Rest is over-represented; macro-F1 stops a model from coasting on it                                                                                                                      |                                        |                                                                                                                                    |
-| `per_subject_accuracy`                   | Accuracy for each held-out subject separately                | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance                                                                    |                                        |                                                                                                                                    |
-| `per_class_precision`                    | Precision for each of the 18 classes separately              | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts                                                                                      |                                        |                                                                                                                                    |
-| `per_class_recall`                       | Recall for each of the 18 classes separately                 | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away                                                          |                                        |                                                                                                                                    |
-| `confusion_matrix`                       | Which movements are mistaken for which                       | Anatomically adjacent gestures confuse; the pattern is a result                                                                                                                           |                                        |                                                                                                                                    |
-| `expected_calibration_error`             | Gap between confidence and accuracy                          | Probability calibration. A wearable that is confidently wrong is worse than one that abstains                                                                                             |                                        |                                                                                                                                    |
-| `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject          | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration                                                                                     |                                        |                                                                                                                                    |
-| `per_subject_macro_f1`                   | Macro-F1 for each evaluation subject separately              | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too                                                                                          |                                        |                                                                                                                                    |
-| `per_subject_brier_score`                | Brier score for each evaluation subject separately           | Same rule as ECE: a pooled proper score can hide one badly-scored subject                                                                                                                 |                                        |                                                                                                                                    |
-| `per_subject_overconfidence_error`       | Overconfidence error for each evaluation subject separately  | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number                                                                                                       |                                        |                                                                                                                                    |
-| `overconfidence_error`                   | Confidence-weighted **positive** gap, summed over bins: `Σ ( | Bₘ                                                                                                                                                                                        | /n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
-| `mean_confidence_when_wrong`             | Mean confidence over misclassified windows                   | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |                                        |                                                                                                                                    |
-| `brier_score`                            | Mean squared error of the predicted probability vector       | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23)                                                                  |                                        |                                                                                                                                    |
-| `robustness_drop`                        | Accuracy loss from clean → perturbed                         | Robustness experiments only                                                                                                                                                               |                                        |                                                                                                                                    |
+| Metric | What it captures | Why it is here |
+|---|---|---|
+| `accuracy` | Overall correctness | Baseline readability; misleading alone under class imbalance |
+| `macro_f1` | Mean per-class F1, unweighted | Rest is over-represented; macro-F1 stops a model from coasting on it |
+| `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance |
+| `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts |
+| `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away |
+| `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
+| `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
+| `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
+| `per_subject_macro_f1` | Macro-F1 for each evaluation subject separately | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too |
+| `per_subject_brier_score` | Brier score for each evaluation subject separately | Same rule as ECE: a pooled proper score can hide one badly-scored subject |
+| `per_subject_overconfidence_error` | Overconfidence error for each evaluation subject separately | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number |
+| `overconfidence_error` | Confidence-weighted **positive** gap, summed over bins: `Σ (count(Bₘ)/n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
+| `mean_confidence_when_wrong` | Mean confidence over misclassified windows | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |
+| `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
+| `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
 The table above is the shared metric registry; the "Metrics reference" tables in
 [generative-arm.md](generative-arm.md) register generation-specific keys. Every value under an
@@ -393,9 +393,9 @@ class-balanced synthetic bank is an explicit intervention with an unweighted sou
 support is never resampled. Resampling on top would leave `accuracy` describing a class
 distribution the model never meets in deployment.
 
-Debug-only `max_windows_per_subject` caps are a non-reportable plumbing exception, not a class-
-balancing method. Their seeded subsample retains every class present so the smoke test exercises
-all output logits; no scientific metric may be reported from a capped run.
+Debug-only `max_windows_per_subject` caps are a non-reportable plumbing exception, not a
+class-balancing method. Their seeded subsample retains every class present so the smoke test
+exercises all output logits; no scientific metric may be reported from a capped run.
 
 ---
 
@@ -404,7 +404,7 @@ all output logits; no scientific metric may be reported from a capped run.
 This axis is **orthogonal** to which arm an experiment belongs to and to which input path it
 uses. Conflating the two is what motivated this document.
 
-- **Discriminative readout** — a trainable MLP head pools the frozen model's final hidden
+- **Discriminative readout** — a trainable MLP head pools the frozen model's last non-padding hidden
   state (`pooling: last_token`) and emits 18 logits. Trainable: projector (if present) + head.
 - **Generative readout** — the frozen LLM's own LM head is teacher-forced to emit a label
   token. Trainable: the projector only.
@@ -452,7 +452,7 @@ tokenizer happens to use, is what keeps the implementation from drifting from th
 |---|---|
 | `hidden_states[:, -1]` | **Left**-padding only |
 | `attention_mask.sum(-1) - 1` | **Right**-padding only, and only with no interior zeros in the mask |
-| Rightmost index where the mask is 1 — `L - 1 - mask.flip(-1).argmax(-1)` | **Either** padding, and under interior masking |
+| Rightmost index where the mask is 1 — `L - 1 - mask.to(torch.int64).flip(-1).argmax(-1)` | **Either** padding, and under interior masking |
 
 Prefer the third. Note that `sum(-1) - 1` is *not* a general "find the last real token" formula
 even though it reads from the mask: it assumes the real tokens occupy indices `0..n-1`, so it
@@ -465,9 +465,16 @@ one unmasked token and that the mask at the chosen index is 1.
 **Why this hides.** The longest sequence in a batch is correct under either padding, so the bug
 corrupts only the short rows of mixed-length batches. Training runs and loss falls.
 
-**Left-padding's second trap:** unless `position_ids` are derived from the attention mask, the real
-tokens sit at positions offset by the pad count. Pass explicit `position_ids`, or confirm the model
-builds them from the mask.
+**Soft prefixes make the mask contract load-bearing.** For every tokenizer-backed soft-prefix path
+(L1–L3), prepend a mask of ones for the *N* soft-prefix embeddings to the tokenizer's text mask:
+`combined_attention_mask = cat([prefix_mask, text_attention_mask], dim=-1)`. Derive both the
+rightmost non-padding pooling index and explicit `position_ids` from that same combined mask, then
+pass the combined mask and positions with `inputs_embeds`. With left-padded text this mask contains
+interior zeros between the prefix and text, which is exactly why the rightmost-mask index is used.
+After validating that the mask is binary, compute positions by cumulative non-padding count and set
+masked slots to a safe value such as zero. Direct Llama calls with `inputs_embeds` must not rely on
+default sequential positions: they offset real text tokens by the pad count. L4 has no soft prefix
+and uses its tokenizer mask directly.
 
 **Easily missed — `input_dim: auto_from_llm_config` is load-bearing.** The hidden size must be
 read from the model's own config at runtime, never hard-coded. Llama 3.2 1B and 3B have
@@ -500,26 +507,33 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | | `epochs`, `learning_rate`, `weight_decay` | Optimization; F1's `epochs` is the initial cross-validation fold horizon |
 | | `early_stopping`, `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2) |
 | | `device` | `auto` (portable) \| `mps` (local-only) \| `cuda` (cloud-only) |
-| | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (consumed downstream) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only) |
+| | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (final downstream use) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only); D28 selection separately writes `development/fold{k}/fixed_budget.pt` |
 | `evaluation` | `metrics` | See §3.4 |
 | | `save_predictions` | Persist per-window predictions for later analysis |
 
-### 5.1 The two checkpoint kinds
+### 5.1 The three checkpoint kinds
 
-A training run produces two kinds of checkpoint. The names differ because the selection rule and
-the intended reader differ.
+A training run can produce three kinds of checkpoint. The names differ because the selection rule
+and intended reader differ.
 
 | Path | What it is | Who reads it |
 |---|---|---|
-| `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every downstream consumer** — the adapters, the generator, the robustness registry |
+| `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every final/reportable downstream consumer** — the adapters, the generator, the robustness registry |
 | `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model at the **smoothed validation peak** (§5.2) | Extended analysis only — never consumed by another run |
+| `checkpoints/<name>/development/fold{k}/fixed_budget.pt` | A fresh fold-complement fit trained for a fixed, already-selected budget, with no checkpoint selection on that fold's four validation subjects | D28 adaptation-hyperparameter selection only; never the final pipeline or a reportable fold result |
 
 **Why the refit artifact is not called `best`.** Within a fold, `best` carries its ordinary
 sense: the epoch that scored highest on that fold's validation subjects. The refit has no
 validation set at all, since every training subject goes into training, so it runs to a fixed
 epoch count (§5.2) without early stopping. Giving both files the same name would leave `best`
-meaning two different things, and the difference is one a reader needs to see. Both satisfy the
+meaning two different things, and the difference is one a reader needs to see. All three satisfy the
 checkpoint contract: `{model_state, model_config}`.
+
+The D28 development checkpoint is separate from both. Its fold's four validation subjects may
+score adaptation candidates but may not select the population model's weights. It records the
+manifest hash, fold index, exact training/scoring subject IDs, source-config digests, and fixed
+training budget so the complement-28 fit can be reconstructed without consulting an all-32 refit.
+The fold-local generator must consume the corresponding fold-local encoder.
 
 ### 5.2 Epoch selection: the smoothed validation peak
 
@@ -540,7 +554,8 @@ by that one selected fold checkpoint. Final-test metrics likewise come from pred
 frozen selected fold checkpoints and the frozen refit checkpoint. Metrics are never averaged across
 epochs: doing so would describe no single model, and is especially ill-defined for count-valued or
 nonlinear outputs such as confusion matrices and ECE. D20 explicitly narrows D9's earlier phrase
-"fold metrics are the smoothed values": only the validation-macro-F1 **selection score** is smoothed.
+"fold metrics are the smoothed values": only the validation-macro-F1 **selection score** is
+smoothed.
 
 After all eight folds finish, sort their selected epochs as
 *e*<sub>(1)</sub> ≤ … ≤ *e*<sub>(8)</sub> and compute
@@ -634,18 +649,21 @@ two axes are separate files. Each `robustness_*.yaml` describes only the perturb
 no checkpoint. The models to evaluate live in one shared registry,
 [`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml),
 and `scripts/evaluate.py` evaluates the perturbation against every registry target whose
-checkpoint exists — skipping the rest with a log line. The suite therefore runs incrementally:
+checkpoint or run directory exists. Targets carrying an unresolved `pending_*` sentinel, or whose
+declared source config has a non-ready protocol status, are blocked before artifact lookup; ready
+targets with absent artifacts are skipped with a log line. The suite therefore runs incrementally:
 today it resolves to F1 only (and F1's checkpoint appears once F1 is trained); the language and
 generative targets light up as those arms land, with no config change.
 
-A target is just `(name, checkpoint)` — no `model_type`. That relies on the **checkpoint
-contract**: every checkpoint is saved as `{model_state, model_config}`, so any consumer rebuilds
-the architecture from the checkpoint alone. That matters for the adapter stacks
+A file-shaped target is just `(name, checkpoint)` — no `model_type`. That relies on the
+**checkpoint contract**: every checkpoint is saved as `{model_state, model_config}`, so any
+consumer rebuilds the architecture from the checkpoint alone. That matters for the adapter stacks
 (encoder + projector + backbone + head), which no single `model_type` string could describe.
-F1's trainer is the first code to honor this contract.
+F1's trainer is the first code to honor this contract. G3 targets are run-shaped instead and name
+a `run_dir`, because their per-subject heads are resolved inside the run.
 
-Targets point at **`refit.pt`** — see §5 for the two checkpoint kinds and why the refit artifact
-does not reuse the name `best`.
+File-shaped targets point at **`refit.pt`** — see §5 for the three checkpoint kinds and why the
+refit artifact does not reuse the name `best`.
 
 The evaluation logic itself (data loader, perturbation transforms, metrics) is Milestone-0 work
 and not written yet; `scripts/evaluate.py` currently resolves and reports the plan.
@@ -757,8 +775,9 @@ for that held-out subject. The encoder stays frozen. Full fine-tuning, test-time
 (entropy minimization or normalization-stat updates), and a fresh randomly initialized head are
 follow-ups, not v1 alternatives.
 
-For *k*>0 it has two matched synthetic counterparts (D29) — `real_plus_population_synthetic_adaptation`
-and `real_plus_subject_synthetic_adaptation` — which start from the same F1 head, train the same
+For *k*>0 it has two matched synthetic counterparts (D29) —
+`real_plus_population_synthetic_adaptation` and
+`real_plus_subject_synthetic_adaptation` — which start from the same F1 head, train the same
 parameters under the same schedule and step budget, and differ from each other *only* by the
 conditioning embedding. The objective, loss reductions, regularizer and full-batch rule are fixed
 by D28; only the numeric candidate grid remains Pending. The unchanged F1 head is retained as

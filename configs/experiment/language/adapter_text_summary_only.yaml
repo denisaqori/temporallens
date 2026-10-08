@@ -46,7 +46,7 @@ head:
   # LLM's final hidden state, so the comparison isolates prompt engineering rather
   # than measuring the frozen LLM's zero-shot readout.
   type: mlp
-  pooling: last_token            # Llama is causal — classify from the final token position
+  pooling: last_token            # Llama is causal — classify from the last non-padding token
   input_dim: auto_from_llm_config  # LLM hidden size, read from the model config (never hard-coded)
   hidden_dim: 256
   dropout: 0.1
