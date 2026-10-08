@@ -39,6 +39,11 @@ BoolArray = npt.NDArray[np.bool_]
 
 
 def accuracy(predicted: IntArray, true: IntArray) -> float:
+    """Fraction of windows whose predicted class matches the truth.
+
+    Misleading alone under this project's imbalance: rest is ~50% of windows, so a model
+    predicting only rest scores 0.5. `macro_f1` is the headline for that reason.
+    """
     return float(np.mean(np.asarray(predicted) == np.asarray(true)))
 
 
@@ -65,12 +70,20 @@ def _true_false_counts(
 
 
 def per_class_precision(predicted: IntArray, true: IntArray, *, num_classes: int) -> FloatArray:
+    """Precision per class: when this gesture is predicted, how often is it right?
+
+    Catches classes the model over-predicts. A class never predicted scores 0, not NaN.
+    """
     tp, fp, _ = _true_false_counts(predicted, true, num_classes)
     denominator = tp + fp
     return np.divide(tp, denominator, out=np.zeros_like(tp), where=denominator > 0)
 
 
 def per_class_recall(predicted: IntArray, true: IntArray, *, num_classes: int) -> FloatArray:
+    """Recall per class: how much of this gesture does the model find?
+
+    Catches classes it quietly misses, which accuracy hides and macro-F1 averages away.
+    """
     tp, _, fn = _true_false_counts(predicted, true, num_classes)
     denominator = tp + fn
     return np.divide(tp, denominator, out=np.zeros_like(tp), where=denominator > 0)

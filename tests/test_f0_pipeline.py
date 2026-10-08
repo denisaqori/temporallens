@@ -19,18 +19,7 @@ from _synthetic import recordings
 
 from temporallens.data.ninapro import processed_path, save_processed
 from temporallens.data.windows import index_recording
-
-# The trainer is the next slice. These tests were written first, deliberately, so the contract
-# was fixed before the implementation -- but a module-level ImportError makes the whole suite
-# uncollectable, which is worse than a visible skip. REMOVE THIS the moment
-# temporallens.training.encoder exists: a skip nobody notices is worse than a red test.
-_encoder = pytest.importorskip(
-    "temporallens.training.encoder",
-    reason="training.encoder not written yet (slice 4); these tests define its contract",
-)
-EncoderRunConfig = _encoder.EncoderRunConfig
-train_encoder = _encoder.train_encoder
-
+from temporallens.training.encoder import EncoderRunConfig, train_encoder
 
 TRAIN = (1, 2)
 HELD_OUT = 3
