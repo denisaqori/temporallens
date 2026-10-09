@@ -27,7 +27,7 @@ dataset:
   input_channels: 12
   num_classes: 18
   # Debug holdout follows the same no-leakage rule as reportable subject splits.
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 encoder:
   checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
   freeze: true

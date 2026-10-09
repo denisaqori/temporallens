@@ -27,7 +27,7 @@ dataset:
   stride: 100
   input_channels: 12
   num_classes: 18
-  normalize: train_split_global_stats
+  normalize: train_split_covered_sample_stats
 model:
   type: cnn1d
   input_channels: 12

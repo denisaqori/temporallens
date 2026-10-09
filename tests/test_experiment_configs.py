@@ -84,7 +84,7 @@ def test_debug_configs_use_an_explicit_nonreportable_subject_subset(relative_pat
     assert train_subjects
     assert held_out_subjects
     assert set(train_subjects).isdisjoint(held_out_subjects)
-    assert dataset["normalize"] == "train_subjects_global_stats"
+    assert dataset["normalize"] == "train_subject_covered_sample_stats"
     assert "max_subjects" not in dataset
     assert "split_manifest" not in dataset
     assert "split" not in dataset
@@ -137,7 +137,9 @@ def test_f1_config_encodes_approved_epoch_constants_and_gates() -> None:
 
     training = config["training"]
     assert training["epochs"] == 30
-    assert training["early_stopping"] is False
+    assert (
+        "early_stopping" not in training
+    ), "D18/D19 own the horizon; a config key restating it can only drift from it"
 
     selection = training["epoch_selection"]
     assert selection["metric"] == "validation_macro_f1"

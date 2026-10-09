@@ -49,14 +49,20 @@ from temporallens.evaluation.metrics import (
     per_subject,
 )
 from temporallens.models.checkpoint import save_checkpoint
-from temporallens.models.encoders.cnn1d import Cnn1dClassifier
+from temporallens.models.encoders.cnn1d import MODEL_TYPE, build_model
 from temporallens.preprocessing.normalize import fit_channel_stats
 from temporallens.training.class_weights import inverse_frequency_weights
-from temporallens.utils.device import get_device
+from temporallens.utils.device import SUPPORTED_DEVICES, resolve_device
 from temporallens.utils.run_logger import RunLogger
 
 #: The only loss D11 permits for these runs.
 SUPPORTED_LOSS = "class_weighted_cross_entropy"
+
+#: The only normalization policy this trainer implements (D31): per-channel statistics fitted over
+#: the samples training windows cover, each counted once, on the training *subjects*. F2's random
+#: window split needs `train_split_covered_sample_stats` instead — a different fitting set, and
+#: not written — so declaring it here fails rather than silently using the subject-based one.
+SUPPORTED_NORMALIZATION = "train_subject_covered_sample_stats"
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,11 @@ class EncoderRunConfig:
     #: D11 permits exactly one loss here. It is a field rather than an assumption so that a
     #: config declaring something else fails loudly instead of being silently overridden.
     loss: str = SUPPORTED_LOSS
+    #: Validated for the same reason as `loss`: these name what the run did, so a value this code
+    #: cannot honour has to fail loudly instead of being quietly overruled.
+    model_type: str = MODEL_TYPE
+    normalize: str = SUPPORTED_NORMALIZATION
+    device: str = "auto"
     max_windows_per_subject: int | None = None
     weight_decay: float = 0.0
     num_workers: int = 0
@@ -102,6 +113,20 @@ class EncoderRunConfig:
                 f"loss must be {SUPPORTED_LOSS!r}, got {self.loss!r}. D11 handles imbalance in "
                 "the loss and never by resampling, so an unweighted loss here would silently "
                 "disagree with the config that declared it."
+            )
+        if self.model_type != MODEL_TYPE:
+            raise ValueError(
+                f"model_type must be {MODEL_TYPE!r}, got {self.model_type!r}; this trainer builds "
+                "no other architecture, and training a CNN for a config that asked for something "
+                "else would report a number for a model nobody ran"
+            )
+        if self.normalize != SUPPORTED_NORMALIZATION:
+            raise ValueError(
+                f"normalize must be {SUPPORTED_NORMALIZATION!r}, got {self.normalize!r} (D31)"
+            )
+        if self.device not in SUPPORTED_DEVICES:
+            raise ValueError(
+                f"device must be one of {list(SUPPORTED_DEVICES)}, got {self.device!r}"
             )
 
 
@@ -186,7 +211,7 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
     """Train the encoder and head on ``train_subjects``, score on ``held_out_subjects``."""
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
-    device = get_device()
+    device = resolve_device(config.device)
 
     train_recordings = _load(config, config.train_subjects)
     eval_recordings = _load(config, config.held_out_subjects)
@@ -214,19 +239,28 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
         num_workers=config.num_workers,
     )
 
-    model = Cnn1dClassifier(
-        input_channels=config.input_channels,
-        hidden_dim=config.hidden_dim,
-        embedding_dim=config.embedding_dim,
-        num_classes=config.num_classes,
-        dropout=config.dropout,
+    model = build_model(
+        {
+            "type": config.model_type,
+            "input_channels": config.input_channels,
+            "hidden_dim": config.hidden_dim,
+            "embedding_dim": config.embedding_dim,
+            "num_classes": config.num_classes,
+            "dropout": config.dropout,
+        }
     ).to(device)
     criterion = nn.CrossEntropyLoss(weight=torch.from_numpy(class_weights).to(device))
     optimizer = torch.optim.Adam(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
 
-    logger = RunLogger(config.name, {"config": _loggable(config)}, root_dir=config.output_dir)
+    # The resolved device, not only the requested one: `device: auto` is a reproducible record
+    # only if the run says what `auto` actually picked.
+    logger = RunLogger(
+        config.name,
+        {"config": _loggable(config), "resolved_device": str(device)},
+        root_dir=config.output_dir,
+    )
 
     epoch_losses: list[float] = []
     for epoch in range(config.epochs):  # fixed horizon, no early stopping (D18/D19)

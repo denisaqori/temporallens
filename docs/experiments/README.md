@@ -183,8 +183,19 @@ This generalizes the rule the generative arm already assumed: G3's
 
 | `normalize` value | Statistics come from | Used by |
 |---|---|---|
-| `train_subjects_global_stats` | Pooled across the current training partition only: 28 fold-training subjects during cross-validation, all 32 development subjects for the refit, or the explicitly reduced training subjects in a debug holdout | Subject-independent and subject-holdout debug runs |
-| `train_split_global_stats` | The training split only | Random-window runs |
+| `train_subject_covered_sample_stats` | The current training **subjects** only: 28 fold-training subjects during cross-validation, all 32 development subjects for the refit, or the explicitly reduced subjects in a debug holdout | Subject-independent and subject-holdout debug runs |
+| `train_split_covered_sample_stats` | The training **split** only | Random-window runs |
+
+Both names say `covered_sample` because D31 fixes *which* samples within the partition: the ones
+training windows actually cover, **each counted once**. Not per-window — an interior sample is
+inside four windows at stride 100 and would be weighted 4x. Not whole recordings either, which
+would include the `(L - window) mod stride` tail that D24 leaves windowless: 0.54% of the signal,
+and measurably quieter at std 0.445–0.928 of the covered samples. On subject 2 the three candidate
+fitting sets agree on per-channel std to within 1.4%, so this is a freeze decision rather than an
+accuracy one — covered-once wins because it is stride-independent (0.000% versus 0.230% between
+stride 100 and 200), and these statistics are reused by consumers that may window differently.
+An earlier revision called these values `*_global_stats`, which named the partition but left the
+fitting set unstated — the one thing D31 is about.
 
 **Easily missed — this is the most common silent leak in the whole project.** Normalization and
 other preprocessing statistics must be computed on **the current training partition only** and
@@ -517,8 +528,8 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | `training` | `target`, `loss` | `class_label`, `class_weighted_cross_entropy` for classification |
 | | `batch_size`, `gradient_accumulation_steps` | Effective batch = product |
 | | `epochs`, `learning_rate`, `weight_decay` | Optimization; F1's `epochs` is the initial cross-validation fold horizon |
-| | `early_stopping`, `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2) |
-| | `device` | `auto` (portable) \| `mps` (local-only) \| `cuda` (cloud-only) |
+| | `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2). There is no top-level `early_stopping` key: D18/D19 fix the horizon, so a field for it could only restate the protocol or contradict it |
+| | `device` | `auto` (portable) \| `cpu` \| `mps` (local-only) \| `cuda` (cloud-only). `auto` picks CUDA, then MPS, then CPU; any other value is a **pin** and an unavailable pin raises rather than falling back, so a config asking for `cuda` can never silently report a CPU run. The resolved device is recorded in the run log |
 | | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (final downstream use) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only); D28 selection separately writes `development/fold{k}/fixed_budget.pt` |
 | `evaluation` | `metrics` | See §3.4 |
 | | `save_predictions` | Persist per-window predictions for later analysis |
@@ -776,7 +787,7 @@ that an EMG practitioner would actually reach for, which is the bar this baselin
 
 **Recommended formatting:**
 
-1. **Compute on the normalized signal**, using the same `train_subjects_global_stats` statistics
+1. **Compute on the normalized signal**, using the same `train_subject_covered_sample_stats` statistics
    as the encoder path — same preprocessing for both arms, and it bounds the numeric range so
    one format works everywhere.
 2. **Fixed-point, 2 decimal places.** Post-normalization values sit roughly in ±5, so `%.2f`

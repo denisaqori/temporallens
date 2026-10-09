@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import pytest
 import torch
-from temporallens.models.encoders.cnn1d import Cnn1dClassifier, Cnn1dEncoder
+
+from temporallens.models.encoders.cnn1d import Cnn1dClassifier, Cnn1dEncoder, build_model
 
 F0 = {
     "input_channels": 12,
@@ -147,12 +148,14 @@ def test_capacity_follows_hidden_dim() -> None:
 def test_model_config_is_sufficient_to_rebuild() -> None:
     """The checkpoint contract: a consumer rebuilds from `model_config` alone, no model_type.
 
-    So the config a model reports must be exactly the kwargs that reconstruct it.
+    Rebuilt through `build_model`, which is the supported path, rather than by hand-stripping
+    keys: `model_config` carries both the constructor kwargs and facts that are *recorded* and
+    not configurable, and the builder is what knows the difference.
     """
     model = Cnn1dClassifier(**F1)
     config = model.model_config()
 
-    rebuilt = Cnn1dClassifier(**{k: v for k, v in config.items() if k != "type"})
+    rebuilt = build_model(config)
     assert config["type"] == "cnn1d"
     assert sum(p.numel() for p in rebuilt.parameters()) == sum(
         p.numel() for p in model.parameters()
@@ -161,3 +164,35 @@ def test_model_config_is_sufficient_to_rebuild() -> None:
     import json
 
     assert json.loads(json.dumps(config)) == config, "model_config is not JSON-serialisable"
+
+
+def test_the_recorded_architecture_is_the_frozen_one() -> None:
+    """D32 froze the stack, so what a checkpoint records has to be that stack, not a copy."""
+    recorded = Cnn1dClassifier(**F1).model_config()["architecture"]
+    assert recorded == {
+        "block_kernels": [7, 5, 3],
+        "pool_factors": [4, 4],
+        "width_multiplier": 2,
+        "normalization": "batchnorm1d",
+        "activation": "relu",
+        "global_pool": "adaptive_avg",
+    }
+
+
+def test_a_checkpoint_recording_different_internals_is_refused() -> None:
+    """The reason to record the internals at all.
+
+    Same type name, same kwargs, different definition of what that name builds. The weights would
+    load into right-shaped wrong layers and report a number for an architecture nobody ran.
+    """
+    config = Cnn1dClassifier(**F1).model_config()
+    config["architecture"] = dict(config["architecture"], block_kernels=[9, 5, 3])
+    with pytest.raises(ValueError, match="different 'cnn1d' architecture"):
+        build_model(config)
+
+
+def test_the_wrong_builder_refuses_rather_than_building_a_cnn() -> None:
+    config = Cnn1dClassifier(**F1).model_config()
+    config["type"] = "transformer_xl"
+    with pytest.raises(ValueError, match="declares 'transformer_xl'"):
+        build_model(config)

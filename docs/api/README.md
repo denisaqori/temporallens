@@ -84,8 +84,17 @@ signal, 9,711 samples on subject 2, matching the formula exactly — and they ar
 ### `models.encoders.cnn1d`
 The Milestone-0 encoder and its head.
 
-The spec fixes only the interface, so **nothing outside this module may depend on the internal
-arrangement**. `freeze()` implements AGENTS.md's definition exactly — `requires_grad=False` *and*
+`ARCHITECTURE` is the layer stack D32 froze — kernels, pool factors, the width multiplier, and the
+normalization/activation/pooling choices. It is a module constant and deliberately **not** a config
+surface: those values are what the name `cnn1d` *means*, and if a config could change them two runs
+could both declare `model.type: cnn1d` and be different architectures, which would make the name
+worthless and break the checkpoint contract's promise that `model_config` identifies the
+architecture. `model_config()` records the resolved values, and `build_model` refuses a payload
+whose recorded architecture or declared type disagrees with this code — the reason to record them
+at all is that same-name-different-stack weights would otherwise load into right-shaped wrong
+layers. Changing an internal is a new model type with a new name.
+
+Nothing outside this module may depend on the internal arrangement. `freeze()` implements AGENTS.md's definition exactly — `requires_grad=False` *and*
 `eval()` — and `train()` is overridden so a later `model.train()` cannot quietly undo it. The
 `eval()` half is load-bearing rather than pedantic: this encoder has BatchNorm, and a frozen
 encoder left in train mode keeps updating its running statistics from whichever arm is using it,
@@ -153,9 +162,21 @@ The metric set, including the decision-bearing cases.
 Validators for robustness-target plan resolution — fail-closed target sentinels and source
 protocols, duplicate target names, and shared-*k*=0 alias checks.
 
+`protocol_blockers` is shared by both gates so they cannot drift: a perturbation config checks
+itself, and `source_protocol_blockers` checks the experiment that produced a registry target.
+Readiness has to be *declared* — a config with no `protocol:` block yields no blockers, which is
+indistinguishable from someone writing `status: ready`, and that silence once left four targets
+dispatchable while blockers stood recorded against them.
+
 ### `utils.device`, `utils.run_logger`
 Portable device selection, and always-on local JSON logging. §3.5 makes the logger non-optional and
 forbids depending on a network service for reproducibility.
+
+`resolve_device` turns a configured request into the device a run uses. `auto` picks CUDA, then MPS,
+then CPU; anything else is a **pin**, and an unavailable pin raises instead of falling back, because
+a config that asks for `cuda` and silently gets `cpu` is a run whose recorded intent and actual
+behaviour disagree. The trainer writes the *resolved* device into the run log, which is what makes
+`auto` reproducible after the fact.
 
 ---
 
@@ -166,7 +187,22 @@ forbids depending on a network service for reproducibility.
 | `prepare_dataset.py` | Raw `.mat` → processed `.npz` per subject. ~75 MB per subject, ~3 GB for all 40 |
 | `verify_environment.py` | `make verify` — interpreter, packages, MPS |
 | `evaluate.py` | Robustness driver. Resolves the plan; the evaluation logic itself is not written |
+| `train_encoder.py` | Config → `EncoderRunConfig` bridge and the F0 entry point. **Consume or refuse** |
 | `worktree.sh` | The single concurrency tool for every agent |
 
-`train_encoder.py`, `train_adapter.py` and `make_report.py` are referenced by Makefile targets but
-**not yet written**. Do not present those targets as functional.
+**`train_encoder.py` consumes every key or refuses.** Each leaf in the config is mapped to a
+run-config field, checked against something the code guarantees, or recorded — and anything else is
+an error. The declarations in that module (`FIELD_PATHS`, `CHECKED_PATHS`, `ALLOWED_VALUE_PATHS`,
+`RECORDED_PATHS`, `MIRRORED_PATHS`, `PRODUCED_METRICS`) are the contract rather than a description
+of it, and two tests keep them honest: one asserts every `EncoderRunConfig` field has a config path,
+the other runs a training pass and compares the metric keys it produces against `PRODUCED_METRICS`.
+This exists because the opposite shipped repeatedly — `loss`, `device`, `model.type` and
+`dataset.normalize` were all declared and read by nothing, each reading as a commitment the code did
+not honour.
+
+It runs a single train/held-out split, which is F0's whole protocol but not F1's. A config naming a
+`split_manifest` is refused rather than run as one split, and so is F2's random-window split; both
+would produce numbers that look like a protocol they did not follow.
+
+`train_adapter.py` and `make_report.py` are referenced by Makefile targets but **not yet written**.
+Do not present those targets as functional.

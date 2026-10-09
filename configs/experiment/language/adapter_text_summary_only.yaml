@@ -36,7 +36,7 @@ baseline:
     - maximum
     - waveform_length          # sum |x[i+1] - x[i]| — temporal
     - zero_crossings           # temporal
-  features_on: normalized_signal   # same train_subjects_global_stats as the encoder path
+  features_on: normalized_signal   # same train_subject_covered_sample_stats as the encoder path
   prompt:
     # The template is a hyperparameter: freeze it, version it, and record it verbatim in
     # run.json. If it drifts between runs, L4 is not comparable to itself.
@@ -66,7 +66,7 @@ dataset:
   stride: 100
   input_channels: 12
   num_classes: 18
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 training:
   target: class_label
   loss: class_weighted_cross_entropy

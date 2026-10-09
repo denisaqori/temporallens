@@ -37,7 +37,7 @@ dataset:
   stride: 100
   input_channels: 12
   num_classes: 18
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 discriminator:
   type: mlp
   hidden_dim: 128

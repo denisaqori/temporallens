@@ -29,7 +29,7 @@ dataset:
   input_channels: 12
   num_classes: 18
   # Fit independently on each fold's 28 training subjects; refit on all 32 development subjects.
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 model:
   type: cnn1d
   input_channels: 12
@@ -41,8 +41,9 @@ training:
   loss: class_weighted_cross_entropy
   batch_size: 64
   # D18 fixes the initial cross-validation horizon; D19 defines its one allowed escalation.
+  # No early-stopping key: D18/D19 fix the horizon and the loop structurally cannot stop
+  # early, so a config field for it could only ever restate the protocol or contradict it.
   epochs: 30
-  early_stopping: false
   learning_rate: 0.0003
   weight_decay: 0.0001
   # Processed NPZ recordings load eagerly; macOS spawn workers would duplicate several GiB.

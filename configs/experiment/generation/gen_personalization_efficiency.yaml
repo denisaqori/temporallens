@@ -44,7 +44,7 @@ dataset:
   stride: 100
   input_channels: 12
   num_classes: 18
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 personalization:
   calibration_trials: [0, 1, 2, 5, 10, 17, 20, 34]  # k; 17 gestures x reps {1,4} = 34 max
   k_unit: complete_active_gesture_trial

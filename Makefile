@@ -2,6 +2,7 @@ UV ?= uv
 PYTHON := .venv/bin/python
 
 .PHONY: setup setup-cloud kernel verify test test-worktree format lint debug train-baseline \
+	prepare-debug-subjects \
 	debug-adapter smoke-1b train-adapter-cloud eval-noise eval-robustness report
 
 ROBUSTNESS_CONFIGS := \
@@ -42,6 +43,11 @@ lint:
 	$(PYTHON) -m black --check src scripts tests
 	$(PYTHON) -m ruff check src scripts tests
 	$(PYTHON) -m mypy src scripts
+
+# `debug` reads processed .npz recordings, so prepare the three subjects it uses first.
+# PREPARE=1 is the common case on a fresh checkout; it is idempotent and skips what exists.
+prepare-debug-subjects:
+	$(PYTHON) scripts/prepare_dataset.py --subjects 1 2 3
 
 debug:
 	$(PYTHON) scripts/train_encoder.py --config configs/experiment/foundation/debug_tiny.yaml

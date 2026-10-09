@@ -59,9 +59,23 @@ make format     # black + ruff --fix
 make test-worktree  # integration tests for scripts/worktree.sh (slower; run when it changes)
 ```
 
-Interface-only — the scripts they call are not written yet (`train_encoder.py`, `train_adapter.py`,
-`make_report.py`; `evaluate.py` is a stub): `debug`, `train-baseline`, `debug-adapter`, `smoke-1b`,
-`train-adapter-cloud`, `eval-noise`, `eval-robustness`, `report`. Do not present these as functional.
+Also working, on real NinaPro data:
+
+```bash
+make prepare-debug-subjects  # raw .mat -> processed .npz for subjects 1-3 (idempotent)
+make debug                   # F0 smoke test, end to end, ~5 s on the Mac
+```
+
+`make debug` is a smoke test of the pipeline and never a measurement — it says so on stdout.
+
+Interface-only — the scripts they call are not written yet (`train_adapter.py`, `make_report.py`;
+`evaluate.py` is a stub): `debug-adapter`, `smoke-1b`, `train-adapter-cloud`, `eval-noise`,
+`eval-robustness`, `report`. Do not present these as functional.
+
+`train-baseline` is a third case: the script exists and **refuses**, because F1 is 8-fold
+cross-validation with D18–D21 selection and a refit, and that harness is not written. Running F1's
+config as a single split would produce a number that looks like F1 and is not, so the loader will
+not do it.
 
 ## Authority and vocabulary
 

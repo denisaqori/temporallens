@@ -28,6 +28,22 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- **F0 runs end to end**, and every config key now binds. `scripts/train_encoder.py` consumes each
+  leaf key or refuses: a key it does not map, check or record is an error, which is what makes the
+  defect behind `loss`, `device`, `model.type` and `dataset.normalize` structurally impossible
+  rather than something an audit finds. It also refuses what it cannot honour exactly — F1's
+  `split_manifest` config and F2's random-window split are both rejected rather than run as a single
+  subject split, and `wandb_mode: online` is rejected because nothing logs remotely. Two tests keep
+  the key set honest: one asserts every run-config field has a config path, the other trains and
+  compares the metric keys produced against the list the loader gates on. `device` became an
+  enumerated field where an unavailable pin raises instead of falling back, and the run log records
+  the resolved device so `auto` stays reproducible. `cnn1d.ARCHITECTURE` holds the D32 stack as a
+  frozen constant, recorded into `model_config` and validated on rebuild, so a same-name different-
+  stack checkpoint is refused rather than loaded into right-shaped wrong layers. The `normalize`
+  values were renamed to `train_subject_covered_sample_stats` / `train_split_covered_sample_stats`,
+  because `*_global_stats` named the partition and left the fitting set unstated — the one thing D31
+  is about. F0 now declares `weight_decay` instead of silently running at 0.0 while F1 declared
+  1e-4, and F1's redundant `early_stopping` key is gone.
 - Protocol gating closed and the architecture ratified. Eight configs gained `protocol:` blocks, so
   all seven robustness targets are blocked rather than four of them silently dispatchable; readiness
   is now a declaration a test requires instead of something inferred from a missing block. The
@@ -164,8 +180,11 @@ Week 0–1 (Setup → Milestone 0). Local environment complete and verified. **M
 started**: NinaPro DB2 Exercise B is downloaded locally, and the data layer (reader, processed
 format, windower), normalization, the 1-D CNN encoder and head, the checkpoint contract, the metric
 set, class weights, the window dataset, the F0 training loop and `prepare_dataset.py` are all
-implemented and tested. What remains before the first end-to-end run is the `scripts/train_encoder.py`
-entry point and the `make debug` wiring, so no run has executed end to end yet.
+implemented and tested. **F0 now runs end to end on real NinaPro data** — `make prepare-debug-subjects
+&& make debug` trains on subjects 1–2, evaluates on held-out subject 3, and writes a run directory
+in about five seconds. It is a smoke test and says so on stdout; no measurement has been produced.
+What remains for Milestone 0 is F1's harness: 8-fold cross-validation, D18–D21 selection with D19
+escalation, the refit, D10's cross-check, and D23 temperature scaling.
 
 ## Done
 
@@ -190,6 +209,8 @@ entry point and the `make debug` wiring, so no run has executed end to end yet.
   specifications and configs reconciled. The numeric candidate grid and remaining reporting
   choices stay open below.
 - Split manifest and verified loader landed (D16).
+- F0 vertical slice complete: raw `.mat` → processed `.npz` → windowed → normalized → trained →
+  evaluated → logged, on real DB2 data, driven by `make debug` from its own config.
 
 ## In progress
 
@@ -217,11 +238,6 @@ what is done, what remains, which branch, and the next concrete step.
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
-   - **Config surface for architecture internals.** D32 froze the `cnn1d` stack; what is open
-     is whether the config declares only `model.type` (internals frozen in code as the
-     definition of that name, resolved values recorded into the checkpoint's `model_config`) or
-     also exposes kernels and pool factors as tunables. Blocks closing the F1-reconstructibility
-     item below.
    - **G2 gate population and final-test policy.** Fix the development folds/aggregation and
      one-shot final diagnostic, including coverage of the conditional distributions used across
      *k*.
@@ -253,13 +269,13 @@ what is done, what remains, which branch, and the next concrete step.
    - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
      headline, supplemental, or omitted.
 
-2. **P1 — F0→F1 vertical slice.** Normalization, `prepare_dataset.py`, the encoder and head, the
-   checkpoint contract, the metrics, and the F0 training loop are implemented and tested. Remaining:
-   write `scripts/train_encoder.py` (YAML config + split manifest → run config), wire `make debug`,
-   and get F0 passing end to end. Then the F1 harness — 8-fold CV, D18–D21 selection with D19
-   escalation, the refit, D10's refit-minus-fold-mean cross-check, and D23 temperature scaling. The
-   F1 trainer must honor the checkpoint contract (`{model_state, model_config}`) as an acceptance
-   criterion, not a later task.
+2. **P1 — F1 harness.** F0 is done and green. Remaining: 8-fold cross-validation over the 32
+   training subjects, D18–D21 epoch selection with D19's single escalation, the refit on all 32, D10's
+   refit-minus-fold-mean cross-check, and D23 temperature scaling. The loader currently refuses F1's
+   config on purpose, so lifting that refusal is the acceptance signal for this item. The trainer must
+   honor the checkpoint contract (`{model_state, model_config}`) as an acceptance criterion, not a
+   later task, and a *reportable* F1 additionally needs D23's temperature source resolved — the config
+   fails closed on it today.
 3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
 ## Known open items (not yet scheduled)
@@ -309,16 +325,10 @@ what is done, what remains, which branch, and the next concrete step.
 - `head.pooling: last_token` means the last non-padding token: the L-series trainer must gather the
   rightmost unmasked index rather than the final position, assert the row has an unmasked token, and
   pass mask-derived `position_ids` under left-padding (silent failure otherwise).
-- **Config keys that nothing reads** (found by the 2026-10-08 review). `training.device`,
-  `model.type` and `dataset.normalize` are declared in the foundation configs but no code consumes
-  them: the device comes from `get_device()`, the model is constructed as `Cnn1dClassifier` directly
-  rather than through `build_model`, and the normalization policy is fixed by D31. A config asking
-  for something else is silently overruled. `debug_tiny.yaml` also omits `weight_decay`, so F0 falls
-  back to the dataclass default 0.0 while F1 declares 1e-4. `scripts/train_encoder.py` is the right
-  place to close this — it should reject keys it does not consume rather than dropping them — and
-  F0's weight decay needs a deliberate value rather than a default. Owner's instruction is
-  config-first: declare in the config, then extract to fields, with `device` an enumerated set
-  rather than a single value. Blocked only on the config-surface question above.
+- The consume-or-refuse rule covers the F0/F1 encoder path only. `scripts/evaluate.py` and the
+  unwritten `train_adapter.py` / `make_report.py` still read the keys they happen to want, so the
+  generation and language configs can carry keys nothing consumes. Extend the rule to each loader as
+  it is written rather than auditing for it later.
 - Debug configs deliberately carry no `protocol:` block: their results are never reportable, so a
   reportability gate on them would mean nothing. They are also absent from the robustness registry,
   which is what the declared-readiness test keys on. If a debug config is ever added to the

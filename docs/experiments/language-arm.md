@@ -169,7 +169,7 @@ manufactures a win for L2 that any reviewer will discount.
 ### Feature set (decision D4)
 
 Six features per channel × 12 channels = **72 scalars**, computed on the **normalized** signal
-using the same `train_subjects_global_stats` statistics as the encoder path.
+using the same `train_subject_covered_sample_stats` statistics as the encoder path.
 
 | Feature | Contributes |
 |---|---|

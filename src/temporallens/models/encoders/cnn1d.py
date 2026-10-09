@@ -15,11 +15,45 @@ a later ``model.train()`` cannot quietly undo it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from torch import Tensor, nn
 
 MODEL_TYPE = "cnn1d"
+
+#: Frozen by D32. These are not per-run knobs — they are what the name ``cnn1d`` *means*. If they
+#: were config keys, two runs could both declare ``model.type: cnn1d`` and be different
+#: architectures, which would make the name worthless and break the checkpoint contract's promise
+#: that ``model_config`` identifies the architecture. Changing any of these is a new model type
+#: with a new name, not a new value here.
+ARCHITECTURE: Mapping[str, Any] = MappingProxyType(
+    {
+        "block_kernels": (7, 5, 3),
+        "pool_factors": (4, 4),
+        "width_multiplier": 2,
+        "normalization": "batchnorm1d",
+        "activation": "relu",
+        "global_pool": "adaptive_avg",
+    }
+)
+
+
+def _architecture_payload() -> dict[str, Any]:
+    """``ARCHITECTURE`` as JSON-safe values, for recording into ``model_config``."""
+    return {
+        key: list(value) if isinstance(value, tuple) else value
+        for key, value in ARCHITECTURE.items()
+    }
+
+
+def _normalised(architecture: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare recorded against frozen without tripping over tuple-versus-list."""
+    return {
+        key: list(value) if isinstance(value, (list, tuple)) else value
+        for key, value in architecture.items()
+    }
 
 
 def _block(in_channels: int, out_channels: int, kernel: int) -> nn.Sequential:
@@ -48,13 +82,15 @@ class Cnn1dEncoder(nn.Module):
         self.dropout_p = dropout
         self._frozen = False
 
-        wide = hidden_dim * 2
+        first, second, third = ARCHITECTURE["block_kernels"]
+        pool_one, pool_two = ARCHITECTURE["pool_factors"]
+        wide = hidden_dim * ARCHITECTURE["width_multiplier"]
         self.features = nn.Sequential(
-            _block(input_channels, hidden_dim, 7),
-            nn.MaxPool1d(4),
-            _block(hidden_dim, wide, 5),
-            nn.MaxPool1d(4),
-            _block(wide, wide, 3),
+            _block(input_channels, hidden_dim, first),
+            nn.MaxPool1d(pool_one),
+            _block(hidden_dim, wide, second),
+            nn.MaxPool1d(pool_two),
+            _block(wide, wide, third),
             nn.AdaptiveAvgPool1d(1),
         )
         self.dropout = nn.Dropout(dropout)
@@ -124,11 +160,33 @@ class Cnn1dClassifier(nn.Module):
             "embedding_dim": self.encoder.embedding_dim,
             "num_classes": self.num_classes,
             "dropout": self.encoder.dropout_p,
+            # Recorded, not configurable. A consumer can therefore tell whether the checkpoint it
+            # holds was built by the same `cnn1d` this code defines — see build_model.
+            "architecture": _architecture_payload(),
         }
 
 
 def build_model(config: dict[str, Any]) -> Cnn1dClassifier:
-    """Construct from a ``model_config`` payload, ignoring keys the contract adds around it."""
+    """Construct from a ``model_config`` payload, validating what it claims to be.
+
+    Two checks, both guarding the checkpoint contract. A declared ``type`` other than ``cnn1d``
+    means this builder is the wrong one, and silently building a CNN anyway is how a config gets
+    to ask for one architecture and report another. A recorded ``architecture`` that disagrees
+    with :data:`ARCHITECTURE` means the file was written by a different definition of this name;
+    its weights would load into the wrong shapes, or worse, into right-shaped wrong layers.
+    """
+    declared = config.get("type")
+    if declared is not None and declared != MODEL_TYPE:
+        raise ValueError(
+            f"build_model is the {MODEL_TYPE!r} builder but model_config declares {declared!r}"
+        )
+    recorded = config.get("architecture")
+    if recorded is not None and _normalised(recorded) != _normalised(ARCHITECTURE):
+        raise ValueError(
+            f"model_config records a different {MODEL_TYPE!r} architecture than this code "
+            f"defines: recorded {_normalised(recorded)}, expected {_normalised(ARCHITECTURE)}. "
+            "A changed internal is a new model type with a new name (D32)."
+        )
     kwargs = {
         key: config[key]
         for key in ("input_channels", "hidden_dim", "embedding_dim", "num_classes", "dropout")

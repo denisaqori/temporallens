@@ -24,7 +24,7 @@ dataset:
   input_channels: 12
   num_classes: 18
   # Fit once on subjects 1-2; apply unchanged to held-out subject 3.
-  normalize: train_subjects_global_stats
+  normalize: train_subject_covered_sample_stats
 model:
   type: cnn1d
   input_channels: 12
@@ -37,6 +37,9 @@ training:
   batch_size: 8
   epochs: 2
   learning_rate: 0.001
+  # Declared, not defaulted: F0 exists to exercise F1's path, so it uses F1's value. An
+  # omitted key here silently ran at 0.0 while F1 declared 1e-4.
+  weight_decay: 0.0001
   num_workers: 0
   device: auto
   save_checkpoint: false
