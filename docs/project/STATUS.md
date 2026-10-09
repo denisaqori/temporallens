@@ -15,7 +15,7 @@ Working agreement**.
 > architecture and calibration clarifications recorded under
 > [Known open items](#known-open-items-not-yet-scheduled).
 
-_Last updated: 2026-10-08_
+_Last updated: 2026-10-09_
 
 ## Latest changes
 
@@ -28,6 +28,7 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Aligned the G1 subject-embedding table in the Markdown source; its content and protocol are unchanged.
 - The API reference's writing rule is now written down rather than inferred from the page.
   AGENTS.md says what `docs/api/README.md` carries — why each module exists, which decision it
   implements, the measured numbers behind non-obvious choices, and the relationships between

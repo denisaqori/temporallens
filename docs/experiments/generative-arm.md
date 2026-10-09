@@ -93,14 +93,14 @@ not required for the headline claim.
 `calibration_derived` fixes what information the embedding may use, not how to compute it. D27
 fixes the rest.
 
-| Field | Decision |
-|---|---|
-| Estimator | **Class-centred mean latent residual.** Subtract the population per-class mean latent from each support window, average the residuals, project to 16-d |
-| Centring reference | Population per-class means fitted on **training subjects only** |
-| *k* schedule | Draw *k* **uniformly from the deployment grid** `{0,1,2,5,10,17,20,34}`, per subject per step, support built by D14's nested prefix |
-| Support rotation | Rotate the support repetition pair among **{1,4}, {2,5}, {3,6}**; targets are that draw's complement |
-| Population embedding | A single **learned vector**, used at *k*=0 and for an empty support set |
-| Class-information control | A **probe** that must sit at chance when predicting the support set's class composition from the embedding |
+| Field                     | Decision                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Estimator                 | **Class-centred mean latent residual.** Subtract the population per-class mean latent from each support window, average the residuals, project to 16-d |
+| Centring reference        | Population per-class means fitted on **training subjects only**                                                                                        |
+| *k* schedule              | Draw *k* **uniformly from the deployment grid** `{0,1,2,5,10,17,20,34}`, per subject per step, support built by D14's nested prefix                    |
+| Support rotation          | Rotate the support repetition pair among **{1,4}, {2,5}, {3,6}**; targets are that draw's complement                                                   |
+| Population embedding      | A single **learned vector**, used at *k*=0 and for an empty support set                                                                                |
+| Class-information control | A **probe** that must sit at chance when predicting the support set's class composition from the embedding                                             |
 
 **Why centring rather than a plain mean.** Encoder latents cluster by gesture, so the mean of a
 support set largely encodes *which gestures the subject happened to demonstrate* — and at *k* < 17
