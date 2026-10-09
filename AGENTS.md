@@ -86,6 +86,35 @@ not do it.
   head / soft prefix / frozen / readout / input path. Use those exact terms in code, configs,
   commits, and prose. This discipline is why the spec exists.
 
+## The API reference — `docs/api/README.md`
+
+Keep it in step with the source **in the same change**, and write it the way it is already written.
+
+**It is not a signature listing.** Signatures live in the docstrings, where they cannot drift from
+the code, and any tool can regenerate them. Repeating them here would create a second copy that goes
+stale and contradicts its own source — the same reason STATUS carries no commit hashes.
+
+What the page carries instead is the reasoning that cannot be generated:
+
+- **Why each module exists** — the job it does that nothing else does.
+- **Which decision it implements** — the D-number, so a reader goes from code to rationale in one
+  step and `docs/experiments/` stays the authority on protocol.
+- **The measured numbers behind the non-obvious choices.** If a choice was settled by measurement,
+  the measurement belongs here: the 1.4% agreement between normalization fitting sets, the 0.54%
+  windowless tail, the 20x-too-narrow window bootstrap. A reader who does not know a number was
+  measured will assume it was guessed, and will re-litigate it.
+- **Relationships with other functions and modules** — what reads this, what it reads, which
+  invariant breaks if the two disagree. Most real defects here lived between modules, not inside
+  one, so a module described in isolation hides exactly the thing worth documenting.
+
+Add the *why* while writing the code, not afterwards: the reasoning is in your head once, and no
+later reader can recover it from the diff.
+
+`tests/test_api_docs.py` enforces that every module appears and every public callable has a
+docstring, and that nothing documented has been deleted. Those checks are coverage, not quality —
+they catch an undocumented function, never a module described without its reason. That judgment is
+yours.
+
 ## Hard constraints
 
 - **Never fabricate NinaPro data.** It is downloaded under its own terms into `data/raw/` (gitignored).
@@ -308,9 +337,12 @@ A change is done when:
    `make test-worktree` must also pass.** It is excluded from `make test` for speed, not because it
    is optional — that script commits and pushes to `main`, so it is the least forgiving code here.
 3. If configs changed, `docs/experiments/` is updated and the 1:1 config↔spec mapping holds.
-4. **`docs/project/STATUS.md` is updated** per the working agreement above — Latest changes, In
+4. If the package changed, **`docs/api/README.md` is updated in the same change**, per the section
+   above — the reason for the change, not its signature. A new module, a new decision implemented,
+   a measured number behind a choice, or a new relationship between modules each belong there.
+5. **`docs/project/STATUS.md` is updated** per the working agreement above — Latest changes, In
    progress, and Next up reflect reality; any new decision is logged in `DECISIONS.md`. This step is
    not optional: STATUS is the one file everyone reads, so a change that doesn't update it is not
    done.
-5. The change was reported in the conversation (which files, what changed).
-6. Nothing ignored (data, checkpoints, secrets) is staged.
+6. The change was reported in the conversation (which files, what changed).
+7. Nothing ignored (data, checkpoints, secrets) is staged.

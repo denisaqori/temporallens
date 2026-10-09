@@ -28,6 +28,12 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- The API reference's writing rule is now written down rather than inferred from the page.
+  AGENTS.md says what `docs/api/README.md` carries — why each module exists, which decision it
+  implements, the measured numbers behind non-obvious choices, and the relationships between
+  modules — and what it deliberately omits: signatures, which belong in docstrings where they
+  cannot drift from the code. Definition of Done gained a matching item, so the page is updated in
+  the same change as the source rather than in a later sweep.
 - **F0 runs end to end**, and every config key now binds. `scripts/train_encoder.py` consumes each
   leaf key or refuses: a key it does not map, check or record is an error, which is what makes the
   defect behind `loss`, `device`, `model.type` and `dataset.normalize` structurally impossible
