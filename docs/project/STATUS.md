@@ -27,6 +27,11 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- The API reference is rewritten for a reader rather than an auditor: it opens with how the pieces
+  fit, how to run F0 and where to start reading; maps each config key to the module that consumes
+  it; describes every module by what it does and why, with decision IDs and module relationships as
+  a closing line rather than the lead; and ends with how the tests are organised. Content that
+  changes with each repair — known gaps, test counts, line numbers — stays out of it.
 - F1 P0 package D38–D40 is recorded and verified: optimization, shared calibration execution
   and subject-cross-fitted validation diagnostics are explicit in specs/configs and regression
   checks. Brier's existing reduction is pinned and confidence-tie binning is deterministic in
