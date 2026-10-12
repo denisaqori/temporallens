@@ -5,7 +5,7 @@
 #
 # Exists because augmentation could raise accuracy while making the model confidently wrong,
 # which for a wearable interface is a poor trade. The headline aggregation remains an execution
-# blocker; the current pooled aggregation value is explicitly provisional. D23 fixes ECE binning,
+# blocker and stays Pending; no pooled aggregation is silently supplied. D23 fixes ECE binning,
 # and D25 fixes the overconfidence-error definition.
 # Spec: docs/experiments/generative-arm.md, G4.
 protocol:
@@ -188,6 +188,7 @@ personalization:
         training_subject_rule: split_manifest.training_subjects_minus_current_fold_validation_subjects
         scoring_subject_rule: current_fold_validation_subjects
         model_training_budget: d18_global_development_refit_budget
+        generator_training_budget: frozen_generator_source_config_training_epochs
         checkpoint_selection_on_outer_four: forbidden
         artifact_resolution:
           source: build_from_frozen_source_configs_and_persist
@@ -197,6 +198,8 @@ personalization:
           encoder_checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
           generator_checkpoint_pattern: checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt
           all_32_refit_reuse: forbidden
+          generator_parent_encoder_identity: exact_artifact_sha256
+          cross_fold_latent_pooling: forbidden
           fold_fitted_components:
             - normalization_statistics
             - class_weights
@@ -211,6 +214,9 @@ personalization:
             - scoring_subject_ids
             - component_config_digests
             - training_budget
+            - generator_training_budget
+            - artifact_sha256
+            - parent_encoder_sha256
         result_role: hyperparameter_selection_only
       candidate_grid:
         status: pending_decision
@@ -225,6 +231,8 @@ personalization:
       # so masking or freezing absent classes would shrink the gap the headline reports.
       absent_class_handling: all_outputs_remain_active
 evaluation:
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
   fixed_evaluation_set: true
   # Repeat aggregation is distinct from the headline ECE aggregation below. Both remain blocked:
   # first summarize schedules/seeds/draws within subject, then choose the across-subject headline.
@@ -236,21 +244,103 @@ evaluation:
     axis_order_or_joint_reduction: null
     shared_population_reference: deduplicate_before_summary
     reused_evaluation_windows_are_independent: false
-  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
+  # D33: fitted after settings freeze from adapted DEVELOPMENT heads; no final-subject T fit.
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    # Population T, fixed: not refit per subject or per k, which would be a different experiment.
-    temperature_source: pooled_out_of_fold_folds
+    temperature_source: frozen_strategy_k_temperature_table
     report: [raw, temperature_scaled]
+  brier:
+    report: [raw, temperature_scaled]
+  temperature_fit:
+    stage: after_adaptation_settings_freeze
+    source_artifacts: personalization.adaptation.objective.development_selection.artifact_resolution
+    prediction_source: all_four_strategies_on_outer_development_subject_queries
+    support_repetitions: split_manifest.repetitions.calibration
+    query_repetitions: split_manifest.repetitions.evaluation
+    cell_scope: strategy_and_calibration_trials
+    cell_fitting: separate_no_smoothing_across_k
+    objective: ordinary_negative_log_likelihood
+    class_weighting: none
+    subject_weighting: equal
+    repeat_weighting: equal_within_subject
+    window_weighting: equal_within_repeat
+    aggregate_logits_before_fitting: forbidden
+    deduplicate_aliases_before_weighting: true
+    fit_scope: development_only
+    final_test_fitting: forbidden
+    extra_final_subject_trials: 0
+    development_subjects_reused_after_selection: true
+    development_metrics_role: calibration_fitting_diagnostic_only
+    population_reference_temperature: fit_on_query_repetitions_once_for_all_k
+    inherit_f1_temperature: forbidden
+    k0_temperature_aliases:
+      population_no_adaptation: population_reference
+      real_adaptation: population_reference
+      real_plus_population_synthetic_adaptation: population_replay
+      real_plus_subject_synthetic_adaptation: population_replay
+    freeze_before_final_test: true
+    artifact_pattern: results/runs/{immutable_run_id}/temperature_table.json
+    artifact_identity: sha256
+    required_provenance:
+      - manifest_hash
+      - development_subject_and_fold_ids
+      - support_and_query_repetition_ids
+      - frozen_settings_digest
+      - source_config_digests
+      - fold_encoder_and_generator_sha256
+      - generator_parent_encoder_sha256
+      - deployment_population_checkpoint_sha256
+      - deployment_generator_sha256
+      - query_logits_sha256
+      - schedule_seed_and_draw_ids
+      - normalized_fitting_weights
+      - cell_subject_repeat_window_counts
+      - temperature_values_and_aliases
+      - fit_diagnostics
+      - freeze_timestamp
+    execution:
+      status: ready
+      # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
+      solver: scipy_minimize_scalar_bounded
+      parameter: inverse_temperature
+      dtype: float64
+      bounds: [0.01, 100.0]
+      tolerance: 0.00000001
+      max_iterations: 500
+      nll_evaluation: stable_logsumexp
+      fitting_weights: normalized_d33_weights
+      boundary_check: weighted_nll_derivative_at_bounds
+      nll_non_regression_reference: temperature_1
+      nll_non_regression_tolerance: 0.00000001
+      persist_solver_diagnostics: true
+      invalid_or_unresolved_boundary_fit: block_reportable_evaluation
+  calibration_execution:
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    bootstrap_seed: experiment.seed
+    bootstrap_resamples: 10000
+    bootstrap_confidence: 0.95
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
   uncertainty_resampling_unit: subject
   headline_ece_aggregation_status: pending_decision
-  # Provisional legacy value; Pending must resolve its headline/supplemental/omitted role.
-  headline_ece_aggregation: pooled_predictions_across_subjects
+  # Probability version is settled; across-subject aggregation still requires its own decision.
+  headline_ece_aggregation: pending_decision
   report_per_subject: true
   metrics:
+    - macro_f1
+    - per_subject_macro_f1
     - expected_calibration_error
     - mean_confidence_when_wrong
     - brier_score

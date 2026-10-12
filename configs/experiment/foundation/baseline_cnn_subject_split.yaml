@@ -5,13 +5,10 @@
 # Expect modest, variable cross-subject accuracy — that is the point, not a bug.
 # Spec: docs/experiments/README.md, section 6 (Foundation). Epoch protocol: D18–D21.
 protocol:
-  # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
-  # what is blocked is quoting numbers from it. The evaluator must reject any status other than
-  # `ready`, and pending values never get defaults.
-  status: blocked_pending_decisions
-  blocked_on:
-    - evaluation.ece.temperature_source
-    - evaluation.calibration_execution
+  # D38-D40 resolve the protocol, not the missing 8-fold/refit training harness.
+  # scripts/train_encoder.py still refuses this manifest-based config rather than fake F1.
+  status: ready
+  blocked_on: []
 experiment:
   name: baseline_cnn_subject_split
   seed: 42
@@ -46,6 +43,20 @@ training:
   epochs: 30
   learning_rate: 0.0003
   weight_decay: 0.0001
+  # D38 pins F0's optimizer mechanics with F1's declared LR/decay; not tuned-optimal settings.
+  optimization:
+    optimizer: adam
+    betas: [0.9, 0.999]
+    epsilon: 0.00000001
+    amsgrad: false
+    weight_decay_mode: coupled_l2_all_trainable_parameters
+    scheduler: none
+    initialization: seeded_pytorch_module_defaults
+    initialization_seed: experiment.seed
+    precision: float32
+    mixed_precision: false
+    gradient_clipping: none
+    nonfinite_loss_or_gradients: fail_run_before_optimizer_step
   # Processed NPZ recordings load eagerly; macOS spawn workers would duplicate several GiB.
   num_workers: 0
   device: auto
@@ -77,23 +88,89 @@ training:
     initialization: fresh_from_experiment_seed
     early_stopping: false
 evaluation:
-  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
+  # D33 amends D23. Metrics below name families; reportable probability keys carry version suffixes.
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    # D23 is internally inconsistent: one pooled out-of-fold temperature and eight per-fold
-    # temperatures whose median feeds the refit cannot both be the procedure. Encoding either
-    # half here would assert a rule the spec does not actually settle, so this fails closed.
-    temperature_source: pending_decision
+    temperature_source: model_config.probability_calibration
     report: [raw, temperature_scaled]
-  # Still undeclared, and a runner default would silently become the protocol.
+  brier:
+    report: [raw, temperature_scaled]
+  temperature_fit:
+    prediction_source: pooled_subject_out_of_fold_fixed_budget_models
+    fold_source: split_manifest.folds
+    population_fit: fold_training_complement_28_subjects
+    query_subjects: current_fold_validation_subjects
+    query_repetitions: all_manifest_repetitions
+    checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+    training_budget: d18_d19_accepted_refit_budget
+    validation_selected_checkpoint_reuse: forbidden
+    objective: ordinary_negative_log_likelihood
+    class_weighting: none
+    subject_weighting: equal
+    repeat_weighting: equal_within_subject
+    window_weighting: equal_within_repeat
+    median_fold_temperature_for_refit: forbidden
+    per_fold_temperatures_role: heterogeneity_diagnostic_only
+    selected_fold_test_temperature_source: own_outer_fold_predictions_after_checkpoint_selection
+    fit_scope: development_only
+    freeze_before_final_test: true
+    final_test_fitting: forbidden
+    development_metrics_role: calibration_fitting_diagnostic_only
+    artifact: model_config.probability_calibration
+    required_provenance: [manifest_hash, fold_artifact_sha256, config_digests, query_logits_sha256, subject_ids, repetition_ids, fitting_weights, fit_diagnostics]
+    execution:
+      status: ready
+      # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
+      solver: scipy_minimize_scalar_bounded
+      parameter: inverse_temperature
+      dtype: float64
+      bounds: [0.01, 100.0]
+      tolerance: 0.00000001
+      max_iterations: 500
+      nll_evaluation: stable_logsumexp
+      fitting_weights: normalized_d33_weights
+      boundary_check: weighted_nll_derivative_at_bounds
+      nll_non_regression_reference: temperature_1
+      nll_non_regression_tolerance: 0.00000001
+      persist_solver_diagnostics: true
+      invalid_or_unresolved_boundary_fit: block_reportable_evaluation
+  # D39-D40 resolve the execution contract; the future F1 harness must consume it exactly.
   calibration_execution:
-    brier_reduction: null
-    equal_mass_tie_handling: null
-    bootstrap_seed: null
-    raw_versus_scaled_result_keys: null
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    validation_temperature_source: leave_one_subject_out_within_selected_outer_fold
+    validation_temperature_fit:
+      model_source: same_frozen_selected_fold_checkpoint_for_all_four_fits
+      stage: after_checkpoint_freeze
+      fitting_subjects: other_three_outer_validation_subjects
+      scoring_subject: excluded_outer_validation_subject_only
+      fits_per_fold: 4
+      weighting: d33_equal_subject_repeat_and_within_repeat_window_weights
+      metric_aggregation: equal_weight_mean_of_four_subject_metrics
+      bin_recomputation: separately_for_each_subject_and_probability_version
+      checkpoint_selection_subject_reuse: true
+      result_role: development_diagnostic_conditional_on_selected_checkpoint
+      unbiased_nested_validation_estimate: false
+      refit_temperature_estimator_use: forbidden
+      persist_fitting_and_scoring_subject_ids_and_temperatures: true
+    bootstrap_seed: experiment.seed
+    bootstrap_resamples: 10000
+    bootstrap_confidence: 0.95
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
   uncertainty_resampling_unit: subject
   metric_source: frozen_checkpoint_predictions
   requires_frozen_checkpoints:

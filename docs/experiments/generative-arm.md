@@ -1,13 +1,13 @@
 # Generative arm (G-series) — the headline
 
 **The question.** How many real calibration gesture trials does a new, unseen subject need to
-reach a target decoding accuracy — and can synthetic data from a conditional generator replace
+reach a target decoding macro-F1 — and can synthetic data from a conditional generator replace
 some of them?
 
-**The deliverable is a curve, not a number.** Accuracy against *k*, the count of real
+**The deliverable is a curve, not a number.** Macro-F1 against *k*, the count of real
 calibration gesture trials supplied in total by the held-out subject, plotted for each calibration
 strategy. The single headline sentence falls out of the curve: *augmentation reaches the target
-accuracy with approximately N fewer real gesture trials per subject.*
+macro-F1 with approximately N fewer real gesture trials per subject.*
 
 Read [README.md](README.md) first: §2 (vocabulary), §3 (shared protocol) are assumed here. Note
 especially the two senses of "calibration" in §2 — this document uses **subject calibration**
@@ -60,6 +60,15 @@ before spending cloud time.
 warmup, the changing weight means objective values are not directly comparable across epochs.
 Check that reconstructions are not the dataset mean, and that varying the class label actually
 changes the sample. Both failures can accompany a beautiful loss curve.
+
+**Subject-conditioning diagnostic (D37).** Keep population-only training for this small smoke
+test, but evaluate the decoder with two fixed diagnostic subject vectors: the zero vector and
+the first unit basis vector, at the declared subject-embedding dimension. Hold the class label,
+latent-noise draw and decoder evaluation mode fixed while changing only that vector; record the
+two vectors and outputs and check that they differ. These vectors are synthetic test inputs, not
+NinaPro subjects or reportable data. This checks structural sensitivity of the conditioning path,
+not learned personalization: G1 must still test that training learned to use calibration-derived
+subject information, with its class-composition probe and other gates.
 
 ---
 
@@ -181,13 +190,31 @@ is frozen. If the eventual one-shot final diagnostic fails, G3 is not reported; 
 recycled into another development iteration. The exact two-stage population policy and the
 quality-metric/acceptance contract remain Pending.
 
+**Shared development artifacts (D35).** The development gate consumes the encoder/generator pairs
+already specified for D28 at `development/fold{fold_index}/fixed_budget.pt`, with their provenance
+verified against the same manifest and frozen source configs. This is one shared artifact set,
+currently planned rather than built. Both components exclude the current outer four subjects;
+using an all-32 refit for either would expose the gate population during population training.
+The VAE's stored parent-encoder digest must match the encoder actually used to produce real latents,
+normalization and centring references. Keep discriminator fitting, scoring and nearest-neighbour
+references within that fold's latent space; nearest-neighbour memorization references use that
+fold's real **training** latents. Aggregate the approved diagnostics afterward, never raw vectors
+from independently trained encoders. Held-out development subjects retain the manifest's fixed
+support/evaluation partition; G1's support rotation remains training-subjects-only.
+
+Reuse saves additional encoder/generator fits beyond D28, not discriminator training. It does not
+settle G2's discriminator split, acceptance, fold aggregation or conditioning-coverage choices;
+those remain blocked. A failed gate may require rebuilding several generator lineages and their
+dependent synthetic banks rather than a guaranteed single rebuild. Final diagnostics use frozen
+refit artifacts only after development is complete and can never trigger tuning on final subjects.
+
 ---
 
 ## G3 — Personalization-efficiency curve (the headline)
 
 **Config:** `gen_personalization_efficiency.yaml` · **Runs:** cloud CUDA · **Mode:** `evaluate`
 
-**What it measures.** For each held-out subject, decoding accuracy as a function of the total
+**What it measures.** For each held-out subject, 18-class macro-F1 as a function of the total
 number of real calibration gesture trials *k* ∈ **{0, 1, 2, 5, 10, 17, 20, 34}**, under four
 calibration strategies:
 
@@ -199,14 +226,20 @@ calibration strategies:
 | `real_plus_subject_synthetic_adaptation` | The same, plus synthetic windows conditioned on **this subject's** calibration-derived embedding | **The headline** — does subject conditioning add anything beyond generic replay? |
 
 Four curves on one axis (D29). The headline number is the horizontal gap: how many fewer real
-gesture trials `real_plus_subject_synthetic_adaptation` needs to reach the accuracy
+gesture trials `real_plus_subject_synthetic_adaptation` needs to reach the macro-F1
 `real_adaptation` reaches at a given *k*. Name the result `real_gesture_trials_saved`; never shorten
 it to "samples saved," which would obscure the unit.
 
 The **unit and name** of that statistic are frozen; its numerical extraction is not. Before the
-runner is implemented, fix the target-accuracy rule, subject-level versus aggregate computation,
+runner is implemented, fix the target-macro-F1 rule, subject-level versus aggregate computation,
 interpolation or monotonic treatment, uncertainty, and what is reported when a strategy never
 reaches the target. Those remain Pending rather than being hidden in evaluation code.
+
+D34 applies the same fixed labels 0–17 and `undefined_class_f1: 0.0` rule as F1. At small *k*,
+gestures absent from support still appear in the fixed evaluation set and the metric denominator;
+never score only the demonstrated gestures. Accuracy remains a secondary curve, and D30's subgroup
+recall and rest accuracy explain where changes occur. The trials-saved statistic is derived from
+the macro-F1 curve; retain its pending numerical extraction gate.
 
 **Why the adaptation strategy is here (D5).** It is the first question anyone asks about the
 headline: *why synthesize data instead of just fine-tuning on the real trials you already have?*
@@ -295,7 +328,9 @@ must consume that fold-local encoder. The all-32 `refit.pt` artifacts and valida
 Normalization, class weights, latent centroids, population embedding and generator are all fitted
 from the same 28, calibrating from {1,4} and evaluating on {2,3,5,6}. Each development artifact
 records the manifest hash, fold index, exact training/scoring subject IDs, source-config digests and
-fixed training budget; the runner verifies that provenance before scoring a candidate.
+fixed encoder and generator training budgets and exact parent-encoder digest; the runner verifies
+that provenance before scoring a candidate. D33/D35 share these artifacts with population-temperature
+fitting and G2 development diagnostics, without making their scores reportable estimates.
 *k*=0 is excluded, since real adaptation is a no-op there. Those eight development fits are shared
 infrastructure for the whole arm, not a cost charged to adaptation tuning — and **D27's centring
 reference must come from the same 28**, or development silently mixes populations. The numeric
@@ -403,7 +438,59 @@ function of *k*, for the same four strategies as G3. This is *probability* calib
 which for a wearable interface is a poor trade. Improving both makes for a much stronger claim
 than improving accuracy alone.
 
-**Easily missed.** D23 fixes top-label ECE to 10 equal-mass bins. ECE computed on a small
+**Probability versions and claims (D33).** Temperature-scaled ECE is the primary calibration
+endpoint, consistent with F1/F2 and the language arm. Raw ECE and raw/scaled Brier are mandatory
+companions, along with D25's overconfidence outcomes. Raw ECE describes confidence reliability
+before recalibration; scaled ECE describes the adapted head plus a calibrator a deployer can fit
+from development subjects. A raw advantage that is no longer detected after scaling is a finding
+about a largely correctable confidence-scale effect, not proof that synthesis had no benefit.
+Use the metric meanings and interpretation rules in README §3.4; macro-F1 still measures decoding.
+
+### Development-fitted strategy × k temperature table
+
+Freeze the adaptation settings before this separate probability-calibration pass. Reuse the
+verified D28 fold-local population models and generators; run **all four strategies**, including
+the replay arms absent from real-only hyperparameter selection. For each outer development subject,
+schedule and recorded repeat, adapt only from the selected *k* trials in the manifest calibration
+repetitions `{1,4}` and collect logits on its disjoint evaluation repetitions `{2,3,5,6}`. Fit one
+population T per strategy × *k* across those development predictions, using equal subject and
+within-subject repeat weights and ordinary NLL with natural class proportions (README §3.4).
+No final-test-subject trial or prediction enters this fit, and no additional test-subject
+calibration burden is incurred.
+
+Fit cells separately, with no smoothing across *k* and no per-test-subject T. The unchanged
+population reference has one T across all *k*; `real_adaptation` at *k*=0 uses that same T. The two
+replay arms at *k*=0 share one T fitted over their shared population-conditioned repeat domain.
+Deduplicate aliases and fictitious schedule copies before assigning weights. Independent fitting
+does not make cells independent observations: they reuse subjects and query windows.
+
+Fit the population reference on these **query repetitions**, not by inheriting F1's all-six-
+repetition T. Different evaluation distributions can justify different fitted parameters under
+the same procedure. Do not directly compare F1 and G4 ECE values on different evaluation sets.
+The complement-28-to-refit-32 approximation applies to both the population model and generator.
+
+A new pass on the same development subjects/query repetitions is still reuse of model-selection
+data. Its outputs have `calibration_fitting_diagnostic_only` status, not independent validation
+performance. Freeze the completed table before any final-test inference and do not revise it after
+viewing final results. The fitting rule is shared across strategies; their fitted T values may
+differ. It minimizes development NLL, not final-test ECE, and does not guarantee optimal calibration.
+
+Persist `temperature_table.json` as a versioned fitted artifact identified by an immutable run ID
+and SHA-256. It stores the cell values, aliases, per-cell subject/repeat/window counts, normalized
+fitting weights, fit diagnostics, manifest/repetition identities, exact development subject/fold
+IDs, settings and source-config digests, encoder/generator artifact and parent digests, query-logit
+digest and freeze timestamp. Record the intended final refit population-model and generator digests
+as deployment parents as well as the development digests; the former bind the table to the final
+pipeline, while the latter identify the fits that estimated T. These digests differ under the
+declared 28-to-32 approximation. A consumer verifies deployment parents and settings against its
+adapted-head lineage, not equality between a development and final model's weights. A failed,
+non-positive, non-finite or unresolved boundary fit blocks reportable scaling. D39's shared
+float64 inverse-temperature solver, bounds, tolerances and diagnostics in README §3.4 apply to
+every cell; numerical readiness does not waive a failed fit or the remaining G4 design gates.
+Raw/scaled uncertainty is conditional on the frozen table, as it is on the frozen models.
+
+**Easily missed.** D23/D39 fix top-label ECE to nominally 10 equal-mass bins, keeping confidence
+ties together and reporting the effective nonempty count. ECE computed on a small
 per-subject test set is high-variance, while pooling predictions can hide subject-level
 miscalibration and overweight subjects or repeated evaluation windows. The schedule-within-subject
 summary is separately blocked by `evaluation.within_subject_repeat_aggregation`; subject weighting
@@ -453,8 +540,9 @@ before G0/G1 implementation.
 
 | Key | What it is |
 |---|---|
-| `accuracy_vs_k_curve` | Decoding accuracy against *k*, one curve per `calibration_strategy`. The deliverable |
-| `real_gesture_trials_saved` | **The headline.** Horizontal gap: how many fewer real gesture trials `real_plus_subject_synthetic_adaptation` needs to match `real_adaptation`. D29's shared population-conditioned replay diagnostic at *k*=0 is excluded |
+| `macro_f1_vs_k_curve` | **Primary decoding curve (D34).** Fixed 18-class macro-F1 against *k*, one curve per `calibration_strategy`; summarize repeats within subject before comparison |
+| `accuracy_vs_k_curve` | Secondary overall-correctness curve against *k*, weighted by the natural evaluation class frequencies |
+| `real_gesture_trials_saved` | **The headline.** Horizontal macro-F1 gap: how many fewer real gesture trials `real_plus_subject_synthetic_adaptation` needs to match `real_adaptation`. Its numerical extraction is still Pending; D29's shared population-conditioned replay diagnostic at *k*=0 is excluded |
 | `calibration_seen_gesture_macro_recall` | **Mean per-class recall** over gesture classes the subject demonstrated in their *k* trials — subgroup balanced accuracy (D30) |
 | `calibration_unseen_gesture_macro_recall` | The same over classes they did **not** demonstrate. Below *k* = 17 this is the transfer question the grid exists to ask; `NA` from *k*=17, where one trial per gesture gives full coverage |
 | `rest_accuracy` | Accuracy on the rest class, reported separately because rest is an evaluation class that never increments *k* |
@@ -464,12 +552,13 @@ before G0/G1 implementation.
 
 | Key | What it is |
 |---|---|
-| `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy |
+| `ece_vs_k_curve` | Expected calibration error against *k*, one curve per strategy and probability version; scaled is primary, raw mandatory alongside, both with explicit suffixes |
+
 Several registered metrics remain non-executable under DECISIONS → Pending. Existing blockers
 cover G1 embedding operational details, both G2 contracts, G3 headline extraction, rest ownership,
 schedule reproducibility, the adaptation candidate grid, repeated-run domains and within-subject
-aggregation, the VAE objective components, and G4 headline-ECE aggregation. D25 and D30 have
-already settled the overconfidence-error and subgroup semantics; implementers must not reopen them
+aggregation, the VAE objective components, calibration execution and G4 headline-ECE aggregation.
+D25 and D30 have already settled the overconfidence-error and subgroup semantics; implementers must not reopen them
 or fill the remaining gaps with defaults.
 
 ---
@@ -495,6 +584,14 @@ carries an `adaptation_seed` axis at *k*>0, while replay also carries `synthetic
 counts, derivations, pairing and within-subject aggregation remain Pending and fail-closed in the
 registry. See README §6.
 
+For calibration under perturbation, adapted targets resolve their matching frozen G4 temperature
+table by immutable run ID and settings/model/generator digests. Use the same strategy × *k* T on
+clean and perturbed predictions; fitting a new T on perturbed final data is forbidden. Registry
+resolution stays blocked until the calibration artifact is identified and its source protocol is
+ready. Model-weight aliases and calibrator aliases are distinct: real adaptation at *k*=0 shares
+F1's head, but G4's query-fitted reference T need not equal F1's all-repetition T. The two replay
+*k*=0 aliases do share both their weights and their G4 table cell.
+
 ---
 
 ## Reporting checklist
@@ -509,6 +606,8 @@ Before any G-series number leaves this repository:
       strategy pairs exposed only as aliases
 - [ ] Replay controls share synthetic labels/noise, adaptation seed and fixed-bank draw IDs
 - [ ] Per-subject curves shown, not only the mean
+- [ ] G3 headline and trials-saved extraction use fixed 18-class macro-F1; accuracy is secondary
+- [ ] G4 shows scaled ECE primary, raw ECE and raw/scaled Brier, with the frozen table and fit provenance
 - [ ] Multiple nested, class-aware schedules per subject, shared across strategies, with spread
 - [ ] *k* stated as total complete active-gesture trials per subject; contained windows also
       reported

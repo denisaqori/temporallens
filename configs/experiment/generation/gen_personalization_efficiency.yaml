@@ -1,4 +1,4 @@
-# G3 — THE HEADLINE. For each held-out subject, decoding accuracy as a function of k, the total
+# G3 — THE HEADLINE. For each held-out subject, 18-class macro-F1 as a function of k, the total
 # number of complete real gesture trials the subject supplies. Every valid window wholly inside a
 # selected trial is used, but windows are not calibration units. The headline is the HORIZONTAL
 # gap: how many fewer real gesture trials real_plus_subject_synthetic_adaptation needs to match
@@ -212,6 +212,7 @@ personalization:
         training_subject_rule: split_manifest.training_subjects_minus_current_fold_validation_subjects
         scoring_subject_rule: current_fold_validation_subjects
         model_training_budget: d18_global_development_refit_budget
+        generator_training_budget: frozen_generator_source_config_training_epochs
         checkpoint_selection_on_outer_four: forbidden
         artifact_resolution:
           source: build_from_frozen_source_configs_and_persist
@@ -221,6 +222,8 @@ personalization:
           encoder_checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
           generator_checkpoint_pattern: checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt
           all_32_refit_reuse: forbidden
+          generator_parent_encoder_identity: exact_artifact_sha256
+          cross_fold_latent_pooling: forbidden
           fold_fitted_components:
             - normalization_statistics
             - class_weights
@@ -235,6 +238,9 @@ personalization:
             - scoring_subject_ids
             - component_config_digests
             - training_budget
+            - generator_training_budget
+            - artifact_sha256
+            - parent_encoder_sha256
         # The common D18 budget was selected across all development folds, so these scores are
         # tuning diagnostics, not an unbiased outer-fold performance estimate.
         result_role: hyperparameter_selection_only
@@ -251,6 +257,10 @@ personalization:
       # so masking or freezing absent classes would shrink the gap the headline reports.
       absent_class_handling: all_outputs_remain_active
 evaluation:
+  primary_classification_metric: macro_f1
+  headline_curve: macro_f1_vs_k_curve
+  macro_f1_class_labels: all_dataset_classes
+  undefined_class_f1: 0.0
   fixed_evaluation_set: true   # never varies with k or strategy (leakage rule 5)
   report_per_subject: true     # a mean over 8 subjects can hide one at chance
   headline_extraction: pending_decision
@@ -286,6 +296,7 @@ evaluation:
     - calibration_unseen_gesture_macro_recall
     - rest_accuracy
     - demonstrated_gesture_count
+    - macro_f1_vs_k_curve
     - accuracy_vs_k_curve
     - real_gesture_trials_saved  # subject-replay versus real-adaptation horizontal gap
   save_predictions: true

@@ -13,7 +13,7 @@ terms from Section 2 in configs, code, commit messages, and the paper.**
 |---|---|
 | This file | Shared protocol, vocabulary, metrics, and the rules both arms obey |
 | [generative-arm.md](generative-arm.md) | **Headline.** Conditional generation, synthetic-quality validation, the personalization-efficiency curve |
-| [language-arm.md](language-arm.md) | **Secondary.** Soft-prefix conditioning of a frozen LLM, and the two controls that make the claim un-confoundable |
+| [language-arm.md](language-arm.md) | **Secondary.** Soft-prefix conditioning of a frozen LLM, pretraining control, and whole-pipeline engineered-text comparison |
 
 ---
 
@@ -23,7 +23,7 @@ The project has one shared temporal encoder and two research questions that do n
 each other. They are evaluated separately, and either can succeed while the other fails.
 
 **Generative arm (headline).** *How many real calibration gesture trials does a new, unseen
-subject need to reach a target accuracy, and can synthetic data replace some of them?* The
+subject need to reach a target macro-F1, and can synthetic data replace some of them?* The
 deliverable is a curve, not a single number.
 
 **Language arm (secondary).** *Does mapping signal embeddings into a frozen language model's
@@ -211,20 +211,20 @@ the generative-arm leakage rules; this never permits subject-specific normalizat
 
 | Metric | What it captures | Why it is here |
 |---|---|---|
-| `accuracy` | Overall correctness | Baseline readability; misleading alone under class imbalance |
-| `macro_f1` | Mean per-class F1, unweighted | Rest is over-represented; macro-F1 stops a model from coasting on it |
+| `accuracy` | Fraction of correctly classified evaluation windows; higher is better | Readable secondary measure, weighted by the observed class frequencies; rest accounts for about half the windows |
+| `macro_f1` | Equal-weight mean of the 18 class F1 scores; each F1 combines precision and recall | Primary classification endpoint. Fixed labels 0–17, undefined class F1 = 0.0; missing support classes remain in evaluation |
 | `per_subject_accuracy` | Accuracy for each held-out subject separately | **Report the spread, not just the mean.** A mean over 8 subjects can look respectable while one of them sits at chance |
 | `per_class_precision` | Precision for each of the 18 classes separately | When the model predicts this gesture, how often is it right? Catches classes the model over-predicts |
 | `per_class_recall` | Recall for each of the 18 classes separately | How much of this gesture does the model find? Catches classes it quietly misses, which accuracy hides and macro-F1 averages away |
 | `confusion_matrix` | Which movements are mistaken for which | Anatomically adjacent gestures confuse; the pattern is a result |
-| `expected_calibration_error` | Gap between confidence and accuracy | Probability calibration. A wearable that is confidently wrong is worse than one that abstains |
+| `expected_calibration_error` | Occupancy-weighted absolute difference between mean top-label confidence and correctness in each bin; lower is better | Measures a binned confidence–accuracy mismatch. Raw and scaled versions have distinct meanings; low ECE alone does not establish useful decoding |
 | `per_subject_expected_calibration_error` | ECE computed separately for each evaluation subject | D23 requires these values wherever ECE is reported; pooling can hide a subject at high miscalibration |
 | `per_subject_macro_f1` | Macro-F1 for each evaluation subject separately | D26 makes the subject the unit of inference, so the headline metric needs per-subject values too |
 | `per_subject_brier_score` | Brier score for each evaluation subject separately | Same rule as ECE: a pooled proper score can hide one badly-scored subject |
 | `per_subject_overconfidence_error` | Overconfidence error for each evaluation subject separately | Paired cross-arm comparison (D26) needs the per-subject values, not a pooled number |
 | `overconfidence_error` | Confidence-weighted **positive** gap, summed over bins: `Σ (count(Bₘ)/n)·conf(Bₘ)·max(conf(Bₘ)−acc(Bₘ), 0)` | Isolates the direction that hurts a wearable — confidently wrong. Deliberately one-sided, so read it beside ECE, never alone (D25) |
 | `mean_confidence_when_wrong` | Mean confidence over misclassified windows | **Descriptive only.** Answers "when the device is wrong, how sure does it sound?" for the structured-report demo. Never compared across arms — it has no calibrated reference value (D25) |
-| `brier_score` | Mean squared error of the predicted probability vector | A **proper** scoring rule with no binning hyperparameter, so it cannot be a bin artifact. Reported wherever ECE is (D23) |
+| `brier_score` | Sum of squared errors across all 18 class probabilities, then mean over evaluation windows; unhalved range [0, 2], lower is better (D39) | Proper score that reflects calibration and predictive discrimination together. Report raw and scaled versions wherever ECE is reported |
 | `robustness_drop` | Accuracy loss from clean → perturbed | Robustness experiments only |
 
 The table above is the shared metric registry; the "Metrics reference" tables in
@@ -232,6 +232,48 @@ The table above is the shared metric registry; the "Metrics reference" tables in
 experiment config's `evaluation.metrics` must appear as a first-column key in one of those two
 registries, and `tests/test_experiment_configs.py` enforces that registration. Registration gives
 name-level coverage, not proof that every metric is executable; Pending decisions remain binding.
+
+**Metric roles and interpretation (D33–D34).** Macro-F1 is the primary classification endpoint,
+including G3's personalization curve. Temperature-scaled ECE is the primary probability-calibration
+endpoint in every reportable experiment that measures calibration. Raw ECE and raw/scaled Brier are
+mandatory companion outcomes. There is no combined score or rule that a win on any one metric is
+an overall win; keep their roles fixed before inspecting results.
+
+**Brier reduction (D39).** For each window, sum `(p_c - one_hot_c)^2` over all 18 classes, then
+average window scores within the subject. This is the unhalved multiclass score in **[0, 2]**:
+a certain wrong prediction contributes 1 for missing the true class and 1 for predicting the
+wrong class. Do not divide by 18 or by 2. The familiar binary score in [0, 1] scores one binary
+probability; halving the full-vector score is another valid convention, but not this project's.
+The existing `evaluation.metrics.brier_score` already uses the chosen class-sum/window-mean
+reduction. Across-subject or repeated-run aggregation is a separate rule; this does not resolve
+G3/G4's Pending aggregation choices. See the
+[scikit-learn multiclass Brier definition](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.brier_score_loss.html).
+
+| Outcome | Meaning | Limit |
+|---|---|---|
+| Raw ECE | Reliability of the head's native confidence, before probability recalibration | Includes scale effects that a development-fitted calibrator may correct; does not directly measure confidence on errors |
+| Temperature-scaled ECE | Reliability of the deployed head plus the frozen, development-fitted calibrator | Evaluates that complete procedure, not intrinsic confidence quality or guaranteed optimal test calibration |
+| Raw/scaled Brier | Quality of the full probability vector in each corresponding version | A lower score can reflect better discrimination, better calibration, or both; compare it with ECE and macro-F1 |
+| Overconfidence error | The one-sided, confidence-weighted positive bin gap (D25) | An underconfident model can score zero; it is meaningful only alongside ECE |
+| Mean confidence when wrong | How confident the model sounds on its errors | Descriptive only; `NA` with no errors, and never a cross-arm calibration claim (D25) |
+| Per-class and seen/unseen recall | Which gestures are recovered and whether adaptation transfers beyond demonstrated classes | Keep rest separate and empty subgroups `NA`; subgroup recall is not the overall macro-F1 |
+
+Interpret all declared outcomes together. Better raw ECE with no detected scaled-ECE advantage is
+consistent with a native-confidence benefit that this scaling procedure largely corrects; it does
+not prove that synthesis has no other benefit. Better scaled ECE with worse Brier or macro-F1 needs
+an explicit tradeoff explanation rather than a blanket claim of improvement. A predictor can be
+calibrated while carrying little useful information. Top-label ECE also does not establish that
+every class probability is calibrated. See [Vaicenavicius et al., AISTATS 2019](https://proceedings.mlr.press/v89/vaicenavicius19a.html)
+for that distinction and the [scikit-learn calibration guide](https://scikit-learn.org/stable/modules/calibration.html)
+for why proper scores and calibration gaps can disagree.
+
+Config `evaluation.metrics` entries name metric **families**. Reportable probability outputs append
+`_raw` or `_temperature_scaled` to the family name, including per-subject families and G4's curve:
+for example `expected_calibration_error_raw`, `expected_calibration_error_temperature_scaled`,
+`brier_score_raw`, `brier_score_temperature_scaled`, and `ece_vs_k_curve_temperature_scaled`.
+Recompute confidence and bin assignments from each probability version. Never compare scaled ECE
+with an unlabelled raw Brier score. F0's existing unsuffixed smoke-test outputs remain non-reportable;
+the result-schema and runtime work is separate from this protocol amendment.
 
 **Where each metric is computed (D6).** Cross-validation and testing run the same metric set
 through the same code path, which is what makes them comparable. Each of the 8 fold models is
@@ -259,10 +301,10 @@ which is exactly why it has to be fixed in the spec rather than chosen per run.
 | | Rule |
 |---|---|
 | Binning | **Adaptive (equal-mass / quantile)**, not equal-width |
-| Bin count | **M = 10**, fixed everywhere |
+| Bin count | **M = 10** nominal quantile bins, fixed everywhere; confidence ties can leave fewer nonempty bins (D39) |
 | Quantity | **Top-label** ECE — the max softmax probability |
-| Recalibration | **Temperature scaling**, T fit on pooled out-of-fold predictions |
-| Reporting | ECE **both raw and temperature-scaled**, plus `brier_score` |
+| Recalibration | **Temperature scaling**, fitted on development predictions from the corresponding model procedure; sources fixed below (D33 amends D23) |
+| Reporting | Scaled ECE primary; raw ECE and **raw/scaled** `brier_score` alongside, with explicit output suffixes |
 | Uncertainty | Resample **subjects**, never windows. Cross-arm comparisons are **paired** |
 | Per-subject | Always shown, whatever the headline aggregation |
 
@@ -285,37 +327,118 @@ bins strand several on nearly no data — in one check, 2 of 15 bins were empty 
 non-empty held a single window, whose "accuracy" is 0 or 1. Adaptive binning fixes *placement*
 only; it does **not** remove the bias in M, so fixing M is still required.
 
-**Why temperature scaling, and what it changes.** Raw ECE conflates two different things: a global
-confidence offset, which one scalar removes, and genuinely better-ranked probabilities, which it
-cannot. Those are not equally interesting, and raw ECE can rank arms backwards — an arm whose
-probabilities are better ordered may still post a worse raw ECE purely from a scale offset.
-Scaling separates them, so the headline cross-arm claim becomes *"better calibrated after both are
-optimally scaled"*, which is stronger and harder. It is also safe to add: T > 0 divides every
-logit equally, so argmax is preserved and `accuracy`, `macro_f1`, the per-class family and the
-confusion matrix **cannot** change.
+**Confidence ties (D39).** Compute confidence-only quantiles at `j/10` using linear interpolation,
+with outer edges 0 and 1. Collapse duplicate cutpoints; a confidence equal to an interior cutpoint
+belongs to the upper bin, with confidence 1 retained in the final bin. Keep identical confidences
+together, omit empty bins from the weighted sum, and report the effective nonempty bin count and
+each occupancy. Do not split ties by input order or correctness labels to manufacture ten populated
+bins. Ten is the fixed requested estimator setting, not a guarantee of ten distinct confidence
+groups. Recompute boundaries separately after scaling and for each subject-level metric. The
+effective bin count belongs to the retained diagnostics and design-specific bias analysis.
 
-**Where T comes from — UNRESOLVED, and the configs fail closed.** Two things are settled. The
-calibrator is fitted on training-subject data only, never on the test subjects; and T is stored in
-the checkpoint's `model_config`, because it is a fitted parameter and a consumer that rebuilds
-without it gets a differently calibrated model.
+**Why temperature scaling, and what it changes.** Use `softmax(logits / T)` with a finite `T > 0`.
+Fit T by ordinary negative log-likelihood (NLL), not by minimizing the reported binned ECE or by
+reusing the classifier's inverse-frequency class weights. A scalar can correct part of the global
+confidence scale; it need not remove class-specific or subject-specific errors. It preserves each
+example's argmax and class ordering, so accuracy, macro-F1 and confusion matrices do not change.
+Multiclass confidence ordering **across examples** can change. Scaled ECE therefore does not isolate
+ranking quality. The claim is *"better calibrated after the same development-fitted scaling
+procedure"*, not "optimally scaled". The original method fits T on held-out validation logits:
+[Guo et al., ICML 2017, §4](https://proceedings.mlr.press/v70/guo17a/guo17a.pdf).
 
-What is *not* settled is which of two procedures produces it, and earlier revisions of this section
-asserted both:
+**Where T comes from (D33, amending D23).** Fit only from the development population; freeze the
+model procedure and fitted calibrator before final-test inference. The fit gives each development
+subject equal weight, each recorded repeat equal weight within that subject, and each query window
+equal weight within that repeat. Keep natural query-class proportions. Fit on every repeat's logits
+under that weighting, not on averaged logits or duplicated aliases. The corresponding objective is
+the mean over subjects of their mean repeat-level NLL. Subjects with more windows or repeats must
+not silently dominate the population calibrator.
 
-1. **One pooled temperature.** The 8-fold cross-validation yields out-of-fold predictions covering
-   all 32 training subjects, each held out exactly once. Fit a single T on that pooled set.
-2. **Median of the 8 fold temperatures**, mirroring D18's median-epoch rule, since the refit has no
-   validation set by construction (§5.1).
+| Consumer | Development predictions used to fit T | Frozen parameter consumed at test |
+|---|---|---|
+| F1 | Pool subject-OOF predictions from eight **fresh fixed-budget** complement-28 encoders, using all repetitions of each outer four subjects; train every encoder for D18–D19's accepted refit budget | One T in `refit.pt`'s `model_config`, with fitting provenance; eight per-fold Ts are optional heterogeneity diagnostics, never the refit's median estimator |
+| F2 | Pool window-OOF predictions from eight folds **inside the non-test 80% window pool**; fold models and final refit use the same declared fixed training budget | One T in the F2 refit `model_config`; retain the fixed final 20% window test split |
+| L2–L4 | Held-out predictions from each arm's own model procedure; encoder and trainable modules must respect its eventual fold boundaries | Remains blocked until the cross-validation/refit and repeat contracts define the source; no F1 temperature inheritance |
+| G4 | After adaptation settings freeze, run all four strategies on D28's outer development subjects; support comes from manifest calibration repetitions, query from its disjoint evaluation repetitions | One frozen strategy × k population-temperature table, described in generative-arm G4; no fitting on final-subject trials |
+| F3–F5 | No new temperature fit | Consume the target's frozen calibration parameter: checkpoint metadata for population/language targets, matching G4 table for adapted heads; never recalibrate on perturbed test data |
 
-These are different estimators and cannot both be the procedure. Until one is chosen,
-`evaluation.ece.temperature_source` is `pending_decision` in the F1 and F2 configs and those
-configs carry a `protocol.status` that blocks reportable evaluation — a default here would silently
-become the protocol. F2 constrains the choice further: it is a random window split with no folds at
-all, so any fold-derived answer is unavailable to it and it needs its own rule either way.
+F1's calibration encoders reuse the planned D28 development fits (§5.1), so they match the final
+refit's fixed epoch budget instead of each fold's validation-selected epoch. Population fitting
+excludes the current outer four subjects; normalization and class weights are fitted on the same
+complement. G2 and G4 reuse the corresponding generator fits after G1's remaining rules are frozen.
+These are specified artifacts, not currently implemented training machinery.
 
-*Known approximation, under either option:* fold temperatures come from models trained on 28
-subjects and are applied to a refit trained on 32. That is the same lineage mismatch as the
-reference row (§5.3) — a defensible answer, not a derived one.
+The selected `folds/fold{k}/best.pt` models used in extended final-test analysis fit their own T
+from that model's outer-fold validation logits after checkpoint selection. Those temperatures
+calibrate those analysis models only; they never replace or feed the fixed-budget OOF refit T.
+Fitting and model selection reuse the outer fold, so the scaled fitting score is not a reportable
+validation estimate. **D40 supplies scaled validation diagnostics** by leave-one-subject-out
+temperature fitting within that outer fold: freeze the selected checkpoint, fit T on three complete
+validation subjects, score only the fourth, and repeat for all four. Use the same fixed fold model
+for every fit and D33's equal-subject/repeat weighting, then average the four subject-level metrics
+equally. This takes four scalar fits per fold (32 overall), with no extra CNN training. Persist the
+model identity, fitting/scoring subject IDs, temperatures, weights and fit diagnostics. No scored
+subject enters its own calibrator fit, and these temperatures never feed the refit estimator or a
+median-temperature substitute. Raw validation/classification metrics retain D20's selected-checkpoint
+rule. No runner may quietly use the refit's T for every fold model.
+
+These are **development diagnostics conditional on the selected checkpoint**, not unbiased nested-CV
+performance: the four subjects still influenced checkpoint selection. The cross-fit removes
+calibrator fit-on-score reuse, not that model-selection reuse. Selected fold models use the all-four
+outer-validation T above for their extended final-test analysis; the refit keeps its separate
+fixed-budget pooled-OOF T. The final eight subjects remain untouched by every fitting procedure.
+
+F2's fold preprocessing and class weights use only that fold's training-window fitting set. Persist
+the outer test assignment and inner fold assignments. Its OOF windows are out of the model's fitting
+indices, but remain correlated with overlapping training windows: this intentionally demonstrates
+leakage, not independent subject/trial generalization. Eight folds process about seven full-pool
+fits' worth of training data, plus the refit, under equal epoch budgets; fitting T itself is cheap.
+This is a relative data-pass calculation, not a measured runtime. Fold assignment and seed
+derivation remain F2 execution blockers; D39 fixes the shared numerical fitting recipe. F2 currently
+retains its declared 30-epoch budget for the inner fits and refit; F1's budget is development-selected.
+This diagnostic therefore does not isolate the split as the sole cause of an F1/F2 difference.
+OOF calibration
+followed by an all-development refit is also documented in the
+[scikit-learn calibration guide](https://scikit-learn.org/stable/modules/calibration.html).
+
+**Development reuse is explicit.** A new post-selection pass on the same subjects/query repetitions
+is not independent of model selection. It separates the fitting stages and permits replay-arm
+predictions to be produced; it does not create a fresh validation population. Guo et al. allow the
+hyperparameter-validation set to fit the calibrator. Treat its scaled scores as fitting diagnostics,
+not unbiased evaluation, and keep the final test untouched. Calibrated validation metrics require
+their own held-out/cross-fitted calibrator if they are to be reported as out-of-fit estimates; do not
+score the fitted T on its fitting predictions and call that validation performance.
+
+**Fitted-parameter contract.** Population and language refit checkpoints carry normalization plus
+T and its provenance in `model_config`. G4 carries a frozen external table because it has many
+adapted heads. Artifact identity includes the prediction-source digest, exact subject/fold and
+repetition identities, normalized fitting weights, config/settings digests, model/generator parent
+digests and aliases. Record each T and fit diagnostics; failed, non-finite, non-positive or unresolved
+boundary fits block reportable scaling. There is no automatic fallback to T=1 or post-result
+smoothing. **D39 fixes the numerical recipe**, not a promise that every fitted cell will pass.
+
+Minimize the weighted NLL in inverse temperature `beta = 1/T` using
+`scipy.optimize.minimize_scalar(method="bounded")`, float64 and stable log-sum-exp. The parameter
+bounds are `[0.01, 100]` (equivalently T in `[0.01, 100]`), `xatol=1e-8`, and `maxiter=500`.
+The NLL is convex in beta: its second derivative is the weighted variance of the logits under
+the scaled softmax. The bounds are predeclared numerical guards, not measured optimal limits.
+Normalize D33's fitting weights; require finite logits/weights/objectives, solver convergence,
+finite positive T and an interior optimum. Check boundary solutions using the NLL derivative:
+if the lower-bound derivative is nonnegative or the upper-bound derivative is nonpositive, block
+reportable scaling instead of clipping or widening the range after seeing results. This also
+blocks an unidentified flat fit. The fitted NLL must not exceed the feasible T=1 objective by more
+than `1e-8`. Persist solver/parameter identity, bounds/tolerances, iteration count, convergence,
+boundary derivatives, T and both NLL values. See the
+[SciPy bounded-solver controls](https://docs.scipy.org/doc/scipy/reference/optimize.minimize_scalar-bounded.html).
+The solver, table/checkpoint enforcement and cross-fitted validation runners are still future
+implementation; resolving their protocol does not make F1's currently refused harness executable.
+
+*Known approximations:* complement-28 model temperatures transfer to a refit trained on 32; G4 also
+transfers from fold-local generators to the final all-32 generator. Reused development subjects
+carry model-selection dependence. The final subject bootstrap is conditional on the frozen models
+and calibration artifacts. One scalar fitted on 32 subjects is a modest parameterization, not a
+guarantee of stability. Temperature scaling can also deteriorate under distribution shift:
+[Ovadia et al., NeurIPS 2019](https://papers.neurips.cc/paper_files/paper/2019/hash/8558cb408c1d76621371888657d2eb1d-Abstract.html).
 
 **Easily missed — resample subjects, never windows.** Windows overlap 75% at stride 100, and the
 ~154 windows from one five-second contraction are one event seen 154 times. Bootstrapping windows
@@ -528,6 +651,7 @@ Fields shared across configs. Arm-specific blocks are documented in each arm's f
 | `training` | `target`, `loss` | `class_label`, `class_weighted_cross_entropy` for classification |
 | | `batch_size`, `gradient_accumulation_steps` | Effective batch = product |
 | | `epochs`, `learning_rate`, `weight_decay` | Optimization; F1's `epochs` is the initial cross-validation fold horizon |
+| | `optimization` | D38 freezes F1's Adam implementation/settings, constant learning rate, initialization, precision and gradient handling (§5.2); not a tunable grid |
 | | `epoch_selection`, `horizon_escalation`, `refit` | F1 model-selection and refit contract (§5.2). There is no top-level `early_stopping` key: D18/D19 fix the horizon, so a field for it could only restate the protocol or contradict it |
 | | `device` | `auto` (portable) \| `cpu` \| `mps` (local-only) \| `cuda` (cloud-only). `auto` picks CUDA, then MPS, then CPU; any other value is a **pin** and an unavailable pin raises rather than falling back, so a config asking for `cuda` can never silently report a CPU run. The resolved device is recorded in the run log |
 | | `save_checkpoint` | Writes `checkpoints/<name>/refit.pt` (final downstream use) and `checkpoints/<name>/folds/fold{k}/best.pt` (analysis only); D28 selection separately writes `development/fold{k}/fixed_budget.pt` |
@@ -543,7 +667,7 @@ and intended reader differ.
 |---|---|---|
 | `checkpoints/<name>/refit.pt` | The model refit on the **full training-subject set** using the cross-validated hyperparameters | **Every final/reportable downstream consumer** — the adapters, the generator, the robustness registry |
 | `checkpoints/<name>/folds/fold{k}/best.pt` | Per-fold model at the **smoothed validation peak** (§5.2) | Extended analysis only — never consumed by another run |
-| `checkpoints/<name>/development/fold{k}/fixed_budget.pt` | A fresh fold-complement fit trained for a fixed, already-selected budget, with no checkpoint selection on that fold's four validation subjects | D28 adaptation-hyperparameter selection only; never the final pipeline or a reportable fold result |
+| `checkpoints/<name>/development/fold{k}/fixed_budget.pt` | A fresh fold-complement fit trained for a fixed, already-selected budget, with no checkpoint selection on that fold's four validation subjects | Shared development infrastructure (D33/D35): F1 temperature fitting, G2 diagnostics, D28 adaptation selection and G4 temperature fitting; never the final pipeline or a reportable fold result |
 
 **Why the refit artifact is not called `best`.** Within a fold, `best` carries its ordinary
 sense: the epoch that scored highest on that fold's validation subjects. The refit has no
@@ -556,9 +680,31 @@ The D28 development checkpoint is separate from both. Its fold's four validation
 score adaptation candidates but may not select the population model's weights. It records the
 manifest hash, fold index, exact training/scoring subject IDs, source-config digests, and fixed
 training budget so the complement-28 fit can be reconstructed without consulting an all-32 refit.
-The fold-local generator must consume the corresponding fold-local encoder.
+The fold-local generator must consume the corresponding fold-local encoder. D35 extends their
+consumer scope without changing the split: each generator records its exact parent encoder's
+SHA-256, and every consumer verifies it. Equal dimensions or matching fold IDs do not establish
+equal latent coordinates. Fit discriminators and compute latent distances within each encoder's
+space, then aggregate diagnostics rather than pooling vectors across independently trained folds.
+The encoder budget is D18–D19's accepted refit budget; the generator budget comes from the frozen
+G1 config. Record both separately. No second set of encoder/generator fits is required by G2, but
+its discriminators still require training, and a failed gate can require rebuilding affected
+generator artifacts and invalidating their dependent banks.
 
 ### 5.2 Epoch selection: the smoothed validation peak
+
+**Reference optimization (D38).** F1 keeps F0's optimizer mechanics with F1's already-declared
+learning-rate/decay settings: Adam with betas
+`(0.9, 0.999)`, epsilon `1e-8`, `amsgrad=False`, learning rate `3e-4` and coupled L2 weight decay
+`1e-4` on every trainable parameter (not AdamW). The learning rate is constant, with no scheduler.
+F0's debug learning rate remains `1e-3`; this does not replace either config's declared value.
+Each fresh model uses the current CNN modules' PyTorch-default initialization under
+`experiment.seed`; record the pinned environment and seed with the artifact. Use FP32, no autocast
+or gradient scaling, and no gradient clipping. A non-finite loss or gradient fails the run before
+the optimizer step; never silently skip the update and produce a shortened-budget checkpoint.
+Apply the same recipe to selection folds, fixed-budget development fits and the final refit.
+This is a reproducible reference freeze, not evidence that these hyperparameters are optimal.
+The future F1 harness must consume the explicit `training.optimization` block; the current F0
+smoke runner is unchanged and is not thereby certified for reportable F1 execution.
 
 Each of the eight cross-validation folds trains for exactly **30 epochs**, with **no early
 stopping**. At each epoch, compute 18-class macro-F1 separately for each of the fold's four
@@ -573,7 +719,10 @@ select the earliest epoch. The fold checkpoint is the model state from that sele
 the 10-epoch value as a model-selection diagnostic, not as the fold's reportable `macro_f1`.
 
 All reportable validation metrics — including `macro_f1` — are computed from the predictions made
-by that one selected fold checkpoint. Final-test metrics likewise come from predictions made by the
+by that one selected fold checkpoint. D40 cross-fits temperature by validation subject for scaled
+validation diagnostics (§3.4); these are conditional on checkpoint selection, not unbiased nested
+validation. Do not report the all-four-subject temperature-fitting score as validation performance.
+Final-test metrics likewise come from predictions made by the
 frozen selected fold checkpoints and the frozen refit checkpoint. Metrics are never averaged across
 epochs: doing so would describe no single model, and is especially ill-defined for count-valued or
 nonlinear outputs such as confusion matrices and ECE. D20 explicitly narrows D9's earlier phrase
@@ -688,10 +837,13 @@ no blockers, which is indistinguishable from someone having written `status: rea
 named by the registry therefore has to declare a status, and a test enforces that. Before this rule
 the four non-generation targets resolved as dispatchable while blockers stood recorded against them.
 
-The suite runs incrementally, but **today it resolves to nothing**: all three perturbations and all
-seven targets are blocked. F1 clears once D23's temperature source is chosen, L2–L4 once they encode
-a selection contract, and the G3 slices once their repeat-aggregation and run-selection rules land —
-each with no structural change, only a resolved field.
+The suite runs incrementally, but **today it still cannot execute**: all three perturbations are
+blocked and the evaluator is a stub. D38–D40 make F1 protocol-ready, not trained: its 8-fold/refit
+harness and calibration machinery remain unimplemented, and no reportable artifact exists.
+The other six targets remain blocked. L2–L4 need selection and repeat contracts. G3 slices need
+repeat/run resolution and the matching immutable G4 table with a ready calibration source protocol.
+These fields must be consumed and validated when the evaluator is implemented; this protocol
+amendment does not make the current stub execute them.
 
 A file-shaped target is just `(name, checkpoint)` — no `model_type`. That relies on the
 **checkpoint contract**: every checkpoint is saved as `{model_state, model_config}`, so any

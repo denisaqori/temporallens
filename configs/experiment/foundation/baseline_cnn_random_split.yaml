@@ -1,4 +1,4 @@
-# F2 — LEAKAGE DEMONSTRATION, NOT A RESULT. Identical to F1 except windows are shuffled without
+# F2 — LEAKAGE DEMONSTRATION, NOT A GENERALIZATION RESULT. Same architecture/loss as F1; windows are shuffled without
 # regard to subject. Windows from one subject are highly correlated, so a random split puts
 # near-duplicates on both sides and inflates accuracy dramatically. This number exists ONLY to
 # quantify that inflation. Reporting it without labelling it as the leakage demo is a serious
@@ -9,7 +9,8 @@ protocol:
   # `ready`, and pending values never get defaults.
   status: blocked_pending_decisions
   blocked_on:
-    - evaluation.ece.temperature_source
+    - evaluation.temperature_fit.execution.fold_assignment_algorithm
+    - evaluation.temperature_fit.execution.seed_derivation
 experiment:
   name: baseline_cnn_random_split
   seed: 42
@@ -45,20 +46,78 @@ training:
   device: auto
   save_checkpoint: true
 evaluation:
-  # No per-subject metrics here, deliberately. This split shuffles windows without regard to
-  # subject, so every test window's subject is also in training: a per-subject number would
-  # measure nothing about generalising to that subject, and quoting one would be the exact
-  # misreading section 3.2 warns about. D26's per-subject rule applies to generalisation
-  # claims, and F2 makes none.
-  # D23: adaptive bins, M=10, top-label. F2 has no subject-CV folds at all — it is a random
-  # window split — so a fold-derived temperature cannot come from anywhere here. Fails closed.
+  # Per-subject ECE is descriptive for SEEN subjects, never unseen-subject generalization.
+  # D33 adds calibration-only window folds inside the non-test pool; no subject-CV claim follows.
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    temperature_source: pending_decision
+    temperature_source: model_config.probability_calibration
     report: [raw, temperature_scaled]
+  brier:
+    report: [raw, temperature_scaled]
+  temperature_fit:
+    prediction_source: pooled_window_out_of_fold_fixed_budget_models
+    development_pool: non_test_80_percent_windows
+    final_test_pool: fixed_outer_20_percent_windows
+    folds: 8
+    partition_unit: random_window
+    population_fit: current_inner_fold_training_windows_only
+    preprocessing_fit: current_inner_fold_training_windows_only
+    class_weight_fit: current_inner_fold_training_windows_only
+    training_budget: configured_training_epochs
+    final_refit: all_non_test_windows_same_training_budget
+    persist_outer_test_and_inner_fold_assignments: true
+    overlapping_window_contamination: intentional_leakage_demo
+    objective: ordinary_negative_log_likelihood
+    class_weighting: none
+    subject_weighting: equal
+    repeat_weighting: equal_within_subject
+    window_weighting: equal_within_repeat
+    fit_scope: development_only
+    freeze_before_final_test: true
+    final_test_fitting: forbidden
+    development_metrics_role: calibration_fitting_diagnostic_only
+    artifact: model_config.probability_calibration
+    required_provenance: [window_assignment_sha256, fold_artifact_sha256, config_digests, query_logits_sha256, subject_ids, fitting_weights, fit_diagnostics]
+    execution:
+      status: pending_decision
+      fold_assignment_algorithm: null
+      seed_derivation: null
+      # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
+      solver: scipy_minimize_scalar_bounded
+      parameter: inverse_temperature
+      dtype: float64
+      bounds: [0.01, 100.0]
+      tolerance: 0.00000001
+      max_iterations: 500
+      nll_evaluation: stable_logsumexp
+      fitting_weights: normalized_d33_weights
+      boundary_check: weighted_nll_derivative_at_bounds
+      nll_non_regression_reference: temperature_1
+      nll_non_regression_tolerance: 0.00000001
+      persist_solver_diagnostics: true
+      invalid_or_unresolved_boundary_fit: block_reportable_evaluation
+  calibration_execution:
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    bootstrap_seed: experiment.seed
+    bootstrap_resamples: 10000
+    bootstrap_confidence: 0.95
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
+  per_subject_metric_role: descriptive_seen_subject_only
   uncertainty_resampling_unit: subject
   metrics:
     - accuracy

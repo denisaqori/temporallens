@@ -34,12 +34,32 @@ Two differences, one comparison each:
 
 - **L2 vs. L3** — size, readout, and input path all held constant; the weights are pretrained in
   one and random in the other. Any claim about **language pretraining** rests on this row. If
-  L2 ≈ L3, what helped was model capacity rather than language.
-- **L2 vs. L4** — same backbone and same readout, but the signal arrives either as a *learned
-  soft prefix* or as *engineered text*. That difference is what licenses a claim about the
-  **projector**. If L2 ≈ L4, a prompt of numbers was enough and the learned path bought nothing.
+  no difference is detected, report no detected incremental pretraining benefit; do not infer
+  equivalence or that capacity caused the result.
+- **L2 vs. L4** — same backbone and readout, but a learned CNN latent delivered as a soft prefix
+  is compared with 72 engineered signal statistics delivered as text. This compares the **whole
+  learned-latent pipeline against the engineered-text pipeline** (D36). Representation and delivery
+  both change, so it cannot isolate the projector or assert that the model receives the same
+  information. A null is no detected pipeline advantage, not equivalence. No additional
+  same-information control is added to v1.
 
 Both comparisons are void if the readout differs across rows. See README §4.
+
+**Repeated runs (D36).** L2, L3 and L4 use the same predeclared seed count, paired by seed index.
+Use recorded component RNG streams for trainable initialization and data order; L3 additionally
+records the random frozen-backbone initialization. Pairing indices does not assert identical
+random features or updates. Compute metrics for each run, take the equal-weight mean over seed
+runs within each subject, then apply D26's paired subject comparison. Keep seed spread separate;
+do not average logits and silently turn this into an ensemble. Never add seeds because an observed
+L2/L3 gap looks small. The seed count and deterministic derivation remain Pending and block
+execution, as does the language cross-validation/refit selection contract.
+
+Each arm fits its own temperature from its eventual held-out development model procedure using
+D33's common NLL/weighting rule. Until the selection contract defines those models and predictions,
+the temperature source stays explicitly Pending. Final calibration reporting uses scaled ECE
+primary, raw ECE and raw/scaled Brier alongside; the meaning and limits are in README §3.4.
+Use D39's shared Brier reduction, confidence-tie policy and numerical temperature-fitting recipe;
+those choices are resolved without resolving the arm's still-Pending prediction source or repeats.
 
 ---
 
@@ -149,7 +169,7 @@ transform, and those help on their own.
 - This row is *why* the readout is discriminative (README §4): a random model has no usable LM
   head, so a generative readout cannot be run here at all.
 - Seed matters more than usual — the "features" are a draw from an initialization distribution.
-  If L2 and L3 land close, re-run L3 across several seeds before concluding anything.
+  Use D36's predeclared paired repeat policy for all three arms; no outcome-triggered reruns.
 - **A null here is the good outcome for rigor.** If L2 ≈ L3, say so plainly: language
   pretraining did not help, and that is the result.
 
@@ -159,12 +179,13 @@ transform, and those help on their own.
 
 **Config:** `adapter_text_summary_only.yaml` · **Runs:** cloud CUDA · **Mode:** `train`
 
-**What it measures.** Whether the *learned soft prefix* beats simply telling the same frozen
-model the same information in words.
+**What it measures.** Whether the complete learned-latent soft-prefix pipeline outperforms an
+engineered-text summary through the same frozen model and readout.
 
-**Why it exists.** If a hand-written prompt of per-channel statistics matches the projector, the
-projector is decoration. This baseline must be made **as strong as possible** — a weak version
-manufactures a win for L2 that any reviewer will discount.
+**Why it exists.** A strong, inexpensive engineered-text route is a practical alternative to the
+learned path. Matching its performance would remove evidence for an incremental pipeline benefit,
+but would not establish equivalence or identify the projector's causal contribution. Make this
+baseline strong; a weak summary would exaggerate L2's practical advantage.
 
 ### Feature set (decision D4)
 
@@ -188,8 +209,8 @@ window and none of them move. A baseline built only from those receives *no temp
 at all*, while L2's encoder path runs a 1-D CNN over the ordered signal. Any L2 − L4 gap would
 then be measuring **temporal structure vs. none** as much as **soft prefix vs. text**, which
 plants a confound inside the very control meant to rule confounds out. Waveform length and zero
-crossings are standard Hudgins time-domain sEMG features, and they restore the ordering
-information.
+crossings carry some temporal information, but they do not preserve the full ordered waveform
+or make the summary equivalent to a learned CNN latent. The D36 attribution limit still applies.
 
 ### Prompt formatting (decision D4)
 

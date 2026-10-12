@@ -11,11 +11,10 @@ restate its rationale. Update rules, autonomy tiers, and the session-end sweep: 
 Working agreement**.
 
 > 👉 **Next developer task:** continue the F0→F1 vertical slice. **Next owner task:** settle the
-> remaining protocol choices in [Next up](#next-up-priority-order), beginning with the F1
-> architecture and calibration clarifications recorded under
-> [Known open items](#known-open-items-not-yet-scheduled).
+> remaining later-arm/F2 protocol choices in [Next up](#next-up-priority-order).
+> **F1's optimizer and calibration protocol is settled (D38–D40); its harness is not implemented.**
 
-_Last updated: 2026-10-09_
+_Last updated: 2026-10-12_
 
 ## Latest changes
 
@@ -28,6 +27,15 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- F1 P0 package D38–D40 is recorded and verified: optimization, shared calibration execution
+  and subject-cross-fitted validation diagnostics are explicit in specs/configs and regression
+  checks. Brier's existing reduction is pinned and confidence-tie binning is deterministic in
+  the metric code. F1 is protocol-ready; its harness, temperature fitter and reporting are still
+  P1 implementation work. F2-only fold-assignment/seed choices and later-arm gates remain open.
+- P0 protocol amendments D33–D37 are recorded and propagated through the experiment specs,
+  configs and protocol regression checks. The shared metric reference now includes meanings,
+  interpretation limits and primary-source citations. Remaining owner choices are explicitly
+  gated below; this change does not implement training, temperature fitting or the P1 repairs.
 - Aligned the G1 subject-embedding table in the Markdown source; its content and protocol are unchanged.
 - The API reference's writing rule is now written down rather than inferred from the page.
   AGENTS.md says what `docs/api/README.md` carries — why each module exists, which decision it
@@ -239,16 +247,23 @@ what is done, what remains, which branch, and the next concrete step.
 
 ## Next up (priority order)
 
-1. **P0 — Owner protocol decisions.** F0 plumbing can proceed under D18–D21, but a reportable F1
-   still needs the architecture and calibration clarifications listed under Known open items. The
-   choices below block headline inference or their named G-series configs; all are tracked in
+1. **P0 — Owner protocol decisions.** D38–D40 resolve F1's remaining optimizer and calibration
+   choices; F1 is protocol-ready but still needs its P1 harness and fitted artifacts. The
+   choices below block F2 or later-arm execution/headline inference; all are tracked in
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
-   - **G2 gate population and final-test policy.** Fix the development folds/aggregation and
-     one-shot final diagnostic, including coverage of the conditional distributions used across
-     *k*.
-   - **G3 headline extraction.** The unit is fixed, but target accuracy, curve interpolation or
+   - **F2 window-fold reproducibility.** Fix outer random-window test assignment, inner eight-fold
+     permutation/assignment and index/seed rules; persist both assignments. D39/D40 resolve the
+     shared calibration and F1 validation-source choices, so this does not block F1.
+   - **Language repeat seeds.** D36 fixes common paired seed indices and within-subject reduction;
+     the numeric count and deterministic component-seed derivation remain open.
+   - **Language selection contract.** Define L2–L4's cross-validation, epoch/checkpoint selection,
+     refit and held-out temperature-prediction lineage before execution.
+   - **G2 gate population and final-test policy.** D35 fixed the shared fold-local artifacts and
+     development subject source; fold aggregation, conditioning coverage and the one-shot final
+     diagnostic failure policy remain open.
+   - **G3 headline extraction.** D34 fixed macro-F1, but the target rule, curve interpolation or
      monotonic treatment, unreachable targets, uncertainty, and subject aggregation are not.
    - **G3 schedule reproducibility.** Fix the PRNG and schedule-index base; selected trials are
      persisted with each run.
@@ -273,16 +288,16 @@ what is done, what remains, which branch, and the next concrete step.
      counts/derivations, whether those axes are paired or crossed, and aggregation across the
      persisted schedule/seed/draw runs without duplicating the population reference or treating
      reused evaluation windows as independent observations.
-   - **G4 headline ECE aggregation.** Fix subject weighting and whether pooled-prediction ECE is
-     headline, supplemental, or omitted.
+   - **G4 headline ECE aggregation.** D33 fixed scaled ECE as the primary probability version;
+     reporting subject weighting and the role of pooled-prediction ECE remain open.
 
 2. **P1 — F1 harness.** F0 is done and green. Remaining: 8-fold cross-validation over the 32
    training subjects, D18–D21 epoch selection with D19's single escalation, the refit on all 32, D10's
    refit-minus-fold-mean cross-check, and D23 temperature scaling. The loader currently refuses F1's
    config on purpose, so lifting that refusal is the acceptance signal for this item. The trainer must
    honor the checkpoint contract (`{model_state, model_config}`) as an acceptance criterion, not a
-   later task, and a *reportable* F1 additionally needs D23's temperature source resolved — the config
-   fails closed on it today.
+   later task. D33/D38–D40 define the optimization, temperature fit and cross-fitted validation
+   diagnostics; the harness must implement and validate them before reportable inference.
 3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
 ## Known open items (not yet scheduled)
@@ -297,26 +312,22 @@ what is done, what remains, which branch, and the next concrete step.
 - Evaluation outputs currently mix primitive metrics, grouped curves, metadata, uncertainty, and
   derived estimands. Define and validate a result schema that separates those roles alongside the
   F0/F1 evaluator, then migrate the G-series configs before their runners are implemented.
-- **D23's temperature source is unresolved and now fails closed.** One pooled out-of-fold
-  temperature and the median of eight per-fold temperatures are different estimators and cannot both
-  be the procedure; the spec asserted both. §3.4 now names both candidates and settles neither, and
-  F1/F2 declare `temperature_source: pending_decision` behind a blocking `protocol.status`. F2
-  constrains the choice further — it is a random window split with no folds, so it needs its own rule
-  under either option. Robustness runs consume the frozen target checkpoint's stored temperature.
-- Calibration execution still needs exact Brier reduction/reporting, bootstrap level/count/seed,
-  deterministic equal-mass tie handling, and distinct result keys for raw versus scaled ECE.
+- D33's temperature procedure is specified, not implemented: F1 uses fixed-budget subject-OOF,
+  F2 adds window-OOF inside its non-test pool, and G4 persists a strategy × k fitted table. Runtime
+  checkpoint/table enforcement and result-schema wiring remain future implementation work.
+- Shared calibration execution is settled by D39/D40; F2's remaining assignment/seed choices are
+  tracked above. D26 fixes bootstrap level/count/seed and D33 fixes probability-version suffixes;
+  runtime fitting, occupancy/provenance reporting and checkpoint enforcement remain P1 work.
 - Retain the simulation or analysis artifact that justified D23's M=10 choice, and recompute any
   finite-sample ECE detection threshold for each actual evaluation design rather than reusing 0.037.
-- The F1 reference **optimizer** is still not frozen: scheduler, initialization and gradient
-  handling are undeclared. D32 froze the layer stack, so what remains is the optimizer side plus the
-  config-surface question above.
+- D38 freezes F1's optimizer side; the P1 harness must consume its explicit config and fail
+  non-finite loss/gradient updates. This protocol change does not alter the F0 smoke trainer.
 - Processed NPZ recordings load eagerly and are not memory-mappable. The F1 batching/normalization
   path must avoid duplicating the roughly multi-GiB 32-subject signal across workers; `num_workers`
   is 0 as the safe local default until a measured lazy/memory-mapped design exists.
 - D10 requires the refit-minus-fold-mean result, but its output key/schema is not yet defined.
-- L2–L4 do not yet encode a cross-validation/refit selection contract and request
-  `overconfidence_error` (settled as D25) without an evaluation gate; settle the selection contract
-  before language-arm execution.
+- L2–L4 now explicitly gate selection, repeats and temperature fitting (D33/D36); their remaining
+  owner choices are listed above. The language runners are still unwritten.
 - F3–F5 still need executable perturbation definitions (order relative to normalization,
   noise/channel-mask sampling and seeds, repetitions, and aggregation).
 - Governance wording still conflicts: AGENTS calls DECISIONS rows append-only while DECISIONS moves

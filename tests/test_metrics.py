@@ -6,14 +6,17 @@ properties (ECE under adaptive binning), the test states the property rather tha
 Decisions pinned here: D8 (per-class family, fold matrices averaged not summed), D21 (undefined
 class F1 counts as 0), D23 (adaptive bins, M=10, bins recomputed after scaling), D25
 (overconfidence error is the one-sided binned gap; mean-confidence-on-errors is NA with no
-errors), D26 (per-subject values, paired interval).
+errors), D26 (per-subject values, paired interval), D39 (unhalved Brier and confidence ties).
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
+
 from temporallens.evaluation.metrics import (
+    _bin_edges,
+    _binned,
     accuracy,
     average_confusion_matrices,
     brier_score,
@@ -136,6 +139,53 @@ def test_equal_mass_bins_are_populated_where_equal_width_strands_them() -> None:
 def test_brier_score_is_zero_for_a_perfect_confident_model() -> None:
     labels = np.array([0, 1, 2])
     assert brier_score(_onehot_probs(labels, confidence=1.0), labels) == pytest.approx(0.0)
+
+
+def test_brier_score_is_two_for_a_certain_wrong_prediction() -> None:
+    """D39: full multiclass vector, not the binary or half-normalized convention."""
+    labels = np.array([0])
+    certain_wrong = _onehot_probs(np.array([1]), confidence=1.0)
+    assert brier_score(certain_wrong, labels) == pytest.approx(2.0)
+
+
+def test_brier_score_sums_classes_then_averages_windows() -> None:
+    # Three-class examples: the first has error .04 + .01 + .01; the second has error 2.
+    # Neither dividing by 3 classes nor halving the vector error is permitted.
+    probabilities = np.array([[0.8, 0.1, 0.1], [0.0, 1.0, 0.0]])
+    labels = np.array([0, 0])
+    assert brier_score(probabilities, labels) == pytest.approx((0.06 + 2.0) / 2)
+
+
+def test_equal_mass_confidence_ties_stay_in_one_nonempty_bin() -> None:
+    conf = np.full(100, 0.5)
+    correct = np.array([True] * 50 + [False] * 50)
+    assert _binned(conf, correct, bins=10, binning="equal_mass") == [(1.0, 0.5, 0.5)]
+    assert expected_calibration_error(conf, correct) == pytest.approx(0.0)
+    # Splitting these ties by input order would manufacture miscalibration.
+    permutation = np.random.default_rng(7).permutation(len(conf))
+    assert expected_calibration_error(conf[permutation], correct[permutation]) == pytest.approx(0.0)
+
+
+def test_equal_mass_quantiles_collapse_duplicate_cutpoints_without_losing_windows() -> None:
+    conf = np.array([0.2] * 20 + [0.8] * 80)
+    correct = np.array([True] * 10 + [False] * 10 + [True] * 70 + [False] * 10)
+    edges = _bin_edges(conf, bins=10, binning="equal_mass")
+    assert np.all(np.diff(edges) > 0)
+    assert edges[0] == 0.0 and edges[-1] == 1.0
+    groups = _binned(conf, correct, bins=10, binning="equal_mass")
+    assert len(groups) == 2
+    assert sum(weight for weight, _, _ in groups) == pytest.approx(1.0)
+    assert [weight for weight, _, _ in groups] == pytest.approx([0.2, 0.8])
+    assert expected_calibration_error(conf, correct) == pytest.approx(0.12)
+
+
+def test_equal_mass_boundaries_are_linear_and_equal_cutpoints_go_to_upper_bin() -> None:
+    conf = np.array([0.1, 0.3, 0.5, 0.9])
+    np.testing.assert_allclose(_bin_edges(conf, bins=2, binning="equal_mass"), [0.0, 0.4, 1.0])
+    tied_at_cut = np.array([0.0, 0.5, 0.5, 1.0])
+    groups = _binned(tied_at_cut, np.ones(4, dtype=bool), bins=2, binning="equal_mass")
+    assert [weight for weight, _, _ in groups] == pytest.approx([0.25, 0.75])
+    assert sum(weight for weight, _, _ in groups) == pytest.approx(1.0)
 
 
 def test_brier_score_penalises_confident_errors_more_than_hesitant_ones() -> None:

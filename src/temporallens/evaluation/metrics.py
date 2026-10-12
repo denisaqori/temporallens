@@ -105,7 +105,11 @@ def macro_f1(predicted: IntArray, true: IntArray, *, num_classes: int) -> float:
 
 
 def brier_score(probabilities: FloatArray, true: IntArray) -> float:
-    """Mean squared error of the full probability vector — proper, and binning-free (D23)."""
+    """Class-sum squared probability error, then window mean; unhalved [0, 2] (D39).
+
+    A certain wrong prediction misses the true class and predicts another, contributing 1
+    from each. Dividing by the class count or by 2 would implement a different convention.
+    """
     probs = np.asarray(probabilities, dtype=np.float64)
     target = np.zeros_like(probs)
     target[np.arange(len(true)), np.asarray(true)] = 1.0
@@ -116,9 +120,11 @@ def _bin_edges(confidence: FloatArray, bins: int, binning: str) -> FloatArray:
     if binning == "equal_width":
         return np.linspace(0.0, 1.0, bins + 1)
     if binning == "equal_mass":
-        edges = np.quantile(confidence, np.linspace(0.0, 1.0, bins + 1))
+        edges = np.quantile(confidence, np.linspace(0.0, 1.0, bins + 1), method="linear")
         edges[0], edges[-1] = 0.0, 1.0
-        return edges
+        # D39: identical confidence values stay together; M is a nominal target, not a
+        # reason to split ties by example order or labels. Empty intervals carry no weight.
+        return np.unique(edges)
     raise ValueError(f"unknown binning {binning!r}; expected equal_mass or equal_width")
 
 
@@ -129,9 +135,12 @@ def _binned(
     confidence = np.asarray(confidence, dtype=np.float64)
     correct = np.asarray(correct, dtype=bool)
     edges = _bin_edges(confidence, bins, binning)
-    assignment = np.clip(np.digitize(confidence, edges[1:-1]), 0, bins - 1)
+    effective_intervals = len(edges) - 1
+    assignment = np.clip(
+        np.digitize(confidence, edges[1:-1], right=False), 0, effective_intervals - 1
+    )
     out = []
-    for index in range(bins):
+    for index in range(effective_intervals):
         selected = assignment == index
         occupancy = int(selected.sum())
         if occupancy:

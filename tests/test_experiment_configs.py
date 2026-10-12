@@ -126,10 +126,24 @@ def test_g2_fails_closed_without_using_final_test_subjects_as_an_iterative_gate(
     config = _load("configs/experiment/generation/gen_synthetic_quality.yaml")
     assert config["protocol"]["status"] == "blocked_pending_decisions"
     assert "evaluation.quality_metric_contract_status" in config["protocol"]["blocked_on"]
-    assert config["discriminator"]["evaluate_on"] == "pending_development_validation_subjects"
+    assert config["discriminator"]["evaluate_on"] == "split_manifest_fold_validation_subjects"
     assert config["development_gate"]["status"] == "pending_decision"
     assert config["final_test_diagnostic"]["tuning_after_observation"] == "forbidden"
     assert config["evaluation"]["quality_metric_contract_status"] == "pending_decision"
+
+    artifacts = config["development_gate"]["artifact_resolution"]
+    g3 = _load(artifacts["contract_source_config"])
+    declared = g3["personalization"]["adaptation"]["objective"]["development_selection"][
+        "artifact_resolution"
+    ]
+    for key in ("encoder_checkpoint_pattern", "generator_checkpoint_pattern"):
+        assert artifacts[key] == declared[key]
+        assert artifacts[key] not in config["checkpoint"].values()
+    assert artifacts["all_32_refit_reuse"] == "forbidden"
+    assert artifacts["generator_parent_encoder_identity"] == "exact_artifact_sha256"
+    assert artifacts["cross_fold_latent_pooling"] == "forbidden"
+    assert artifacts["nearest_neighbour_reference"] == "corresponding_fold_real_training_latents"
+    assert artifacts["additional_encoder_generator_fit_set"] == "none_beyond_shared_d28_artifacts"
 
 
 def test_f1_config_encodes_approved_epoch_constants_and_gates() -> None:
@@ -137,6 +151,22 @@ def test_f1_config_encodes_approved_epoch_constants_and_gates() -> None:
 
     training = config["training"]
     assert training["epochs"] == 30
+    assert training["learning_rate"] == 0.0003
+    assert training["weight_decay"] == 0.0001
+    assert training["optimization"] == {
+        "optimizer": "adam",
+        "betas": [0.9, 0.999],
+        "epsilon": 1e-8,
+        "amsgrad": False,
+        "weight_decay_mode": "coupled_l2_all_trainable_parameters",
+        "scheduler": "none",
+        "initialization": "seeded_pytorch_module_defaults",
+        "initialization_seed": "experiment.seed",
+        "precision": "float32",
+        "mixed_precision": False,
+        "gradient_clipping": "none",
+        "nonfinite_loss_or_gradients": "fail_run_before_optimizer_step",
+    }
     assert (
         "early_stopping" not in training
     ), "D18/D19 own the horizon; a config key restating it can only drift from it"
@@ -392,7 +422,15 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
         "scoring_subject_ids",
         "component_config_digests",
         "training_budget",
+        "generator_training_budget",
+        "artifact_sha256",
+        "parent_encoder_sha256",
     }
+    assert (
+        development["generator_training_budget"] == "frozen_generator_source_config_training_epochs"
+    )
+    assert artifacts["generator_parent_encoder_identity"] == "exact_artifact_sha256"
+    assert artifacts["cross_fold_latent_pooling"] == "forbidden"
 
     k0_steps = personalization["adaptation"]["training_budget"]["synthetic_only_k0_optimizer_steps"]
     assert k0_steps == {"status": "pending_decision", "assignment_rule": None}
@@ -429,6 +467,18 @@ def test_g3_encodes_d30_subgroup_reporting() -> None:
     assert "calibration_unseen_gesture_macro_accuracy" not in config["evaluation"]["metrics"]
 
 
+def test_g3_headline_uses_macro_f1_without_dropping_unseen_classes() -> None:
+    evaluation = _load("configs/experiment/generation/gen_personalization_efficiency.yaml")[
+        "evaluation"
+    ]
+    assert evaluation["primary_classification_metric"] == "macro_f1"
+    assert evaluation["headline_curve"] == "macro_f1_vs_k_curve"
+    assert evaluation["macro_f1_class_labels"] == "all_dataset_classes"
+    assert evaluation["undefined_class_f1"] == 0.0
+    assert {"macro_f1_vs_k_curve", "accuracy_vs_k_curve"} <= set(evaluation["metrics"])
+    assert evaluation["headline_extraction"] == "pending_decision"
+
+
 def test_g3_g4_share_the_same_development_selection_contract() -> None:
     g3 = _load("configs/experiment/generation/gen_personalization_efficiency.yaml")
     g4 = _load("configs/experiment/generation/gen_calibration_efficiency.yaml")
@@ -442,6 +492,7 @@ def test_g4_records_pending_headline_ece_aggregation() -> None:
     assert config["protocol"]["status"] == "blocked_pending_decisions"
     assert "evaluation.headline_ece_aggregation_status" in config["protocol"]["blocked_on"]
     assert config["evaluation"]["headline_ece_aggregation_status"] == "pending_decision"
+    assert config["evaluation"]["headline_ece_aggregation"] == "pending_decision"
 
 
 @pytest.mark.parametrize("relative_path", ECE_CONFIGS)
@@ -452,6 +503,29 @@ def test_d23_ece_contract_is_present_wherever_ece_is_reported(relative_path: str
     assert evaluation["ece"]["scope"] == "top_label"
     assert evaluation["ece"]["temperature_scaling"] is True
     assert evaluation["ece"]["report"] == ["raw", "temperature_scaled"]
+    assert (
+        evaluation["primary_calibration_metric"] == "expected_calibration_error_temperature_scaled"
+    )
+    assert evaluation["brier"]["report"] == ["raw", "temperature_scaled"]
+    execution = evaluation["calibration_execution"]
+    assert execution["raw_versus_scaled_result_keys"] == (
+        "metric_family_plus_raw_or_temperature_scaled_suffix"
+    )
+    assert execution["bootstrap_seed"] == "experiment.seed"
+    assert execution["bootstrap_resamples"] == 10000
+    assert execution["bootstrap_confidence"] == 0.95
+    assert execution["brier_reduction"] == "mean_windows_of_sum_over_classes"
+    assert execution["equal_mass_tie_handling"] == {
+        "quantile_method": "linear",
+        "boundary_assignment": "upper_bin_for_equal_cutpoint",
+        "tied_confidences": "keep_together",
+        "duplicate_cutpoints": "collapse",
+        "empty_bins": "omit",
+        "effective_bin_count": "report",
+        "bin_occupancies": "report",
+        "label_information_in_boundaries": "forbidden",
+    }
+    assert "evaluation.calibration_execution" not in _load(relative_path)["protocol"]["blocked_on"]
     assert evaluation["uncertainty_resampling_unit"] == "subject"
     assert "expected_calibration_error" in evaluation["metrics"]
     assert "per_subject_expected_calibration_error" in evaluation["metrics"]
@@ -468,7 +542,204 @@ def test_d23_ece_contract_is_present_wherever_ece_is_reported(relative_path: str
 )
 def test_robustness_uses_the_frozen_target_temperature(relative_path: str) -> None:
     config = _load(relative_path)
-    assert config["evaluation"]["ece"]["temperature_source"] == "checkpoint_model_config"
+    assert config["evaluation"]["ece"]["temperature_source"] == "frozen_target_calibration_artifact"
+
+
+def test_f1_temperature_uses_fixed_budget_oof_models_without_median_estimator() -> None:
+    config = _load("configs/experiment/foundation/baseline_cnn_subject_split.yaml")
+    fit = config["evaluation"]["temperature_fit"]
+    g3 = _load("configs/experiment/generation/gen_personalization_efficiency.yaml")
+    development = g3["personalization"]["adaptation"]["objective"]["development_selection"]
+    assert (
+        fit["checkpoint_pattern"]
+        == development["artifact_resolution"]["encoder_checkpoint_pattern"]
+    )
+    assert fit["prediction_source"] == "pooled_subject_out_of_fold_fixed_budget_models"
+    assert fit["query_repetitions"] == "all_manifest_repetitions"
+    assert fit["validation_selected_checkpoint_reuse"] == "forbidden"
+    assert fit["median_fold_temperature_for_refit"] == "forbidden"
+    assert fit["selected_fold_test_temperature_source"] == (
+        "own_outer_fold_predictions_after_checkpoint_selection"
+    )
+    execution = config["evaluation"]["calibration_execution"]
+    assert execution["validation_temperature_source"] == (
+        "leave_one_subject_out_within_selected_outer_fold"
+    )
+    assert execution["validation_temperature_fit"] == {
+        "model_source": "same_frozen_selected_fold_checkpoint_for_all_four_fits",
+        "stage": "after_checkpoint_freeze",
+        "fitting_subjects": "other_three_outer_validation_subjects",
+        "scoring_subject": "excluded_outer_validation_subject_only",
+        "fits_per_fold": 4,
+        "weighting": "d33_equal_subject_repeat_and_within_repeat_window_weights",
+        "metric_aggregation": "equal_weight_mean_of_four_subject_metrics",
+        "bin_recomputation": "separately_for_each_subject_and_probability_version",
+        "checkpoint_selection_subject_reuse": True,
+        "result_role": "development_diagnostic_conditional_on_selected_checkpoint",
+        "unbiased_nested_validation_estimate": False,
+        "refit_temperature_estimator_use": "forbidden",
+        "persist_fitting_and_scoring_subject_ids_and_temperatures": True,
+    }
+    assert fit["final_test_fitting"] == "forbidden"
+
+
+def test_f1_protocol_has_no_pending_optimizer_or_calibration_choices() -> None:
+    """Protocol readiness is explicit; the separate loader test still refuses the absent harness."""
+    config = _load("configs/experiment/foundation/baseline_cnn_subject_split.yaml")
+    assert config["protocol"] == {"status": "ready", "blocked_on": []}
+
+    def assert_resolved(node: Any) -> None:
+        if isinstance(node, dict):
+            for value in node.values():
+                assert_resolved(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_resolved(value)
+        else:
+            assert node is not None
+            assert not (isinstance(node, str) and node.startswith("pending_"))
+
+    assert_resolved(config["training"]["optimization"])
+    assert_resolved(config["evaluation"]["calibration_execution"])
+    assert_resolved(config["evaluation"]["temperature_fit"])
+
+
+def test_f2_temperature_preserves_outer_test_and_intentional_window_split() -> None:
+    config = _load("configs/experiment/foundation/baseline_cnn_random_split.yaml")
+    fit = config["evaluation"]["temperature_fit"]
+    assert config["dataset"]["test_fraction"] == 0.2
+    assert fit["folds"] == 8
+    assert fit["partition_unit"] == "random_window"
+    assert fit["development_pool"] == "non_test_80_percent_windows"
+    assert fit["final_test_pool"] == "fixed_outer_20_percent_windows"
+    assert fit["preprocessing_fit"] == "current_inner_fold_training_windows_only"
+    assert fit["class_weight_fit"] == "current_inner_fold_training_windows_only"
+    assert fit["persist_outer_test_and_inner_fold_assignments"] is True
+    assert fit["final_test_fitting"] == "forbidden"
+    assert fit["execution"]["fold_assignment_algorithm"] is None
+    assert fit["execution"]["seed_derivation"] is None
+    assert fit["execution"]["status"] == "pending_decision"
+    assert config["protocol"] == {
+        "status": "blocked_pending_decisions",
+        "blocked_on": [
+            "evaluation.temperature_fit.execution.fold_assignment_algorithm",
+            "evaluation.temperature_fit.execution.seed_derivation",
+        ],
+    }
+    assert config["evaluation"]["per_subject_metric_role"] == "descriptive_seen_subject_only"
+
+
+def test_g4_temperature_fitting_has_separate_stage_query_data_and_exact_aliases() -> None:
+    config = _load("configs/experiment/generation/gen_calibration_efficiency.yaml")
+    fit = config["evaluation"]["temperature_fit"]
+    assert fit["stage"] == "after_adaptation_settings_freeze"
+    assert fit["prediction_source"] == "all_four_strategies_on_outer_development_subject_queries"
+    assert fit["support_repetitions"] == "split_manifest.repetitions.calibration"
+    assert fit["query_repetitions"] == "split_manifest.repetitions.evaluation"
+    assert fit["cell_fitting"] == "separate_no_smoothing_across_k"
+    assert fit["inherit_f1_temperature"] == "forbidden"
+    assert fit["extra_final_subject_trials"] == 0
+    assert fit["final_test_fitting"] == "forbidden"
+    assert fit["development_subjects_reused_after_selection"] is True
+    assert fit["development_metrics_role"] == "calibration_fitting_diagnostic_only"
+    assert fit["aggregate_logits_before_fitting"] == "forbidden"
+    assert fit["deduplicate_aliases_before_weighting"] is True
+    aliases = fit["k0_temperature_aliases"]
+    assert set(aliases) == set(config["personalization"]["calibration_strategy"])
+    assert aliases["real_adaptation"] == aliases["population_no_adaptation"]
+    assert (
+        aliases["real_plus_subject_synthetic_adaptation"]
+        == aliases["real_plus_population_synthetic_adaptation"]
+    )
+    assert len(set(aliases.values())) == 2
+    assert {
+        "query_logits_sha256",
+        "fold_encoder_and_generator_sha256",
+        "frozen_settings_digest",
+        "deployment_population_checkpoint_sha256",
+        "deployment_generator_sha256",
+    } <= set(fit["required_provenance"])
+    assert {"macro_f1", "per_subject_macro_f1"} <= set(config["evaluation"]["metrics"])
+
+
+def test_language_repeats_are_paired_declared_and_temperature_source_stays_blocked() -> None:
+    repeats = []
+    for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
+        if "/language/" not in relative_path:
+            continue
+        config = _load(relative_path)
+        policy = config["training"]["repeats"]
+        repeats.append(policy)
+        assert policy["seed_count"] is None and policy["seed_derivation"] is None
+        assert policy["pairing"] == "seed_index"
+        assert policy["within_subject_metric_reduction"] == "equal_weight_mean_over_seed_runs"
+        assert policy["outcome_triggered_seed_extension"] == "forbidden"
+        assert policy["logit_averaging"] == "forbidden"
+        assert "training.repeats" in config["protocol"]["blocked_on"]
+        assert (
+            config["evaluation"]["ece"]["temperature_source"]
+            == "pending_language_selection_contract"
+        )
+        assert "evaluation.ece.temperature_source" in config["protocol"]["blocked_on"]
+    assert len(repeats) == 3
+    assert repeats[0] == repeats[1] == repeats[2]
+
+
+def test_population_temperature_fits_use_same_objective_and_weighting() -> None:
+    for relative_path in ECE_CONFIGS:
+        config = _load(relative_path)
+        fit = config["evaluation"].get("temperature_fit")
+        if fit is None:  # robustness consumes an existing fit
+            continue
+        assert fit["objective"] == "ordinary_negative_log_likelihood"
+        assert fit["class_weighting"] == "none"
+        assert fit["subject_weighting"] == "equal"
+        assert fit["repeat_weighting"] == "equal_within_subject"
+        assert fit["window_weighting"] == "equal_within_repeat"
+        assert fit["freeze_before_final_test"] is True
+        assert (
+            fit["execution"]["invalid_or_unresolved_boundary_fit"] == "block_reportable_evaluation"
+        )
+
+
+@pytest.mark.parametrize(
+    "relative_path", [path for path in ECE_CONFIGS if "/robustness_" not in path]
+)
+def test_shared_temperature_numerics_are_fixed_without_resolving_arm_designs(
+    relative_path: str,
+) -> None:
+    config = _load(relative_path)
+    execution = config["evaluation"]["temperature_fit"]["execution"]
+    expected = {
+        "solver": "scipy_minimize_scalar_bounded",
+        "parameter": "inverse_temperature",
+        "dtype": "float64",
+        "bounds": [0.01, 100.0],
+        "tolerance": 1e-8,
+        "max_iterations": 500,
+        "nll_evaluation": "stable_logsumexp",
+        "fitting_weights": "normalized_d33_weights",
+        "boundary_check": "weighted_nll_derivative_at_bounds",
+        "nll_non_regression_reference": "temperature_1",
+        "nll_non_regression_tolerance": 1e-8,
+        "persist_solver_diagnostics": True,
+        "invalid_or_unresolved_boundary_fit": "block_reportable_evaluation",
+    }
+    assert {key: execution[key] for key in expected} == expected
+    if "/baseline_cnn_random_split" not in relative_path:
+        assert execution["status"] == "ready"
+        assert "evaluation.temperature_fit.execution" not in config["protocol"]["blocked_on"]
+
+
+def test_g0_subject_vectors_exercise_a_controlled_structural_check() -> None:
+    config = _load("configs/experiment/generation/gen_vae_debug.yaml")
+    diagnostic = config["evaluation"]["subject_conditioning_diagnostic"]
+    assert config["generator"]["subject_conditioning"] == "population_only"
+    assert config["generator"]["subject_embedding_dim"] == 16
+    assert diagnostic["vectors"] == ["zero_vector", "first_unit_basis_vector"]
+    assert diagnostic["hold_fixed"] == ["class_label", "latent_noise_draw", "decoder_eval_mode"]
+    assert diagnostic["result_role"] == "structural_sensitivity_only"
+    assert "subject_embedding_changes_sample" in config["evaluation"]["checks"]
 
 
 def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
@@ -521,6 +792,21 @@ def test_robustness_registry_compares_all_three_adapted_g3_strategies() -> None:
     assert {target["source_config"] for target in g3_targets} == {
         "configs/experiment/generation/gen_personalization_efficiency.yaml"
     }
+    for target in g3_targets:
+        assert target["temperature_source"] == "frozen_strategy_k_temperature_table"
+        assert target["calibration_source_config"] == (
+            "configs/experiment/generation/gen_calibration_efficiency.yaml"
+        )
+        assert (
+            target["temperature_run_selection"] == "pending_matching_immutable_calibration_run_id"
+        )
+        assert target["temperature_lookup_axes"] == ["strategy", "calibration_trials"]
+        assert target["require_matching_model_generator_and_settings_digests"] is True
+    assert all(
+        target["temperature_source"] == "model_config.probability_calibration"
+        for target in registry["targets"]
+        if target["arm"] != "generation"
+    )
     assert (
         by_name["g3_subject_synthetic_adaptation"]["shared_k0_with"]
         == "g3_population_synthetic_adaptation"

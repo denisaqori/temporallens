@@ -39,6 +39,7 @@ generator:
   hidden_dim: 64
   class_conditioning: true
   subject_conditioning: population_only
+  subject_embedding_dim: 16
 training:
   loss: negative_elbo
   kl_warmup_epochs: 1        # provisional duration; exact warmup contract remains Pending
@@ -49,6 +50,14 @@ training:
   device: auto
   save_checkpoint: false
 evaluation:
+  # D37: changing only these fixed test inputs exercises the subject-conditioning path.
+  # Population-only training cannot establish learned subject sensitivity; G1 still must.
+  subject_conditioning_diagnostic:
+    vectors: [zero_vector, first_unit_basis_vector]
+    dimension_source: generator.subject_embedding_dim
+    hold_fixed: [class_label, latent_noise_draw, decoder_eval_mode]
+    persist_vectors_and_outputs: true
+    result_role: structural_sensitivity_only
   metrics: [negative_elbo, reconstruction_error, kl_divergence]
   checks:
     - negative_elbo_is_finite

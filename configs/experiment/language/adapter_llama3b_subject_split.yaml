@@ -27,6 +27,8 @@ protocol:
   status: blocked_pending_decisions
   blocked_on:
     - training.selection
+    - training.repeats
+    - evaluation.ece.temperature_source
 experiment:
   name: adapter_llama3b_subject_split
   seed: 42
@@ -59,8 +61,8 @@ llm:
   load_in_4bit: false
 head:
   # Discriminative readout. Held IDENTICAL across all three language-arm configs
-  # (this one, adapter_random_transformer, adapter_text_summary_only) so the only
-  # cross-arm difference is the input path, never the readout. Changing it here
+  # (this one, adapter_random_transformer, adapter_text_summary_only) to control
+  # the readout while representations/backbone weights differ. Changing it here
   # without changing it there invalidates the ablation.
   type: mlp
   pooling: last_token            # Llama is causal — classify from the last non-padding token
@@ -78,6 +80,16 @@ training:
   num_workers: 4
   device: cuda
   save_checkpoint: true
+  repeats:
+    status: pending_decision
+    seed_count: null
+    seed_derivation: null
+    pairing: seed_index
+    shared_seed_count_across_l2_l3_l4: true
+    record_component_rng_streams: true
+    within_subject_metric_reduction: equal_weight_mean_over_seed_runs
+    logit_averaging: forbidden
+    outcome_triggered_seed_extension: forbidden
   # L2-L4 report overconfidence_error (D25) but encode no cross-validation/refit selection
   # contract, so there is no gate deciding which checkpoint those numbers come from.
   selection:
@@ -85,14 +97,61 @@ training:
     epoch_selection: null
     refit_rule: null
 evaluation:
-  # D23: adaptive bins, M=10, top-label; raw and temperature-scaled ECE are distinct outputs.
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
+  # D33: source remains blocked until this arm's own selection/refit procedure is defined.
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    temperature_source: pooled_out_of_fold_folds
+    temperature_source: pending_language_selection_contract
     report: [raw, temperature_scaled]
+  brier:
+    report: [raw, temperature_scaled]
+  temperature_fit:
+    prediction_source: pending_language_selection_contract
+    objective: ordinary_negative_log_likelihood
+    class_weighting: none
+    subject_weighting: equal
+    repeat_weighting: equal_within_subject
+    window_weighting: equal_within_repeat
+    fit_scope: development_only
+    final_test_fitting: forbidden
+    freeze_before_final_test: true
+    artifact: model_config.probability_calibration
+    execution:
+      status: ready
+      # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
+      solver: scipy_minimize_scalar_bounded
+      parameter: inverse_temperature
+      dtype: float64
+      bounds: [0.01, 100.0]
+      tolerance: 0.00000001
+      max_iterations: 500
+      nll_evaluation: stable_logsumexp
+      fitting_weights: normalized_d33_weights
+      boundary_check: weighted_nll_derivative_at_bounds
+      nll_non_regression_reference: temperature_1
+      nll_non_regression_tolerance: 0.00000001
+      persist_solver_diagnostics: true
+      invalid_or_unresolved_boundary_fit: block_reportable_evaluation
+  calibration_execution:
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    bootstrap_seed: experiment.seed
+    bootstrap_resamples: 10000
+    bootstrap_confidence: 0.95
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
   uncertainty_resampling_unit: subject
   metrics:
     - accuracy

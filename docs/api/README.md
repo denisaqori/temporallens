@@ -148,11 +148,21 @@ the artifact both arms load.
 ### `evaluation.metrics`
 The metric set, including the decision-bearing cases.
 
+D39 freezes the existing multiclass Brier convention: sum all class-probability squared errors
+per window, then average windows, without halving or dividing by 18. The range is [0, 2], because
+a certain wrong prediction contributes one missed true class plus one wrongly predicted class.
+Subject/repeat reduction happens outside this primitive, so it cannot silently choose G3/G4's
+still-Pending aggregation. Adaptive ECE now pins linear quantiles and upper-bin cutpoint assignment,
+collapses duplicate edges and keeps identical confidences together. Ten is nominal: fewer bins can
+be occupied when confidences tie. The reportable evaluator must retain occupancies/effective count
+and recompute bins for raw/scaled subject predictions; that reporting harness remains unimplemented.
+
 | Function | Decision it implements |
 |---|---|
 | `macro_f1` | **D21** — divides by every class, scoring an undefined class 0, so a small-*k* support set cannot quietly rescale it |
 | `average_confusion_matrices` | **D8** — averages, never sums; all eight fold models score the *same* test subjects |
-| `expected_calibration_error` | **D23** — adaptive bins at M=10. There is a noise floor near 0.037 at this project's effective *n*, and it is a detection threshold, not an offset to subtract |
+| `expected_calibration_error` | **D23/D39** — nominal M=10 adaptive bins, deterministic confidence ties. The motivating simulation measured about 0.037 for a calibrated model; D33 requires a retained design-specific analysis rather than reusing it as a universal threshold or subtracting it |
+| `brier_score` | **D39** — unhalved class-sum/window-mean reduction, [0, 2]; shared by the raw/scaled per-subject metric paths |
 | `overconfidence_error` | **D25** — the one-sided confidence-weighted positive gap, interpretable only beside ECE: a uniformly timid model scores a perfect 0 |
 | `mean_confidence_when_wrong` | **D25** — descriptive only, and `None` rather than 0 with no errors. Never compared across arms |
 | `per_subject` | **D26** — never pooled; a pooled number can look respectable while one subject sits at chance |

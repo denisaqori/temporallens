@@ -29,20 +29,24 @@ targets:
     arm: foundation
     source_config: configs/experiment/foundation/baseline_cnn_subject_split.yaml
     checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
+    temperature_source: model_config.probability_calibration
 
   # --- Language arm (D2: robustness on the adapter stacks, not only the encoder) ---
   - name: l2_frozen_llm
     arm: language
     source_config: configs/experiment/language/adapter_llama3b_subject_split.yaml
     checkpoint: checkpoints/adapter_llama3b_subject_split/refit.pt
+    temperature_source: model_config.probability_calibration
   - name: l3_random_transformer
     arm: language
     source_config: configs/experiment/language/adapter_random_transformer.yaml
     checkpoint: checkpoints/adapter_random_transformer/refit.pt
+    temperature_source: model_config.probability_calibration
   - name: l4_text_summary
     arm: language
     source_config: configs/experiment/language/adapter_text_summary_only.yaml
     checkpoint: checkpoints/adapter_text_summary_only/refit.pt
+    temperature_source: model_config.probability_calibration
 
   # --- Generative arm ---
   # G3 does not produce a single refit.pt: it trains decoders across held-out subjects, schedules,
@@ -66,10 +70,16 @@ targets:
     k0_artifact_scope:
       model_artifact: one_global_shared_no_adaptation_head
       evaluation_scope: each_held_out_subject_once
-    # D29: real adaptation is the unchanged F1 population model at k=0.
+    # D29 aliases MODEL WEIGHTS at k=0. D33's G4 query-fitted T is distinct from F1's all-reps T.
     shared_k0_with: f1_encoder
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
+    temperature_source: frozen_strategy_k_temperature_table
+    calibration_source_config: configs/experiment/generation/gen_calibration_efficiency.yaml
+    temperature_run_selection: pending_matching_immutable_calibration_run_id
+    temperature_artifact_pattern: results/runs/{immutable_calibration_run_id}/temperature_table.json
+    temperature_lookup_axes: [strategy, calibration_trials]
+    require_matching_model_generator_and_settings_digests: true
   - name: g3_population_synthetic_adaptation
     arm: generation
     source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
@@ -83,6 +93,12 @@ targets:
       evaluation_scope: each_held_out_subject_once_per_repeat
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
+    temperature_source: frozen_strategy_k_temperature_table
+    calibration_source_config: configs/experiment/generation/gen_calibration_efficiency.yaml
+    temperature_run_selection: pending_matching_immutable_calibration_run_id
+    temperature_artifact_pattern: results/runs/{immutable_calibration_run_id}/temperature_table.json
+    temperature_lookup_axes: [strategy, calibration_trials]
+    require_matching_model_generator_and_settings_digests: true
   - name: g3_subject_synthetic_adaptation
     arm: generation
     source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
@@ -95,3 +111,9 @@ targets:
     shared_k0_with: g3_population_synthetic_adaptation
     run_selection: pending_immutable_run_id
     run_dir: results/runs/gen_personalization_efficiency/latest
+    temperature_source: frozen_strategy_k_temperature_table
+    calibration_source_config: configs/experiment/generation/gen_calibration_efficiency.yaml
+    temperature_run_selection: pending_matching_immutable_calibration_run_id
+    temperature_artifact_pattern: results/runs/{immutable_calibration_run_id}/temperature_table.json
+    temperature_lookup_axes: [strategy, calibration_trials]
+    require_matching_model_generator_and_settings_digests: true

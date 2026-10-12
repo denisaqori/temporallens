@@ -14,7 +14,6 @@ protocol:
   # gate population and the one-shot final diagnostic policy are approved (DECISIONS Pending).
   status: blocked_pending_decisions
   blocked_on:
-    - development_gate.subject_source
     - development_gate.fold_aggregation
     - development_gate.conditioning_coverage
     - final_test_diagnostic.failure_policy
@@ -27,6 +26,7 @@ tracking:
   json_logging: true
   wandb_mode: offline
 checkpoint:
+  # Final one-shot diagnostic only; the development gate resolves fold-local pairs below.
   generator: checkpoints/gen_vae_train/refit.pt
   encoder: checkpoints/baseline_cnn_subject_split/refit.pt
 dataset:
@@ -45,14 +45,29 @@ discriminator:
   epochs: 20
   learning_rate: 0.001
   # Never point an iterative gate at split_manifest.test_subjects.
-  evaluate_on: pending_development_validation_subjects
+  evaluate_on: split_manifest_fold_validation_subjects
   # Calibrates the test: the discriminator MUST strongly separate this deliberately poor generator
   # under the legacy candidate orientation, otherwise a near-chance AUC on real synthetic data is
   # meaningless. The quality-metric contract remains Pending.
   sanity_generator: gaussian_matched_moments
 development_gate:
   status: pending_decision
-  subject_source: null
+  subject_source: split_manifest.folds_validation_subjects
+  artifact_resolution:
+    source: shared_d28_development_artifacts
+    contract_source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
+    contract_source_field: personalization.adaptation.objective.development_selection.artifact_resolution
+    encoder_checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+    generator_checkpoint_pattern: checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt
+    population_fit: current_fold_training_complement_28_subjects
+    generator_parent_encoder_identity: exact_artifact_sha256
+    all_32_refit_reuse: forbidden
+    cross_fold_latent_pooling: forbidden
+    discriminator_fit_and_score: within_corresponding_fold_latent_space
+    nearest_neighbour_reference: corresponding_fold_real_training_latents
+    encoder_training_budget: d18_d19_accepted_refit_budget
+    generator_training_budget: frozen_generator_source_config_training_epochs
+    additional_encoder_generator_fit_set: none_beyond_shared_d28_artifacts
   fold_aggregation: null
   # Must cover the population-conditioned distribution used by replay at every k and the
   # subject-conditioned k>0 distributions that G3 consumes, rather than one pooled unconditional

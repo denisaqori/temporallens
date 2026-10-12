@@ -40,14 +40,35 @@ perturbation:
   repetitions_per_level: null
   level_aggregation: null
 evaluation:
-  # D23: use the target checkpoint's already-fitted T; never recalibrate on perturbed test data.
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
+  # D33: registry supplies checkpoint T or the matching G4 table for an adapted head.
+  # Never refit a temperature on clean or perturbed final-test data.
   ece:
     bins: 10
     binning: equal_mass
     scope: top_label
     temperature_scaling: true
-    temperature_source: checkpoint_model_config
+    temperature_source: frozen_target_calibration_artifact
     report: [raw, temperature_scaled]
+  brier:
+    report: [raw, temperature_scaled]
+  calibration_execution:
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    bootstrap_seed: experiment.seed
+    bootstrap_resamples: 10000
+    bootstrap_confidence: 0.95
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
   uncertainty_resampling_unit: subject
   metrics:
     - accuracy
