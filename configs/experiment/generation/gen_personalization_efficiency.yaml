@@ -211,7 +211,7 @@ personalization:
         scoring_subjects: fold_validation_4_subjects
         training_subject_rule: split_manifest.training_subjects_minus_current_fold_validation_subjects
         scoring_subject_rule: current_fold_validation_subjects
-        model_training_budget: d18_global_development_refit_budget
+        model_training_budget: d18_d19_accepted_refit_budget
         generator_training_budget: frozen_generator_source_config_training_epochs
         checkpoint_selection_on_outer_four: forbidden
         artifact_resolution:

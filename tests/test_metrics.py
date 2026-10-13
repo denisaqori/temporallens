@@ -16,10 +16,10 @@ import pytest
 
 from temporallens.evaluation.metrics import (
     _bin_edges,
-    _binned,
     accuracy,
     average_confusion_matrices,
     brier_score,
+    calibration_bins,
     confusion_matrix,
     expected_calibration_error,
     macro_f1,
@@ -159,7 +159,10 @@ def test_brier_score_sums_classes_then_averages_windows() -> None:
 def test_equal_mass_confidence_ties_stay_in_one_nonempty_bin() -> None:
     conf = np.full(100, 0.5)
     correct = np.array([True] * 50 + [False] * 50)
-    assert _binned(conf, correct, bins=10, binning="equal_mass") == [(1.0, 0.5, 0.5)]
+    formed = calibration_bins(conf, correct)
+    assert (formed.nominal_count, formed.effective_count) == (10, 1)
+    assert formed.weight.tolist() == [1.0]
+    assert (formed.mean_confidence.tolist(), formed.accuracy.tolist()) == ([0.5], [0.5])
     assert expected_calibration_error(conf, correct) == pytest.approx(0.0)
     # Splitting these ties by input order would manufacture miscalibration.
     permutation = np.random.default_rng(7).permutation(len(conf))
@@ -172,10 +175,10 @@ def test_equal_mass_quantiles_collapse_duplicate_cutpoints_without_losing_window
     edges = _bin_edges(conf, bins=10, binning="equal_mass")
     assert np.all(np.diff(edges) > 0)
     assert edges[0] == 0.0 and edges[-1] == 1.0
-    groups = _binned(conf, correct, bins=10, binning="equal_mass")
-    assert len(groups) == 2
-    assert sum(weight for weight, _, _ in groups) == pytest.approx(1.0)
-    assert [weight for weight, _, _ in groups] == pytest.approx([0.2, 0.8])
+    formed = calibration_bins(conf, correct)
+    assert formed.effective_count == 2
+    assert int(formed.occupancy.sum()) == conf.size, "collapsing cutpoints must not drop windows"
+    assert formed.weight.tolist() == pytest.approx([0.2, 0.8])
     assert expected_calibration_error(conf, correct) == pytest.approx(0.12)
 
 
@@ -183,9 +186,46 @@ def test_equal_mass_boundaries_are_linear_and_equal_cutpoints_go_to_upper_bin() 
     conf = np.array([0.1, 0.3, 0.5, 0.9])
     np.testing.assert_allclose(_bin_edges(conf, bins=2, binning="equal_mass"), [0.0, 0.4, 1.0])
     tied_at_cut = np.array([0.0, 0.5, 0.5, 1.0])
-    groups = _binned(tied_at_cut, np.ones(4, dtype=bool), bins=2, binning="equal_mass")
-    assert [weight for weight, _, _ in groups] == pytest.approx([0.25, 0.75])
-    assert sum(weight for weight, _, _ in groups) == pytest.approx(1.0)
+    formed = calibration_bins(tied_at_cut, np.ones(4, dtype=bool), bins=2)
+    assert formed.weight.tolist() == pytest.approx([0.25, 0.75])
+    assert formed.lower.tolist() == pytest.approx([0.0, 0.5])
+
+
+def test_ece_and_overconfidence_are_computed_from_the_bins_a_report_would_show() -> None:
+    """D39 requires the bin occupancy to be reported beside the metric.
+
+    If the reporter formed its own bins, the occupancy it printed and the ECE beside it could
+    come from two different binnings. Both metrics are therefore defined over the same object a
+    report persists, and this pins that they agree with it exactly.
+    """
+    rng = np.random.default_rng(3)
+    conf = rng.uniform(0.3, 1.0, 500)
+    correct = rng.uniform(size=500) < conf - 0.1  # overconfident by construction
+    formed = calibration_bins(conf, correct)
+    gap = formed.accuracy - formed.mean_confidence
+    assert expected_calibration_error(conf, correct) == pytest.approx(
+        float(np.sum(formed.weight * np.abs(gap)))
+    )
+    assert overconfidence_error(conf, correct) == pytest.approx(
+        float(np.sum(formed.weight * formed.mean_confidence * np.maximum(-gap, 0.0)))
+    )
+    assert formed.effective_count == 10, "continuous confidences should fill every nominal bin"
+
+
+def test_saturated_confidences_collapse_bins_and_the_report_says_so() -> None:
+    """In float32 softmax rounds to exactly 1.0 once the logit gap passes about 17, so a confident
+    model can tie most of its windows at 1.0. The bins must collapse rather than split those ties
+    by example order, and the reportable form must carry the effective count."""
+    conf = np.concatenate([np.full(70, 1.0), np.linspace(0.4, 0.95, 30)])
+    correct = np.ones(conf.size, dtype=bool)
+    formed = calibration_bins(conf, correct)
+    assert formed.effective_count < formed.nominal_count
+    assert int(formed.occupancy.sum()) == conf.size
+    report = formed.to_dict()
+    assert report["nominal_count"] == 10 and report["effective_count"] == formed.effective_count
+    import json
+
+    assert json.loads(json.dumps(report)) == report, "the bin report must be JSON-serialisable"
 
 
 def test_brier_score_penalises_confident_errors_more_than_hesitant_ones() -> None:

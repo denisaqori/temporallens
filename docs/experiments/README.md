@@ -101,11 +101,20 @@ raw.) Normalization is handled separately and per §3.3.
 | `split` value | What it does | Role |
 |---|---|---|
 | `subject_independent` | Train on one set of subjects, test on subjects never seen in training. Held-out set is `[5, 10, 15, 20, 25, 30, 35, 40]`, frozen in the manifest below. | **The main protocol. Every headline number uses this.** |
-| `random_window` | Windows shuffled without regard to subject. | Deliberately optimistic. Exists *only* to demonstrate how much leakage inflates results. Never a headline number. |
+| `random_window` | Windows from the **32 development subjects** shuffled without regard to subject; the eight held-out subjects are excluded (D41). | Deliberately optimistic. Exists *only* to demonstrate how much leakage inflates results. Never a headline number. |
 
 **Easily missed:** windows from a single subject are highly correlated. A random split puts
 near-duplicate windows on both sides and inflates accuracy dramatically. Reporting a
 `random_window` number without labelling it as the leakage demonstration is a serious error.
+
+**The eight held-out subjects never enter a population fit or a development decision (D41).** No
+training run that produces a shared or population model, no normalization or class-weight fit, no
+temperature fit, no hyperparameter or gate decision, and no debug subset uses their data — F2
+included, even though nothing downstream consumes F2. They appear only where the protocol is *about*
+them: the one-shot final evaluation of frozen models (including an instrument fitted inside that
+evaluation, such as G2's final discriminator), and G3/G4's per-subject adaptation on their own
+calibration repetitions, scored on their disjoint evaluation repetitions. The leakage F2
+demonstrates comes from splitting windows *within* subjects, so it needs no held-out subject to show.
 
 #### The split manifest
 
@@ -685,8 +694,12 @@ consumer scope without changing the split: each generator records its exact pare
 SHA-256, and every consumer verifies it. Equal dimensions or matching fold IDs do not establish
 equal latent coordinates. Fit discriminators and compute latent distances within each encoder's
 space, then aggregate diagnostics rather than pooling vectors across independently trained folds.
-The encoder budget is D18–D19's accepted refit budget; the generator budget comes from the frozen
-G1 config. Record both separately. No second set of encoder/generator fits is required by G2, but
+The encoder budget is D18–D19's accepted refit budget, written `d18_d19_accepted_refit_budget` in
+every config that names this path; the generator budget comes from the frozen G1 config
+(`frozen_generator_source_config_training_epochs`). Record both separately. Because several
+experiments name the same file, they must agree on what built it: a config that named the same path
+with a different budget would be describing a different model, and whichever experiment ran second
+would silently load the first one's encoder. A structural test enforces one budget per shared path. No second set of encoder/generator fits is required by G2, but
 its discriminators still require training, and a failed gate can require rebuilding affected
 generator artifacts and invalidating their dependent banks.
 

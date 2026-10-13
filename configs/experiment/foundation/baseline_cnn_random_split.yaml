@@ -1,5 +1,5 @@
-# F2 — LEAKAGE DEMONSTRATION, NOT A GENERALIZATION RESULT. Same architecture/loss as F1; windows are shuffled without
-# regard to subject. Windows from one subject are highly correlated, so a random split puts
+# F2 — LEAKAGE DEMONSTRATION, NOT A GENERALIZATION RESULT. Same architecture/loss as F1; windows
+# from the 32 development subjects are shuffled without regard to subject (D41). Windows from one subject are highly correlated, so a random split puts
 # near-duplicates on both sides and inflates accuracy dramatically. This number exists ONLY to
 # quantify that inflation. Reporting it without labelling it as the leakage demo is a serious
 # error. Spec: docs/experiments/README.md, sections 3.2 and 6.
@@ -23,6 +23,11 @@ dataset:
   data_dir: data/processed/ninapro_db2
   exercise: B
   split: random_window
+  # D41: the window pool is the 32 development subjects only. The eight final test subjects never
+  # enter a population fit, and F2 is one. The leakage F2 demonstrates comes from splitting windows
+  # *within* subjects, which needs no test subject to show.
+  split_manifest: configs/splits/subject_independent_v1.yaml
+  subject_pool: split_manifest.training_subjects
   test_fraction: 0.2
   window_size: 400
   stride: 100

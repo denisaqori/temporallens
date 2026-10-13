@@ -7,9 +7,13 @@ Most of these are ordinary, but four carry decisions that are easy to get subtly
   gestures — exactly where G3 does its measuring.
 * ``average_confusion_matrices`` averages, never sums (D8). All eight fold models score the *same*
   test subjects, so summing counts every test window eight times.
-* ``expected_calibration_error`` uses adaptive (equal-mass) bins at M=10 (D23). There is a noise
-  floor near 0.037 at this project's effective sample size, and it is a detection threshold, not
-  an offset to subtract.
+* ``expected_calibration_error`` uses adaptive (equal-mass) bins, nominally M=10 (D23). Identical
+  confidences always share a bin, so ties can leave fewer bins occupied (D39). A perfectly
+  calibrated model still scores above 0 at finite sample size; that threshold depends on the
+  evaluation design, so it is recomputed per design and never subtracted (D33).
+* ``calibration_bins`` is the one place bins are formed. ECE, the overconfidence error and any
+  report of bin occupancy all read it, so a reported number and the bins it came from cannot
+  disagree.
 * ``overconfidence_error`` is the one-sided, confidence-weighted positive gap (D25). A uniformly
   timid model scores a perfect 0 on it while being badly miscalibrated, so it is only
   interpretable beside ECE. ``mean_confidence_when_wrong`` is the separate *descriptive*
@@ -22,6 +26,8 @@ window-level bootstrap produced an interval 20x too narrow on identical data.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -128,30 +134,75 @@ def _bin_edges(confidence: FloatArray, bins: int, binning: str) -> FloatArray:
     raise ValueError(f"unknown binning {binning!r}; expected equal_mass or equal_width")
 
 
-def _binned(
-    confidence: FloatArray, correct: BoolArray, bins: int, binning: str
-) -> list[tuple[float, float, float]]:
-    """``(weight, mean confidence, accuracy)`` per non-empty bin."""
+@dataclass(frozen=True)
+class CalibrationBins:
+    """The occupied confidence bins one calibration measurement is computed from (D23, D39).
+
+    Only occupied bins are kept; ``nominal_count`` is the M that was asked for and
+    ``effective_count`` how many bins actually hold windows. D39 requires both to be reported,
+    because heavy confidence ties (for example softmax outputs that round to exactly 1.0) can
+    collapse ten nominal bins into two, and an ECE over two bins is not comparable with one over
+    ten without saying so.
+    """
+
+    nominal_count: int
+    lower: FloatArray
+    upper: FloatArray
+    occupancy: IntArray
+    mean_confidence: FloatArray
+    accuracy: FloatArray
+
+    @property
+    def effective_count(self) -> int:
+        """Number of bins that hold at least one window."""
+        return int(self.occupancy.size)
+
+    @property
+    def weight(self) -> FloatArray:
+        """Each bin's share of the windows."""
+        return self.occupancy / self.occupancy.sum()
+
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-safe form, for persisting beside the metric it explains."""
+        return {
+            "nominal_count": self.nominal_count,
+            "effective_count": self.effective_count,
+            "lower": self.lower.tolist(),
+            "upper": self.upper.tolist(),
+            "occupancy": self.occupancy.tolist(),
+            "mean_confidence": self.mean_confidence.tolist(),
+            "accuracy": self.accuracy.tolist(),
+        }
+
+
+def calibration_bins(
+    confidence: FloatArray,
+    correct: BoolArray,
+    *,
+    bins: int = DEFAULT_ECE_BINS,
+    binning: str = DEFAULT_BINNING,
+) -> CalibrationBins:
+    """Form the confidence bins, keeping only the occupied ones (D23, D39).
+
+    Boundaries come from the confidences alone, never the labels. A confidence equal to a
+    boundary goes to the upper bin, and identical confidences always share one.
+    """
     confidence = np.asarray(confidence, dtype=np.float64)
     correct = np.asarray(correct, dtype=bool)
     edges = _bin_edges(confidence, bins, binning)
-    effective_intervals = len(edges) - 1
-    assignment = np.clip(
-        np.digitize(confidence, edges[1:-1], right=False), 0, effective_intervals - 1
+    intervals = len(edges) - 1
+    assignment = np.clip(np.digitize(confidence, edges[1:-1], right=False), 0, intervals - 1)
+    occupied = [index for index in range(intervals) if np.any(assignment == index)]
+    return CalibrationBins(
+        nominal_count=bins,
+        lower=np.asarray([edges[i] for i in occupied], dtype=np.float64),
+        upper=np.asarray([edges[i + 1] for i in occupied], dtype=np.float64),
+        occupancy=np.asarray([int(np.sum(assignment == i)) for i in occupied], dtype=np.int64),
+        mean_confidence=np.asarray(
+            [confidence[assignment == i].mean() for i in occupied], dtype=np.float64
+        ),
+        accuracy=np.asarray([correct[assignment == i].mean() for i in occupied], dtype=np.float64),
     )
-    out = []
-    for index in range(effective_intervals):
-        selected = assignment == index
-        occupancy = int(selected.sum())
-        if occupancy:
-            out.append(
-                (
-                    occupancy / confidence.size,
-                    float(confidence[selected].mean()),
-                    float(correct[selected].mean()),
-                )
-            )
-    return out
 
 
 def expected_calibration_error(
@@ -162,12 +213,8 @@ def expected_calibration_error(
     binning: str = DEFAULT_BINNING,
 ) -> float:
     """Weighted mean absolute gap between confidence and accuracy, over adaptive bins (D23)."""
-    return float(
-        sum(
-            weight * abs(accuracy_ - conf)
-            for weight, conf, accuracy_ in _binned(confidence, correct, bins, binning)
-        )
-    )
+    formed = calibration_bins(confidence, correct, bins=bins, binning=binning)
+    return float(np.sum(formed.weight * np.abs(formed.accuracy - formed.mean_confidence)))
 
 
 def overconfidence_error(
@@ -178,12 +225,9 @@ def overconfidence_error(
     binning: str = DEFAULT_BINNING,
 ) -> float:
     """Confidence-weighted **positive** gap only — one-sided by design (D25)."""
-    return float(
-        sum(
-            weight * conf * max(conf - accuracy_, 0.0)
-            for weight, conf, accuracy_ in _binned(confidence, correct, bins, binning)
-        )
-    )
+    formed = calibration_bins(confidence, correct, bins=bins, binning=binning)
+    gap = np.maximum(formed.mean_confidence - formed.accuracy, 0.0)
+    return float(np.sum(formed.weight * formed.mean_confidence * gap))
 
 
 def mean_confidence_when_wrong(confidence: FloatArray, correct: BoolArray) -> float | None:

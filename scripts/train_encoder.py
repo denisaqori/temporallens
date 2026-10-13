@@ -125,14 +125,6 @@ def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConf
         raise ConfigError(f"{config_path}: expected a YAML mapping")
     leaves = leaf_paths(raw)
 
-    if "dataset.split_manifest" in leaves:
-        raise ConfigError(
-            f"{config_path} names a split_manifest, so it is a reportable cross-validated run. "
-            "This script runs a single train/held-out split only; F1's 8-fold harness, D18-D21 "
-            "selection and the refit are not implemented. Running it as one split would produce "
-            "a number that looks like F1 and is not."
-        )
-
     if leaves.get("dataset.split") == "random_window":
         raise ConfigError(
             f"{config_path} is the random-window leakage demonstration (F2). This script splits "
@@ -140,6 +132,14 @@ def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConf
             "(`train_split_covered_sample_stats`) and window assignment, neither of which is "
             "implemented. F2's number is only meaningful as the leakage contrast, so it must not "
             "be produced by a subject-split path."
+        )
+
+    if "dataset.split_manifest" in leaves:
+        raise ConfigError(
+            f"{config_path} names a split_manifest, so it is a reportable cross-validated run. "
+            "This script runs a single train/held-out split only; F1's 8-fold harness, D18-D21 "
+            "selection and the refit are not implemented. Running it as one split would produce "
+            "a number that looks like F1 and is not."
         )
 
     known = set(FIELD_PATHS) | set(CHECKED_PATHS) | set(RECORDED_PATHS) | {"evaluation.metrics"}

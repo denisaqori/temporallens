@@ -27,6 +27,14 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Four consistency fixes from the review of the P0 protocol package. The shared fold-local encoder
+  was named with two different budgets by four configs; it now carries one, defined in the spec,
+  and a test requires every config naming a shared development artifact to agree on what built
+  it. Calibration bins are a public object, so ECE, the overconfidence error and any occupancy
+  report read the same bins instead of two binnings. F2 now draws only from the development
+  subjects (D41), which also states the project's held-out rule in full; a test keeps hand-written
+  debug subsets clear of held-out subjects. G0 mirrors G1's subject-embedding key layout, and D23
+  points forward to D39 as well as D33.
 - The API reference is rewritten for a reader rather than an auditor: it opens with how the pieces
   fit, how to run F0 and where to start reading; maps each config key to the module that consumes
   it; describes every module by what it does and why, with decision IDs and module relationships as
@@ -258,6 +266,9 @@ what is done, what remains, which branch, and the next concrete step.
    DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
+   - **Project-wide random-generator convention.** One generator, seed derivation keyed by
+     experiment, purpose and index, and a persistence rule. The F2-fold, G3-schedule (and
+     G1-rotation) and language-seed choices each need it, and would then name only their keys.
    - **F2 window-fold reproducibility.** Fix outer random-window test assignment, inner eight-fold
      permutation/assignment and index/seed rules; persist both assignments. D39/D40 resolve the
      shared calibration and F1 validation-source choices, so this does not block F1.
@@ -303,6 +314,21 @@ what is done, what remains, which branch, and the next concrete step.
    honor the checkpoint contract (`{model_state, model_config}`) as an acceptance criterion, not a
    later task. D33/D38–D40 define the optimization, temperature fit and cross-fitted validation
    diagnostics; the harness must implement and validate them before reportable inference.
+
+   **Engineering repairs to land first** (agreed from Codex's P1 audit; each reproduced):
+   - *Run provenance:* pass the loader's recorded metadata into the run log; record dirty-tree
+     state and a config digest; refuse dirty reportable runs; register artifacts with hashes.
+   - *Checkpoints:* exactly two keys and a typed, versioned `model_config` (type, architecture,
+     normalization, temperature); separate fresh construction from checkpoint rebuild so a missing
+     architecture is fatal on rebuild; load with `weights_only=True`.
+   - *Config validation:* the manifest's duplicate-key-rejecting YAML loader, shared; required
+     checked keys; unique in-range subjects; positive finite numbers, dropout range, window/stride.
+   - *Processed data:* validate before integer conversion; atomic same-directory writes (the temp
+     name must end in `.npz`); validate before skipping; `--subjects` takes at least one value.
+   - *Evaluation gating:* `status: ready` with leftover `blocked_on` is an error; reportable configs
+     must declare readiness; an empty evaluation exits non-zero unless `--allow-empty`.
+   - *Metrics:* validate shape, length, range, finiteness and probability sums; log epoch loss over
+     the class-weight sum rather than averaging batch means.
 3. **P2 — Reconcile** remaining planning-docs wording with the authoritative spec where it drifts.
 
 ## Known open items (not yet scheduled)
@@ -321,8 +347,9 @@ what is done, what remains, which branch, and the next concrete step.
   F2 adds window-OOF inside its non-test pool, and G4 persists a strategy × k fitted table. Runtime
   checkpoint/table enforcement and result-schema wiring remain future implementation work.
 - Shared calibration execution is settled by D39/D40; F2's remaining assignment/seed choices are
-  tracked above. D26 fixes bootstrap level/count/seed and D33 fixes probability-version suffixes;
-  runtime fitting, occupancy/provenance reporting and checkpoint enforcement remain P1 work.
+  tracked above. D26 fixes bootstrap level/count/seed and D33 fixes probability-version suffixes.
+  `calibration_bins` now exposes the occupancy D39 requires; runtime fitting, writing occupancy and
+  provenance into results, and checkpoint enforcement remain P1 work.
 - Retain the simulation or analysis artifact that justified D23's M=10 choice, and recompute any
   finite-sample ECE detection threshold for each actual evaluation design rather than reusing 0.037.
 - D38 freezes F1's optimizer side; the P1 harness must consume its explicit config and fail

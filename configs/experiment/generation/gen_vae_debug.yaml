@@ -39,7 +39,10 @@ generator:
   hidden_dim: 64
   class_conditioning: true
   subject_conditioning: population_only
-  subject_embedding_dim: 16
+  # Same layout as G1, so this smoke test exercises the key path G1's runner will read; only
+  # the dimension matters while conditioning is population-only.
+  subject_embedding:
+    output_dim: 16
 training:
   loss: negative_elbo
   kl_warmup_epochs: 1        # provisional duration; exact warmup contract remains Pending
@@ -54,7 +57,7 @@ evaluation:
   # Population-only training cannot establish learned subject sensitivity; G1 still must.
   subject_conditioning_diagnostic:
     vectors: [zero_vector, first_unit_basis_vector]
-    dimension_source: generator.subject_embedding_dim
+    dimension_source: generator.subject_embedding.output_dim
     hold_fixed: [class_label, latent_noise_draw, decoder_eval_mode]
     persist_vectors_and_outputs: true
     result_role: structural_sensitivity_only

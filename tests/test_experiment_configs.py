@@ -735,7 +735,13 @@ def test_g0_subject_vectors_exercise_a_controlled_structural_check() -> None:
     config = _load("configs/experiment/generation/gen_vae_debug.yaml")
     diagnostic = config["evaluation"]["subject_conditioning_diagnostic"]
     assert config["generator"]["subject_conditioning"] == "population_only"
-    assert config["generator"]["subject_embedding_dim"] == 16
+    # G0 exists to exercise G1's path, so it mirrors G1's key layout and dimension.
+    g1 = _load("configs/experiment/generation/gen_vae_train.yaml")["generator"]
+    assert config["generator"]["subject_embedding"]["output_dim"] == 16
+    assert config["generator"]["subject_embedding"]["output_dim"] == (
+        g1["subject_embedding"]["output_dim"]
+    )
+    assert diagnostic["dimension_source"] == "generator.subject_embedding.output_dim"
     assert diagnostic["vectors"] == ["zero_vector", "first_unit_basis_vector"]
     assert diagnostic["hold_fixed"] == ["class_label", "latent_noise_draw", "decoder_eval_mode"]
     assert diagnostic["result_role"] == "structural_sensitivity_only"
@@ -975,3 +981,104 @@ def test_every_blocked_on_path_resolves_to_an_unresolved_field() -> None:
                     f"{relative}: protocol.blocked_on names {path!r}, but its value {node!r} is "
                     f"already resolved"
                 )
+
+
+#: Keys that declare which budget built a development artifact, by the kind of artifact named.
+_ARTIFACT_BUDGET_KEYS = {
+    "encoder": ("training_budget", "model_training_budget", "encoder_training_budget"),
+    "generator": ("generator_training_budget",),
+}
+
+
+def _fixed_budget_paths(node: Any) -> list[tuple[str, str]]:
+    """Every ``(key, path)`` below ``node`` whose value names a fixed-budget development artifact."""
+    found: list[tuple[str, str]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, str) and value.endswith("/fixed_budget.pt"):
+                found.append((str(key), value))
+            else:
+                found.extend(_fixed_budget_paths(value))
+    elif isinstance(node, list):
+        for value in node:
+            found.extend(_fixed_budget_paths(value))
+    return found
+
+
+def _budget_declarations(node: Any, out: dict[str, set[str]]) -> None:
+    """Record the budget each mapping declares for the artifacts named anywhere beneath it."""
+    if isinstance(node, dict):
+        for key, path in _fixed_budget_paths(node):
+            kind = "generator" if "generator" in key else "encoder"
+            for budget_key in _ARTIFACT_BUDGET_KEYS[kind]:
+                if isinstance(node.get(budget_key), str):
+                    out.setdefault(path, set()).add(node[budget_key])
+        for value in node.values():
+            _budget_declarations(value, out)
+    elif isinstance(node, list):
+        for value in node:
+            _budget_declarations(value, out)
+
+
+def test_every_config_naming_a_shared_artifact_agrees_on_its_budget() -> None:
+    """One path, one model.
+
+    Several experiments name the same development artifact (D35): the complement-28 encoder and
+    generator at ``development/fold{k}/fixed_budget.pt``. The path identifies a file, not what
+    built it, so a config naming that path with a different budget describes a different model —
+    and whichever experiment ran second would silently load the first one's. This once held two
+    undefined budget names for the same encoder. Every config naming such a path must declare its
+    budget, and all of them must declare the same one.
+    """
+    by_path: dict[str, dict[str, set[str]]] = {}
+    for config_path in sorted(REPO_ROOT.glob("configs/experiment/**/*.yaml")):
+        config = yaml.safe_load(config_path.read_text())
+        relative = str(config_path.relative_to(REPO_ROOT))
+        named = {path for _, path in _fixed_budget_paths(config)}
+        declared: dict[str, set[str]] = {}
+        _budget_declarations(config, declared)
+        for path in named:
+            assert declared.get(path), f"{relative} names {path} but declares no budget for it"
+            by_path.setdefault(path, {})[relative] = declared[path]
+
+    assert by_path, "no fixed-budget development artifacts found; the walk is broken"
+    for path, per_config in by_path.items():
+        budgets = set().union(*per_config.values())
+        assert len(budgets) == 1, f"{path} is built with different budgets: {per_config}"
+
+
+def test_f2_draws_its_windows_from_the_development_subjects_only() -> None:
+    """D41: F2 is a population fit, so the held-out subjects stay out of it.
+
+    The leakage F2 demonstrates comes from splitting windows within subjects; it needs no held-out
+    subject to show, and nothing about the demonstration is weakened by excluding them.
+    """
+    dataset = _load("configs/experiment/foundation/baseline_cnn_random_split.yaml")["dataset"]
+    assert dataset["split"] == "random_window"
+    assert dataset["split_manifest"] == MANIFEST_PATH
+    assert dataset["subject_pool"] == "split_manifest.training_subjects"
+
+
+def test_no_explicit_subject_subset_contains_a_held_out_subject() -> None:
+    """D41's invariant where a config names subjects directly rather than through the manifest.
+
+    Debug subsets are written out by hand, which is exactly where a held-out subject could slip
+    into a training fit unnoticed. The manifest's own structural checks cover every config that
+    goes through it; this covers the ones that do not.
+    """
+    from temporallens.data.splits import SplitManifest
+
+    held_out = set(SplitManifest.load(REPO_ROOT / MANIFEST_PATH).test_subjects)
+    offenders = []
+    for config_path in sorted(REPO_ROOT.glob("configs/experiment/**/*.yaml")):
+        debug_split = (yaml.safe_load(config_path.read_text()).get("dataset") or {}).get(
+            "debug_split"
+        )
+        if not debug_split:
+            continue
+        named = set(debug_split.get("train_subjects", [])) | set(
+            debug_split.get("held_out_subjects", [])
+        )
+        if named & held_out:
+            offenders.append(f"{config_path.relative_to(REPO_ROOT)}: {sorted(named & held_out)}")
+    assert not offenders, f"debug subsets use final held-out subjects: {offenders}"

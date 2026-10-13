@@ -79,9 +79,11 @@ Two tests keep these honest: every `EncoderRunConfig` setting must have a config
 produce exactly `PRODUCED_METRICS`.
 
 The script runs one train/held-out split, which is F0's protocol. A config describing another
-protocol is refused rather than approximated: a `split_manifest` means cross-validation (F1), and
-`split: random_window` means the leakage demonstration (F2). A single-split number computed from
-either would carry the name of a protocol it did not follow.
+protocol is refused rather than approximated: `split: random_window` means the leakage
+demonstration (F2), and otherwise a `split_manifest` means cross-validation (F1). F2 names the
+manifest too — only to draw its windows from the development subjects — which is why the
+random-window check comes first. A single-split number computed from either config would carry the
+name of a protocol it did not follow.
 
 A config's `protocol:` block governs whether its results may be **reported**, not whether it may
 train. A blocked config that trains prints `NOT REPORTABLE`.
@@ -321,6 +323,7 @@ receive, raw or scaled, and how the temperature is fitted is set by the protocol
 | `macro_f1` | The headline classification metric. It averages over all 18 classes and scores an undefined class as 0, so a small calibration set cannot quietly change the denominator (D21, D34) |
 | `average_confusion_matrices` | Averages the fold models' matrices, never sums them; every fold model scores the same test subjects (D8) |
 | `brier_score` | Squared error of the whole probability vector, summed over classes and averaged over windows, not halved. Its range is 0–2, because a confident wrong answer both misses the true class and puts its mass on another (D39) |
+| `calibration_bins`, `CalibrationBins` | The one place confidence bins are formed: boundaries from the confidences alone, a confidence on a boundary in the upper bin, identical confidences always in one bin, empty bins dropped. It records both the nominal and the occupied bin count, because a value computed over 2 occupied bins is not comparable with one over 10 unless the report says so. ECE and the overconfidence error are computed from this object, so a reported occupancy and the number beside it cannot come from two different binnings (D39) |
 | `expected_calibration_error` | Top-label ECE over 10 nominal equal-mass bins. Identical confidences always share a bin, so heavy ties — such as confidences that round to exactly 1.0 in float32 — can leave fewer than 10 bins occupied. A perfectly calibrated model still scores above 0 at finite sample size; that threshold depends on the evaluation design and is never subtracted (D23, D39) |
 | `overconfidence_error` | The part of the calibration gap where confidence exceeds accuracy, weighted by confidence. Read it only beside ECE: a uniformly under-confident model scores a perfect 0 (D25) |
 | `mean_confidence_when_wrong` | Descriptive only; `None` rather than 0 when there are no errors (D25) |
