@@ -27,6 +27,8 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Corrected the class-weights docstring: the absent-class weight rule is D11's, not D21's, which
+  governs how an undefined class is *scored* at evaluation — a separate, evaluation-side question.
 - Four consistency fixes from the review of the P0 protocol package. The shared fold-local encoder
   was named with two different budgets by four configs; it now carries one, defined in the spec,
   and a test requires every config naming a shared development artifact to agree on what built

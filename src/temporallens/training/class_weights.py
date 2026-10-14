@@ -8,8 +8,11 @@ about reintroduced through the training sampler.
 
 Weights are inverse class frequency over the **training split only**, normalised to mean 1 so the
 loss scale does not change with how skewed a particular split happens to be. A class absent from
-the split gets weight 0 rather than infinity: it contributes no gradient, which is the honest
-behaviour, and D21 already fixes how an absent class is scored.
+the training split gets weight 0 rather than infinity (D11): it has no frequency to invert, and 0
+keeps the vector indexable by label without inventing a target the split cannot teach.
+
+That is a training-side rule only. Evaluation is separate: the metrics always score all 18 classes,
+and a class missing from training is scored like any other if it appears in the evaluation windows.
 """
 
 from __future__ import annotations
