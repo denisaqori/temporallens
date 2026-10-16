@@ -1,9 +1,9 @@
 """A torch dataset over a :class:`~temporallens.data.windows.WindowIndex`.
 
 Windows are materialised **per item**, never per fold. At F1's stride of 100 a subject yields
-roughly 15,700 windows, so a materialised 28-subject fold is about 8 GB resident and twice that
-at peak, while the signals themselves are only ~78 MB per subject — stride-100 windows overlap by
-75% and store every sample four times over. Holding the recordings and cutting windows on demand
+about 17,300 windows, so a materialised 28-subject fold is about 9.3 GB resident and twice that at
+peak, while the signals themselves are only ~87 MB per subject — stride-100 windows overlap by 75%
+and store every sample four times over. Holding the recordings and cutting windows on demand
 keeps the resident cost at the signals plus one batch.
 
 Normalization is applied here rather than in the training loop, so there is exactly one place

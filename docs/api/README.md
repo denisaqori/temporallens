@@ -96,7 +96,9 @@ Turns a recording into a window index, and materialises windows from it on deman
 
 A window never spans two `(label, repetition)` segments. A window running from rest into a gesture can carry only one label, so it would be wrong for part of itself — the uncorrected-label problem again, concentrated at onsets. As a result the last `(L − window) mod stride` samples of each segment host no window.
 
-Indexing is kept apart from materialising because of memory. At stride 100 a subject yields about 15,700 windows, overlapping 75%, so materialising a 28-subject fold takes about 8 GB (twice that at peak) while the signals themselves are about 78 MB per subject. The index holds positions and labels, not samples.
+Indexing is kept apart from materialising because of memory. At stride 100 a subject yields about 17,300 windows (17,239–17,374 on subjects 1–3), overlapping 75%, so a materialised subject is about 330 MB and a 28-subject fold about 9.3 GB (twice that at peak), while the signals themselves are about 87 MB per subject. The index holds positions and labels, not samples.
+
+What a recording looks like, measured on subject 2 (about 900 s): 102 gesture segments (17 gestures × 6 repetitions) and 103 rest segments, one before each gesture and one after the last. Because the labels are the corrected ones, gesture segments are shorter than the protocol's 5 s prompt (1.96–6.51 s, median 4.07 s) and rest segments longer than its 3 s (0.81–8.05 s, median 4.65 s): the correction moves the late-onset and early-offset samples into rest. No segment is shorter than one 400-sample window, so none is lost whole. Windows start at each segment's first sample and step by the stride; whatever remains at the end of the segment, fewer than `stride` samples, hosts no window. At stride 100 that leaves 9,711 samples (0.54%) uncovered; at F0's stride 200, 1.10%.
 
 The debug cap (`max_windows_per_subject`) takes a seeded subsample that keeps at least one window of every class present. Truncating instead would drop whole classes.
 
@@ -149,6 +151,27 @@ The encoder is three convolution, batch-norm and ReLU blocks (kernels 7, 5 and 3
 The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option, because those values are what the name `cnn1d` means. If a config could change them, two runs could both declare `model.type: cnn1d` and be different networks. `model_config()` records the stack in every checkpoint, and `build_model` refuses one whose recorded stack or type differs from this code; otherwise weights would load into right-shaped but wrong layers. Changing the stack means a new model type with a new name.
 
 `freeze()` sets `requires_grad=False` and switches to eval mode, and `train()` is overridden so a later `model.train()` cannot undo it. The eval half matters because of batch norm: a frozen encoder left in train mode keeps updating its running statistics from whichever experiment is using it, silently changing the checkpoint all of them share.
+
+**`embedding_dim` is the interface every consumer reads.** It is the length of the vector the encoder produces for one window: 4,800 numbers in (12 channels × 400 samples), 256 out in F1 (64 in F0). In F1 the last convolution has 256 channels, adaptive pooling averages each over time, and the projection maps those 256 numbers to the 256-d embedding. No single entry means anything on its own — not a channel, a time step or a named feature. Training to classify gestures arranges the space so that windows of the same gesture land close together, which is why the generative arm has to centre embeddings on each gesture's mean before using them to describe a subject (D27). The head, the language-arm projector and the generator all take this vector as input, so changing its size means a new F1 checkpoint and retraining everything downstream. The full shape trace through every layer is in [`../figures/README.md`](../figures/README.md#b--foundation-encoder--classifier).
+
+**Who uses which part.** The checkpoint stores the whole classifier — encoder and head — and each consumer rebuilds it and takes what it needs:
+
+| Consumer | Encoder | Head |
+|---|---|---|
+| F1 | Trained | Trained |
+| L2, L3 (soft prefix) | Frozen; its embedding feeds the projector | Not used; the language arm has its own head on the transformer output |
+| L4 (engineered text) | **Not used at all** — the window becomes 72 engineered statistics, then text | Not used |
+| G1 generator | Frozen; the VAE models and generates encoder embeddings | Not used |
+| G2 quality gate | Frozen; the discriminator compares real and generated embeddings | Not used |
+| G3/G4 personalization | Frozen; real calibration windows go through it, synthetic data is already in embedding space | F1's head is the starting point: unchanged for `population_no_adaptation`, fine-tuned (head only) by the adapted strategies |
+| F3–F5 on the F1 target | Unchanged | Unchanged — the whole classifier is scored under perturbation |
+
+**Easily missed:**
+
+- The head travels in the checkpoint even though most consumers discard it, because G3/G4 and the F1 robustness target need F1's trained head.
+- Only the encoder can be frozen. Wherever a head is used downstream, it is trainable.
+- A frozen encoder wrapped inside a larger model stays in eval mode when the larger model is put in train mode; that is the `train()` override at work, not an accident.
+- Three different things are called an embedding or latent here and are easy to confuse: the encoder embedding (256-d), the VAE's noise latent (32-d) and the subject embedding the generator is conditioned on (16-d). The language model's hidden width (3,072 for the 3B model) is a fourth size, and the projector maps the first into it.
 
 **Connects to** `training.encoder` (builds) · `models.checkpoint` (rebuilds) · **Decision** D32; the meaning of *frozen* is fixed in AGENTS.md
 

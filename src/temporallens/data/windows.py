@@ -8,10 +8,11 @@ period and part of a gesture, carrying whichever single label the code happened 
 same silent mislabelling D12 exists to prevent, one layer down, concentrated at movement onset.
 The cost is dropping the tail of each segment where fewer than ``window_size`` samples remain.
 
-**Indexing is separate from materialising.** At F1's stride of 100 a subject yields roughly
-15,700 windows; materialising them is ~300 MB *per subject*, so a 28-subject fold would need
-about 8 GB resident and twice that at peak. The signal itself is only ~78 MB per subject, because
-stride-100 windows overlap by 75% and store every sample four times over. So the index carries
+**Indexing is separate from materialising.** At F1's stride of 100 a subject yields about
+17,300 windows (measured: 17,239–17,374 on subjects 1–3); materialising them is ~330 MB *per
+subject*, so a 28-subject fold would need about 9.3 GB resident and twice that at peak. The signal
+itself is only ~87 MB per subject, because stride-100 windows overlap by 75% and store every sample
+four times over. So the index carries
 only where each window starts and what it is, and callers materialise a batch at a time.
 """
 
