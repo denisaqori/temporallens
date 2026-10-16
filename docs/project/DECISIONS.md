@@ -1,11 +1,8 @@
 # DECISIONS
 
-Provenance ledger: **who recommended what, when, and who decided** — distinct from the technical
-rationale, which lives in the linked source. This file does not re-explain the *why*; it records the
-*who/when/status* so a reader can trace any decision back to its origin and its owner.
+Provenance ledger: **who recommended what, when, and who decided** — distinct from the technical rationale, which lives in the linked source. This file does not re-explain the *why*; it records the *who/when/status* so a reader can trace any decision back to its origin and its owner.
 
-Actors: **Denisa** (project owner, decides) · **Claude** (Claude Code) · **Codex** · **ChatGPT-doc**
-(the environment-setup record). "Recommended by" ≠ "Decided by" ≠ implementer, on purpose.
+Actors: **Denisa** (project owner, decides) · **Claude** (Claude Code) · **Codex** · **ChatGPT-doc** (the environment-setup record). "Recommended by" ≠ "Decided by" ≠ implementer, on purpose.
 
 ## Protocol & experiment decisions
 
@@ -56,19 +53,11 @@ Detail and rationale: [../experiments/README.md](../experiments/README.md) §7 a
 | D40 | **F1 scaled validation diagnostics.** After freezing each selected fold checkpoint, leave one complete outer-validation subject out of the temperature fit, fit on the other three with D33 weights, and score only the excluded subject; four fits/fold, equal-weight mean of four subject metrics. Same selected model for all fits; persist model/fitting/scoring identities and T. Conditional development diagnostics, not unbiased nested validation, because checkpoint selection used those four subjects. No cross-fitted T or median feeds the refit estimator | Codex | Denisa | 2026-10-12 | Accepted — narrows D8/D20 validation reporting and resolves D33's scaled-validation source. Extended test analysis still uses the selected model's all-four outer-validation T; refit keeps fixed-budget pooled-OOF T. Protocol/config only; no extra CNN training is required by this rule |
 | D41 | **F2's subject pool, and the held-out rule it makes general.** F2's random-window pool is D16's 32 development subjects; the eight held-out subjects are excluded. More generally, held-out subjects never enter a population fit or a development decision: no shared-model training, normalization, class-weight or temperature fit, hyperparameter or gate decision, and no debug subset. They appear only where the protocol is about them — the one-shot final evaluation of frozen models (including an instrument fitted inside it, such as G2's final discriminator) and G3/G4's per-subject adaptation on their own calibration repetitions. F2's leakage comes from splitting windows within subjects, so excluding them weakens nothing | Claude | Denisa | 2026-10-12 | Accepted — F2 `dataset.subject_pool`, spec §3.2; tests pin F2's pool and that no hand-written debug subset contains a held-out subject |
 
-**Optimizer/execution amendment (2026-10-12):** D38 resolves the optimizer side left open in D32;
-D39/D40 resolve D33's shared numerical and F1 validation-source gaps. Earlier rows retain their
-original scope and timing; the remaining F2 fold-assignment/seed choice is tracked separately below.
+**Optimizer/execution amendment (2026-10-12):** D38 resolves the optimizer side left open in D32; D39/D40 resolve D33's shared numerical and F1 validation-source gaps. Earlier rows retain their original scope and timing; the remaining F2 fold-assignment/seed choice is tracked separately below.
 
-**Checkpoint-scope clarification (2026-10-08):** D28 narrowly amends D7. `refit.pt` remains the
-only final/reportable checkpoint consumed downstream. D28 additionally requires selection-only
-`development/fold{fold_index}/fixed_budget.pt` artifacts whose weights are never selected on that
-fold's four scoring subjects; they are not substitutes for either `refit.pt` or
-`folds/fold{fold_index}/best.pt`.
+**Checkpoint-scope clarification (2026-10-08):** D28 narrowly amends D7. `refit.pt` remains the only final/reportable checkpoint consumed downstream. D28 additionally requires selection-only `development/fold{fold_index}/fixed_budget.pt` artifacts whose weights are never selected on that fold's four scoring subjects; they are not substitutes for either `refit.pt` or `folds/fold{fold_index}/best.pt`.
 
-**Scope amendment (2026-10-12):** D33/D35 extend the development artifacts to F1 temperature
-fitting, G2 diagnostics and G4 temperature fitting. The original restriction above is retained as
-history; the development models still never substitute for final refit or reportable fold results.
+**Scope amendment (2026-10-12):** D33/D35 extend the development artifacts to F1 temperature fitting, G2 diagnostics and G4 temperature fitting. The original restriction above is retained as history; the development models still never substitute for final refit or reportable fold results.
 
 ## Project & workflow decisions
 
@@ -84,12 +73,11 @@ history; the development models still never substitute for final refit or report
 | Checkpoint contract: every checkpoint stores `{model_state, model_config}` | Claude | Denisa | 2026-07-27 | Accepted (not yet implemented) |
 | **Worktree mechanism** — `scripts/worktree.sh` is the single tool for every agent; `<owner>/<task>` branches; `../temporallens-<owner>-<task>` dirs; one venv per worktree; STATUS claim committed **and pushed** to `main` before the branch exists; primary checkout always on `main` | Claude (design), Codex (two review rounds) | Denisa | 2026-07-28 | **Adopted.** Codex found 5 defects in v1 and 8 in v2; all fixed. `new`/`done`/rollback/unmerged-refusal/lock/exact-match paths verified manually end-to-end against a scratch clone with a local remote. Now covered by `tests/test_worktree.sh` (`make test-worktree`), mutation-tested against the reverted defects. |
 | **`docs/api/README.md` is maintained in the same change as the source, and carries only what a generator cannot produce**: why each module exists, which decision it implements, the measured numbers behind non-obvious choices, and the relationships between modules. Signatures stay in docstrings, where they cannot drift from the code — repeating them would create a second copy that goes stale, the same reason STATUS carries no commit hashes. `tests/test_api_docs.py` enforces coverage, not quality | Denisa | Denisa | 2026-10-09 | Accepted — AGENTS.md gains the section and Definition of Done item 4 |
+| **Markdown prose is not manually hard-wrapped.** Each prose paragraph, including a blockquote or list-item paragraph, stays on one source line; structural and intentional breaks are preserved. Check before the first handoff. | Denisa | Denisa | 2026-10-16 | Accepted — AGENTS.md writing rule and repository-wide regression check |
 
 ## Pending — proposed, not yet decided
 
-**Anything an agent designed stays Pending until Denisa approves it explicitly.**
-An agent implementing its own proposal is not approval — that is the Tier B rule in
-AGENTS.md. Only move a row out of this table on an explicit yes.
+**Anything an agent designed stays Pending until Denisa approves it explicitly.** An agent implementing its own proposal is not approval — that is the Tier B rule in AGENTS.md. Only move a row out of this table on an explicit yes.
 
 | Proposal | Proposed by | Date | Notes |
 |----------|-------------|------|-------|

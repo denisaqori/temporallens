@@ -1,23 +1,12 @@
 # Language arm (L-series) — secondary
 
-**The question.** Does mapping temporal signal embeddings into a *frozen* language model's
-embedding space improve decoding, calibration, or failure reporting beyond a well-trained
-encoder alone?
+**The question.** Does mapping temporal signal embeddings into a *frozen* language model's embedding space improve decoding, calibration, or failure reporting beyond a well-trained encoder alone?
 
-**The expected answer is "little, for raw accuracy."** That is not a failure mode. A clean
-negative, properly isolated by L3 and L4, is publishable, and more interesting than a positive
-nobody can attribute. This arm is built so a null result stands up as well as a positive one,
-which holds only while the controls stay airtight.
+**The expected answer is "little, for raw accuracy."** That is not a failure mode. A clean negative, properly isolated by L3 and L4, is publishable, and more interesting than a positive nobody can attribute. This arm is built so a null result stands up as well as a positive one, which holds only while the controls stay airtight.
 
-Read [README.md](README.md) first: §2 (vocabulary), §3 (shared protocol), §4 (the readout rule)
-are assumed throughout and are not repeated here.
+Read [README.md](README.md) first: §2 (vocabulary), §3 (shared protocol), §4 (the readout rule) are assumed throughout and are not repeated here.
 
-**Prerequisite:** F1 must be complete. Every L-series run loads the frozen encoder checkpoint
-`checkpoints/baseline_cnn_subject_split/refit.pt` and reports against F1's held-out-subject
-accuracy as the reference row. Use the **refit** model's test score there, not the
-cross-validation mean. Fold models train on fewer subjects, so measuring an adapter built on the
-refit encoder against a fold-mean baseline would mix the effect under test with a difference in
-training-set size. See README §5.1.
+**Prerequisite:** F1 must be complete. Every L-series run loads the frozen encoder checkpoint `checkpoints/baseline_cnn_subject_split/refit.pt` and reports against F1's held-out-subject accuracy as the reference row. Use the **refit** model's test score there, not the cross-validation mean. Fold models train on fewer subjects, so measuring an adapter built on the refit encoder against a fold-mean baseline would mix the effect under test with a difference in training-set size. See README §5.1.
 
 ---
 
@@ -32,34 +21,14 @@ training-set size. See README §5.1.
 
 Two differences, one comparison each:
 
-- **L2 vs. L3** — size, readout, and input path all held constant; the weights are pretrained in
-  one and random in the other. Any claim about **language pretraining** rests on this row. If
-  no difference is detected, report no detected incremental pretraining benefit; do not infer
-  equivalence or that capacity caused the result.
-- **L2 vs. L4** — same backbone and readout, but a learned CNN latent delivered as a soft prefix
-  is compared with 72 engineered signal statistics delivered as text. This compares the **whole
-  learned-latent pipeline against the engineered-text pipeline** (D36). Representation and delivery
-  both change, so it cannot isolate the projector or assert that the model receives the same
-  information. A null is no detected pipeline advantage, not equivalence. No additional
-  same-information control is added to v1.
+- **L2 vs. L3** — size, readout, and input path all held constant; the weights are pretrained in one and random in the other. Any claim about **language pretraining** rests on this row. If no difference is detected, report no detected incremental pretraining benefit; do not infer equivalence or that capacity caused the result.
+- **L2 vs. L4** — same backbone and readout, but a learned CNN latent delivered as a soft prefix is compared with 72 engineered signal statistics delivered as text. This compares the **whole learned-latent pipeline against the engineered-text pipeline** (D36). Representation and delivery both change, so it cannot isolate the projector or assert that the model receives the same information. A null is no detected pipeline advantage, not equivalence. No additional same-information control is added to v1.
 
 Both comparisons are void if the readout differs across rows. See README §4.
 
-**Repeated runs (D36).** L2, L3 and L4 use the same predeclared seed count, paired by seed index.
-Use recorded component RNG streams for trainable initialization and data order; L3 additionally
-records the random frozen-backbone initialization. Pairing indices does not assert identical
-random features or updates. Compute metrics for each run, take the equal-weight mean over seed
-runs within each subject, then apply D26's paired subject comparison. Keep seed spread separate;
-do not average logits and silently turn this into an ensemble. Never add seeds because an observed
-L2/L3 gap looks small. The seed count and deterministic derivation remain Pending and block
-execution, as does the language cross-validation/refit selection contract.
+**Repeated runs (D36).** L2, L3 and L4 use the same predeclared seed count, paired by seed index. Use recorded component RNG streams for trainable initialization and data order; L3 additionally records the random frozen-backbone initialization. Pairing indices does not assert identical random features or updates. Compute metrics for each run, take the equal-weight mean over seed runs within each subject, then apply D26's paired subject comparison. Keep seed spread separate; do not average logits and silently turn this into an ensemble. Never add seeds because an observed L2/L3 gap looks small. The seed count and deterministic derivation remain Pending and block execution, as does the language cross-validation/refit selection contract.
 
-Each arm fits its own temperature from its eventual held-out development model procedure using
-D33's common NLL/weighting rule. Until the selection contract defines those models and predictions,
-the temperature source stays explicitly Pending. Final calibration reporting uses scaled ECE
-primary, raw ECE and raw/scaled Brier alongside; the meaning and limits are in README §3.4.
-Use D39's shared Brier reduction, confidence-tie policy and numerical temperature-fitting recipe;
-those choices are resolved without resolving the arm's still-Pending prediction source or repeats.
+Each arm fits its own temperature from its eventual held-out development model procedure using D33's common NLL/weighting rule. Until the selection contract defines those models and predictions, the temperature source stays explicitly Pending. Final calibration reporting uses scaled ECE primary, raw ECE and raw/scaled Brier alongside; the meaning and limits are in README §3.4. Use D39's shared Brier reduction, confidence-tie policy and numerical temperature-fitting recipe; those choices are resolved without resolving the arm's still-Pending prediction source or repeats.
 
 ---
 
@@ -67,20 +36,13 @@ those choices are resolved without resolving the arm's still-Pending prediction 
 
 **Config:** `adapter_mock_debug.yaml` · **Runs:** locally, seconds · **Mode:** `debug`
 
-**What it measures.** Nothing scientific. It verifies that the shapes line up end to end:
-encoder → projector → *N* soft-prefix vectors → concatenation with prompt embeddings → backbone
-forward → pooled hidden state → head → 18 logits → cross-entropy → backward.
+**What it measures.** Nothing scientific. It verifies that the shapes line up end to end: encoder → projector → *N* soft-prefix vectors → concatenation with prompt embeddings → backbone forward → pooled hidden state → head → 18 logits → cross-entropy → backward.
 
-**Why it exists.** Every dimension bug in this arm is cheaper to find against a 128-d mock than
-against a 3B model on a rented GPU. The mock backbone is a small random module with a
-configurable `embedding_dim`; no Llama weights, no tokenizer, no network.
+**Why it exists.** Every dimension bug in this arm is cheaper to find against a 128-d mock than against a 3B model on a rented GPU. The mock backbone is a small random module with a configurable `embedding_dim`; no Llama weights, no tokenizer, no network.
 
 **Easily missed.**
-- `mock_llm.embedding_dim` must equal `adapter.output_dim` (both 128 here). This config is the
-  one place `output_dim` is a literal rather than `auto_from_llm_config`, because there is no
-  model config to read.
-- The encoder is **not** frozen here (`encoder.freeze: false`, `checkpoint: null`) — this is a
-  plumbing test, not a measurement. Do not copy that setting into L1–L4.
+- `mock_llm.embedding_dim` must equal `adapter.output_dim` (both 128 here). This config is the one place `output_dim` is a literal rather than `auto_from_llm_config`, because there is no model config to read.
+- The encoder is **not** frozen here (`encoder.freeze: false`, `checkpoint: null`) — this is a plumbing test, not a measurement. Do not copy that setting into L1–L4.
 - Passing L0 proves shapes, not correctness. A projector that emits constant vectors passes L0.
 
 ---
@@ -89,24 +51,16 @@ configurable `embedding_dim`; no Llama weights, no tokenizer, no network.
 
 **Config:** `adapter_llama1b_local.yaml` · **Runs:** locally on MPS · **Mode:** `debug`
 
-**What it measures.** That the *real* embedding-injection path works: a genuine Llama tokenizer
-and embedding table, real `inputs_embeds` assembly, on Apple Silicon.
+**What it measures.** That the *real* embedding-injection path works: a genuine Llama tokenizer and embedding table, real `inputs_embeds` assembly, on Apple Silicon.
 
-**Why it exists.** To prove the mechanism before renting a GPU. Cloud time is the project's only
-recurring cost, and discovering an injection bug there is the expensive way to find it.
+**Why it exists.** To prove the mechanism before renting a GPU. Cloud time is the project's only recurring cost, and discovering an injection bug there is the expensive way to find it.
 
 **Easily missed.**
-- **This is not a result.** The explicit debug split uses subjects 1–3 for training and subject 4
-  for holdout, capped at `max_windows_per_subject: 100` for one epoch. Never report a number from
-  this config.
-- Llama weights are **gated**. `hf auth login` and accepting Meta's licence must happen first;
-  this is an account action, not a code action.
-- `torch_dtype: float16` on MPS: some ops silently fall back or lose precision. If loss is NaN,
-  test in float32 before assuming the adapter is wrong.
-- `llm.device: mps` and `training.device: mps` are hard-coded here on purpose — this config is
-  local-only by design. The 3B config uses `cuda` for the same reason.
-- 1B and 3B have **different hidden sizes**. This is why `adapter.output_dim` is
-  `auto_from_llm_config`; a value hard-coded to pass here fails on the 3B run.
+- **This is not a result.** The explicit debug split uses subjects 1–3 for training and subject 4 for holdout, capped at `max_windows_per_subject: 100` for one epoch. Never report a number from this config.
+- Llama weights are **gated**. `hf auth login` and accepting Meta's licence must happen first; this is an account action, not a code action.
+- `torch_dtype: float16` on MPS: some ops silently fall back or lose precision. If loss is NaN, test in float32 before assuming the adapter is wrong.
+- `llm.device: mps` and `training.device: mps` are hard-coded here on purpose — this config is local-only by design. The 3B config uses `cuda` for the same reason.
+- 1B and 3B have **different hidden sizes**. This is why `adapter.output_dim` is `auto_from_llm_config`; a value hard-coded to pass here fails on the 3B run.
 
 ---
 
@@ -114,38 +68,19 @@ recurring cost, and discovering an injection bug there is the expensive way to f
 
 **Config:** `adapter_llama3b_subject_split.yaml` · **Runs:** cloud CUDA · **Mode:** `train`
 
-**What it measures.** Whether soft-prefix conditioning of a frozen, *pretrained* language model
-improves held-out-subject decoding, calibration, or overconfidence beyond the encoder alone.
+**What it measures.** Whether soft-prefix conditioning of a frozen, *pretrained* language model improves held-out-subject decoding, calibration, or overconfidence beyond the encoder alone.
 
-**Why it exists.** This is the project's secondary hypothesis, and also the piece that
-demonstrates how to wire a modality into a frozen LLM's embedding space. That skill transfers
-whether or not the result comes out positive.
+**Why it exists.** This is the project's secondary hypothesis, and also the piece that demonstrates how to wire a modality into a frozen LLM's embedding space. That skill transfers whether or not the result comes out positive.
 
-**How to read it.** Never alone. L2 is meaningful only as the triple (L2, L3, L4) plus the F1
-reference. Reporting L2 against F1 without L3 invites the immediate objection that any gain came
-from parameter count.
+**How to read it.** Never alone. L2 is meaningful only as the triple (L2, L3, L4) plus the F1 reference. Reporting L2 against F1 without L3 invites the immediate objection that any gain came from parameter count.
 
 **Easily missed.**
-- The encoder is **frozen** and loaded from F1. If it trains here, this stops being an adapter
-  study and becomes a bigger-model study.
-- `adapter.output_dim: auto_from_llm_config` — read `hidden_size` from the model config at
-  runtime. Hard-coding it is the likeliest cause of "worked locally, failed on the pod."
-- **`head.pooling: last_token` means the last non-padding token**, not literally the final
-  position. `hidden_states[:, -1]` is correct only under left-padding; `attention_mask.sum(-1) - 1`
-  only under right-padding and only without interior zeros. Use the rightmost index where the mask
-  is 1 — `L - 1 - mask.to(torch.int64).flip(-1).argmax(-1)` — which holds either way, then assert
-  every row has an unmasked token and that the mask at the chosen index is 1. An all-pad row sends
-  `argmax` to 0 and silently reselects the final position. This hides because the longest sequence
-  in a batch is right under either padding, so only short rows are corrupted while training runs.
-- For every tokenizer-backed soft-prefix path (L1–L3), construct `combined_attention_mask` by
-  prepending *N* ones for the soft prefix to the tokenizer's text mask. Derive both the pooling
-  index and explicit `position_ids` from that same combined mask, and pass all three with
-  `inputs_embeds`. Left-padded text creates interior zeros between the prefix and text; default
-  sequential positions would offset the text by the pad count.
-- Effective batch is `batch_size × gradient_accumulation_steps` = 4 × 8 = 32. Changing only
-  `batch_size` to fit memory silently changes the optimization, not just the memory profile.
-- `wandb_mode: online` here. Requires `wandb login` on the pod; the local JSON logger is still
-  the source of truth.
+- The encoder is **frozen** and loaded from F1. If it trains here, this stops being an adapter study and becomes a bigger-model study.
+- `adapter.output_dim: auto_from_llm_config` — read `hidden_size` from the model config at runtime. Hard-coding it is the likeliest cause of "worked locally, failed on the pod."
+- **`head.pooling: last_token` means the last non-padding token**, not literally the final position. `hidden_states[:, -1]` is correct only under left-padding; `attention_mask.sum(-1) - 1` only under right-padding and only without interior zeros. Use the rightmost index where the mask is 1 — `L - 1 - mask.to(torch.int64).flip(-1).argmax(-1)` — which holds either way, then assert every row has an unmasked token and that the mask at the chosen index is 1. An all-pad row sends `argmax` to 0 and silently reselects the final position. This hides because the longest sequence in a batch is right under either padding, so only short rows are corrupted while training runs.
+- For every tokenizer-backed soft-prefix path (L1–L3), construct `combined_attention_mask` by prepending *N* ones for the soft prefix to the tokenizer's text mask. Derive both the pooling index and explicit `position_ids` from that same combined mask, and pass all three with `inputs_embeds`. Left-padded text creates interior zeros between the prefix and text; default sequential positions would offset the text by the pad count.
+- Effective batch is `batch_size × gradient_accumulation_steps` = 4 × 8 = 32. Changing only `batch_size` to fit memory silently changes the optimization, not just the memory profile.
+- `wandb_mode: online` here. Requires `wandb login` on the pod; the local JSON logger is still the source of truth.
 
 ---
 
@@ -153,25 +88,16 @@ from parameter count.
 
 **Config:** `adapter_random_transformer.yaml` · **Runs:** cloud CUDA · **Mode:** `train`
 
-**What it measures.** Whether the effect in L2 is attributable to **language pretraining** or
-merely to routing signals through a large fixed transformer.
+**What it measures.** Whether the effect in L2 is attributable to **language pretraining** or merely to routing signals through a large fixed transformer.
 
-**Why it exists.** A strong reviewer will raise it immediately, and no claim about "language"
-holds up without it. A frozen random transformer is still a high-dimensional non-linear feature
-transform, and those help on their own.
+**Why it exists.** A strong reviewer will raise it immediately, and no claim about "language" holds up without it. A frozen random transformer is still a high-dimensional non-linear feature transform, and those help on their own.
 
 **Easily missed.**
-- **"Matched" is a real constraint,** not a label. Same architecture, hidden size, layer count,
-  and head count as `baseline.match_model` — instantiate from the *config* of
-  `meta-llama/Llama-3.2-3B` with random weights, never a differently-shaped stand-in. If sizes
-  differ, this controls for nothing.
+- **"Matched" is a real constraint,** not a label. Same architecture, hidden size, layer count, and head count as `baseline.match_model` — instantiate from the *config* of `meta-llama/Llama-3.2-3B` with random weights, never a differently-shaped stand-in. If sizes differ, this controls for nothing.
 - It is **frozen**, as L2 is. A trainable random transformer would be a different experiment.
-- This row is *why* the readout is discriminative (README §4): a random model has no usable LM
-  head, so a generative readout cannot be run here at all.
-- Seed matters more than usual — the "features" are a draw from an initialization distribution.
-  Use D36's predeclared paired repeat policy for all three arms; no outcome-triggered reruns.
-- **A null here is the good outcome for rigor.** If L2 ≈ L3, say so plainly: language
-  pretraining did not help, and that is the result.
+- This row is *why* the readout is discriminative (README §4): a random model has no usable LM head, so a generative readout cannot be run here at all.
+- Seed matters more than usual — the "features" are a draw from an initialization distribution. Use D36's predeclared paired repeat policy for all three arms; no outcome-triggered reruns.
+- **A null here is the good outcome for rigor.** If L2 ≈ L3, say so plainly: language pretraining did not help, and that is the result.
 
 ---
 
@@ -179,18 +105,13 @@ transform, and those help on their own.
 
 **Config:** `adapter_text_summary_only.yaml` · **Runs:** cloud CUDA · **Mode:** `train`
 
-**What it measures.** Whether the complete learned-latent soft-prefix pipeline outperforms an
-engineered-text summary through the same frozen model and readout.
+**What it measures.** Whether the complete learned-latent soft-prefix pipeline outperforms an engineered-text summary through the same frozen model and readout.
 
-**Why it exists.** A strong, inexpensive engineered-text route is a practical alternative to the
-learned path. Matching its performance would remove evidence for an incremental pipeline benefit,
-but would not establish equivalence or identify the projector's causal contribution. Make this
-baseline strong; a weak summary would exaggerate L2's practical advantage.
+**Why it exists.** A strong, inexpensive engineered-text route is a practical alternative to the learned path. Matching its performance would remove evidence for an incremental pipeline benefit, but would not establish equivalence or identify the projector's causal contribution. Make this baseline strong; a weak summary would exaggerate L2's practical advantage.
 
 ### Feature set (decision D4)
 
-Six features per channel × 12 channels = **72 scalars**, computed on the **normalized** signal
-using the same `train_subject_covered_sample_stats` statistics as the encoder path.
+Six features per channel × 12 channels = **72 scalars**, computed on the **normalized** signal using the same `train_subject_covered_sample_stats` statistics as the encoder path.
 
 | Feature | Contributes |
 |---|---|
@@ -198,69 +119,38 @@ using the same `train_subject_covered_sample_stats` statistics as the encoder pa
 | `waveform_length` — Σ\|xᵢ₊₁ − xᵢ\| | Temporal: signal path length |
 | `zero_crossings` | Temporal: coarse frequency content |
 
-**Why `rms` was removed.** `rms = sqrt(mean² + sd²)` exactly, for any window (verified to ~1e-16
-for both population and sample SD at N = 400). Given `mean` and `standard_deviation` it carries
-**zero** additional information. Including it wastes tokens and misrepresents the baseline as
-richer than it is.
+**Why `rms` was removed.** `rms = sqrt(mean² + sd²)` exactly, for any window (verified to ~1e-16 for both population and sample SD at N = 400). Given `mean` and `standard_deviation` it carries **zero** additional information. Including it wastes tokens and misrepresents the baseline as richer than it is.
 
-**Why two temporal features were added.** This is the more serious of the two problems. `mean`,
-`sd`, `min`, `max` (and `rms`) are all **permutation-invariant**: shuffle the samples within a
-window and none of them move. A baseline built only from those receives *no temporal information
-at all*, while L2's encoder path runs a 1-D CNN over the ordered signal. Any L2 − L4 gap would
-then be measuring **temporal structure vs. none** as much as **soft prefix vs. text**, which
-plants a confound inside the very control meant to rule confounds out. Waveform length and zero
-crossings carry some temporal information, but they do not preserve the full ordered waveform
-or make the summary equivalent to a learned CNN latent. The D36 attribution limit still applies.
+**Why two temporal features were added.** This is the more serious of the two problems. `mean`, `sd`, `min`, `max` (and `rms`) are all **permutation-invariant**: shuffle the samples within a window and none of them move. A baseline built only from those receives *no temporal information at all*, while L2's encoder path runs a 1-D CNN over the ordered signal. Any L2 − L4 gap would then be measuring **temporal structure vs. none** as much as **soft prefix vs. text**, which plants a confound inside the very control meant to rule confounds out. Waveform length and zero crossings carry some temporal information, but they do not preserve the full ordered waveform or make the summary equivalent to a learned CNN latent. The D36 attribution limit still applies.
 
 ### Prompt formatting (decision D4)
 
-1. **Fixed-point, 2 decimals.** Post-normalization values sit around ±5, so `%.2f` keeps ample
-   resolution at ~5 characters. **No scientific notation** (`1.2e-05` fragments badly under BPE)
-   and no full float repr (17 digits of token noise).
-2. **One labelled line per channel**, so position is never inferred:
-   `ch01 mean=-0.12 sd=0.98 min=-3.41 max=3.02 wl=41.7 zc=88`
-   A bare list of 72 comma-separated numbers forces the model to count positions, which it does
-   badly. Handicapping the prompt defeats the baseline's purpose.
-3. **The template is a hyperparameter.** Freeze it, version it, and record it verbatim in
-   `run.json`. If it drifts between runs, L4 is not comparable to itself.
+1. **Fixed-point, 2 decimals.** Post-normalization values sit around ±5, so `%.2f` keeps ample resolution at ~5 characters. **No scientific notation** (`1.2e-05` fragments badly under BPE) and no full float repr (17 digits of token noise).
+2. **One labelled line per channel**, so position is never inferred: `ch01 mean=-0.12 sd=0.98 min=-3.41 max=3.02 wl=41.7 zc=88` A bare list of 72 comma-separated numbers forces the model to count positions, which it does badly. Handicapping the prompt defeats the baseline's purpose.
+3. **The template is a hyperparameter.** Freeze it, version it, and record it verbatim in `run.json`. If it drifts between runs, L4 is not comparable to itself.
 
 Budget ≈ 200–250 prompt tokens per window.
 
 **Easily missed.**
-- **No projector and no encoder** — deliberately. `adapter:` and `encoder:` are absent, and the
-  head is the only trainable module. The absence *is* the experiment, not an oversight.
-- The backbone must be the **same** frozen pretrained model as L2. Comparing L4 on 1B against L2
-  on 3B measures model size.
-- Features are computed on the normalized signal, not raw mV. Otherwise L2 and L4 see different
-  preprocessing, and the comparison is already compromised.
+- **No projector and no encoder** — deliberately. `adapter:` and `encoder:` are absent, and the head is the only trainable module. The absence *is* the experiment, not an oversight.
+- The backbone must be the **same** frozen pretrained model as L2. Comparing L4 on 1B against L2 on 3B measures model size.
+- Features are computed on the normalized signal, not raw mV. Otherwise L2 and L4 see different preprocessing, and the comparison is already compromised.
 
 ---
 
 ## L5 — Generative readout — DEFERRED (D3)
 
-Not in v1. The frozen LLM's own LM head emits a label token instead of a head reading the hidden
-state. It would add natural-language output for the structured-report demo, but no inferential
-power the L2/L3/L4 triple does not already provide, and it costs real work (label tokenization,
-multi-token labels, calibrated 18-class probabilities from token logits).
+Not in v1. The frozen LLM's own LM head emits a label token instead of a head reading the hidden state. It would add natural-language output for the structured-report demo, but no inferential power the L2/L3/L4 triple does not already provide, and it costs real work (label tokenization, multi-token labels, calibrated 18-class probabilities from token logits).
 
-**Revisit if** L2 beats L3 under the shared readout, or if the structured-report demo is needed
-for outreach. If it is ever run, it is a secondary ablation **on L2 only** — never a control's
-readout.
+**Revisit if** L2 beats L3 under the shared readout, or if the structured-report demo is needed for outreach. If it is ever run, it is a secondary ablation **on L2 only** — never a control's readout.
 
 ---
 
 ## Robustness (D2)
 
-The three F3–F5 perturbations are also evaluated against the L2, L3, and L4 models, not only
-against the F1 encoder. Whether soft-prefix conditioning preserves or degrades robustness under
-subject shift is a genuine result, and possibly this arm's most interesting one — the language
-arm's value, if any, is more likely to appear in calibration and failure behaviour than in clean
-accuracy.
+The three F3–F5 perturbations are also evaluated against the L2, L3, and L4 models, not only against the F1 encoder. Whether soft-prefix conditioning preserves or degrades robustness under subject shift is a genuine result, and possibly this arm's most interesting one — the language arm's value, if any, is more likely to appear in calibration and failure behaviour than in clean accuracy.
 
-To evaluate them, add `l2_frozen_llm`, `l3_random_transformer`, and `l4_text_summary` to
-[`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml)
-(already listed) — each becomes active the moment its checkpoint exists. See README §6 for the
-target registry and the checkpoint contract; no per-perturbation config change is needed.
+To evaluate them, add `l2_frozen_llm`, `l3_random_transformer`, and `l4_text_summary` to [`configs/experiment/robustness_targets.yaml`](../../configs/experiment/robustness_targets.yaml) (already listed) — each becomes active the moment its checkpoint exists. See README §6 for the target registry and the checkpoint contract; no per-perturbation config change is needed.
 
 ---
 

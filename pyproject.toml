@@ -63,6 +63,7 @@ cloud = [
 # Developer tooling.
 dev = [
   "pytest>=8.2",
+  "markdown-it-py>=4.2",  # Parse prose boundaries for the Markdown wrapping regression check.
   "black>=24.4",
   "ruff>=0.5",
   "mypy>=1.10",

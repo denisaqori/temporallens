@@ -91,8 +91,7 @@ _(Populated as phases complete. Numbers below are placeholders.)_
 
 ### Personalization efficiency _(pending — Phase 2)_
 
-Four strategies across complete real gesture-trial budgets, evaluated per held-out subject; the
-three adapted strategies have matched optimizer-step budgets at *k*>0:
+Four strategies across complete real gesture-trial budgets, evaluated per held-out subject; the three adapted strategies have matched optimizer-step budgets at *k*>0:
 
 | Real calibration trials | 0 | 1 | 2 | 5 | 10 | 17 | 20 | 34 |
 |---|---|---|---|---|---|---|---|---|
@@ -112,13 +111,7 @@ three adapted strategies have matched optimizer-step budgets at *k*>0:
 | Encoder + projection + **random-init transformer** (matched)| – | – | – |
 | Encoder + **text-summary-only** LLM                         | – | – | – |
 
-Calibration reporting uses scaled ECE as the primary endpoint, with raw ECE and raw/scaled Brier
-alongside it. Macro-F1 measures decoding; raw ECE describes native confidence reliability; scaled
-ECE evaluates the model plus its frozen development-fitted calibrator; Brier scores the full
-probability vector. These outcomes can disagree, so no single one establishes an overall win.
-Definitions, limitations and interpretation examples are in the
-[shared metric protocol](docs/experiments/README.md#34-metrics). L2 versus L4 compares learned-latent
-and engineered-text pipelines; it does not isolate the projector's contribution.
+Calibration reporting uses scaled ECE as the primary endpoint, with raw ECE and raw/scaled Brier alongside it. Macro-F1 measures decoding; raw ECE describes native confidence reliability; scaled ECE evaluates the model plus its frozen development-fitted calibrator; Brier scores the full probability vector. These outcomes can disagree, so no single one establishes an overall win. Definitions, limitations and interpretation examples are in the [shared metric protocol](docs/experiments/README.md#34-metrics). L2 versus L4 compares learned-latent and engineered-text pipelines; it does not isolate the projector's contribution.
 
 > The random-init-transformer and text-summary-only rows exist to answer the first question any reviewer will ask: is any LLM benefit due to *language pretraining*, or merely to having a large transformer / a hand-written prompt of numbers?
 
@@ -210,9 +203,7 @@ A frozen 3B model runs comfortably on a 24 GB GPU in `bfloat16`; quantization is
 
 ## Reproducing the results
 
-Configs live under `configs/experiment/` in three groups — `foundation/`, `generation/`,
-`language/` — and each one is specified in [`docs/experiments/`](docs/experiments/). The working
-repository checks are:
+Configs live under `configs/experiment/` in three groups — `foundation/`, `generation/`, `language/` — and each one is specified in [`docs/experiments/`](docs/experiments/). The working repository checks are:
 
 ```bash
 make verify             # Python/dependency/device checks
@@ -220,11 +211,7 @@ make test               # unit tests
 make lint               # formatting, lint, and type checks
 ```
 
-The `make debug`, `train-baseline`, `debug-adapter`, `smoke-1b`, `train-adapter-cloud`,
-`eval-noise`, `eval-robustness`, and `report` targets define the planned command-line interface.
-They are not operational yet: their training/report scripts have not been implemented and
-`evaluate.py` remains a contract stub. See [`docs/project/STATUS.md`](docs/project/STATUS.md) for
-the live implementation state.
+The `make debug`, `train-baseline`, `debug-adapter`, `smoke-1b`, `train-adapter-cloud`, `eval-noise`, `eval-robustness`, and `report` targets define the planned command-line interface. They are not operational yet: their training/report scripts have not been implemented and `evaluate.py` remains a contract stub. See [`docs/project/STATUS.md`](docs/project/STATUS.md) for the live implementation state.
 
 Long training runs on a rented GPU should be launched inside `tmux` so they survive disconnection; checkpoint frequently and sync artifacts back.
 
@@ -234,13 +221,7 @@ Long training runs on a rented GPU should be launched inside `tmux` so they surv
 
 TemporalLens uses **[NinaPro DB2](http://ninapro.hevs.ch/)** (Atzori et al., *Scientific Data* 2014): surface EMG (12 channels, 2 kHz) with inertial, kinematic, and force data from 40 intact subjects. The first version uses **Exercise B** (17 hand/wrist movements + rest = 18 classes) under a subject-independent split; the full 49-movement set is a planned extension.
 
-NinaPro data must be downloaded from the official site under its terms of use and is **not**
-redistributed here. Exercise-B `.mat` files belong under `data/raw/ninapro_db2/exercise_b/`. The
-planned `scripts/prepare_dataset.py` will write continuous, corrected, unnormalized per-subject
-archives under `data/processed/ninapro_db2/`; windowing happens later because F0 and F1 use
-different strides, and normalization is fitted separately on each training partition to prevent
-leakage. Both data directories are excluded from Git; the repository's metadata-only
-[acquisition record and archive checksums](docs/data/ninapro_db2.md) contain metadata only.
+NinaPro data must be downloaded from the official site under its terms of use and is **not** redistributed here. Exercise-B `.mat` files belong under `data/raw/ninapro_db2/exercise_b/`. The planned `scripts/prepare_dataset.py` will write continuous, corrected, unnormalized per-subject archives under `data/processed/ninapro_db2/`; windowing happens later because F0 and F1 use different strides, and normalization is fitted separately on each training partition to prevent leakage. Both data directories are excluded from Git; the repository's metadata-only [acquisition record and archive checksums](docs/data/ninapro_db2.md) contain metadata only.
 
 ---
 
