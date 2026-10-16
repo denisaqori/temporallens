@@ -8,7 +8,9 @@ they cannot drift from the code; repeating them here would create a second copy 
   [`../experiments/README.md`](../experiments/README.md).
 - Decision IDs such as D31 point into [`../project/DECISIONS.md`](../project/DECISIONS.md), which
   records who decided what and when. The explanations here are meant to stand without them.
-- [`../figures/system-layers.svg`](../figures/system-layers.svg) draws the layers described below.
+- [The system diagram](../figures/system-layers.svg) separates processes, tensor products and saved
+  artifacts, with F1-sized dimensions at each boundary. Its [reading guide](../figures/README.md)
+  explains the parallel arms, control paths and implemented-versus-planned boundary.
 - `tests/test_api_docs.py` fails if a module is missing from this page or a documented module no
   longer exists. It checks coverage, not whether an explanation is right.
 

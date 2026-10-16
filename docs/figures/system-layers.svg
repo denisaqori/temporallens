@@ -1,77 +1,393 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="618" viewBox="0 0 680 618" role="img" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
-<title>TemporalLens system layers</title>
-<desc>Four stacked layers: an implemented data layer, a specified foundation encoder layer, two parallel research arms, and an evaluation layer. Colour marks whether each layer is implemented, specified only, or blocked on open decisions.</desc>
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
-<rect x="0" y="0" width="680" height="618" fill="#FFFFFF"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1980" viewBox="0 0 1800 1980" role="img" aria-labelledby="title description">
+  <title id="title">TemporalLens: processes, representations and saved products</title>
+  <desc id="description">A dimensioned research architecture, read from data preparation through the foundation CNN, two parallel downstream arms, and shared evaluation. Rounded white boxes are operations, teal stacks are tensors, and folded-corner grey boxes are saved products. F1 dimensions are shown, not F0's reduced smoke-test widths. The CNN and metric primitives exist; reportable training, temperature fitting and downstream runners are not yet implemented. The generative arm produces 256-dimensional EMG features, not waveforms. The language arm maps those features to eight 3072-dimensional soft-prefix vectors. A direct foundation-to-evaluation path bypasses both arms. All fitted calibration parameters use development predictions, never final-test predictions.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #233039; }
+      .title { font-size: 32px; font-weight: 700; }
+      .subtitle { font-size: 18px; fill: #52616a; }
+      .panel { fill: #fff; stroke: #aeb8be; stroke-width: 1.5; }
+      .panel-title { font-size: 23px; font-weight: 700; }
+      .letter { font-size: 19px; font-weight: 700; fill: #fff; text-anchor: middle; }
+      .label { font-size: 17px; font-weight: 700; }
+      .body { font-size: 17px; }
+      .small { font-size: 15px; fill: #52616a; }
+      .tiny { font-size: 14px; fill: #52616a; }
+      .shape { font-size: 19px; font-weight: 700; fill: #11665e; }
+      .op { fill: #fff; stroke: #34444e; stroke-width: 1.6; }
+      .tensor { fill: #e6f2ef; stroke: #377e75; stroke-width: 1.4; }
+      .tensor-back { fill: #f5faf8; stroke: #74a79d; stroke-width: 1.2; }
+      .artifact { fill: #f2f4f5; stroke: #7f8e97; stroke-width: 1.2; }
+      .artifact-band { fill: #f6f7f8; stroke: #d8dfe2; stroke-width: 1; }
+      .train { fill: #fff2df; stroke: #bf8641; stroke-width: 1.2; }
+      .frozen { fill: #eaf0f7; stroke: #6a84a1; stroke-width: 1.2; }
+      .train-text { font-size: 13px; font-weight: 700; fill: #835318; }
+      .frozen-text { font-size: 13px; font-weight: 700; fill: #385572; }
+      .status { font-size: 15px; fill: #52616a; }
+      .flow { fill: none; stroke: #53636c; stroke-width: 2; marker-end: url(#arrow); }
+      .wire { fill: none; stroke: #53636c; stroke-width: 2; }
+      .load { fill: none; stroke: #738392; stroke-width: 1.7; stroke-dasharray: 6 5; marker-end: url(#load-arrow); }
+      .centre { text-anchor: middle; }
+      #foundation-layer .shape { font-size: 17px; }
+      .control-band { fill: #fff; stroke: #9eafba; stroke-width: 1; stroke-dasharray: 5 4; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 Z" fill="#53636c"/>
+    </marker>
+    <marker id="load-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9" fill="none" stroke="#738392" stroke-width="1.5"/>
+    </marker>
+    <symbol id="stack" viewBox="0 0 110 68" preserveAspectRatio="none">
+      <rect class="tensor-back" x="12" y="1" width="96" height="54"/>
+      <rect class="tensor-back" x="6" y="7" width="96" height="54"/>
+      <rect class="tensor" x="0" y="13" width="96" height="54"/>
+      <path d="M24 13 V67 M48 13 V67 M72 13 V67 M0 31 H96 M0 49 H96" fill="none" stroke="#a9cdc5" stroke-width="0.7"/>
+    </symbol>
+    <symbol id="file" viewBox="0 0 32 38">
+      <path class="artifact" d="M1 1 H21 L31 11 V37 H1 Z"/>
+      <path d="M21 1 V11 H31 M7 19 H25 M7 25 H25 M7 31 H21" fill="none" stroke="#7f8e97" stroke-width="1.2"/>
+    </symbol>
+  </defs>
 
-<rect x="40" y="40" width="600" height="104" rx="4" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="4 3"/>
-<text x="52" y="58" font-size="12" fill="#5F5E5A">Data layer</text>
-<rect x="52" y="66" width="178" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
-<text x="66" y="90" font-size="14" font-weight="500" fill="#085041">ninapro.py</text>
-<text x="66" y="108" font-size="12" fill="#0F6E56">corrected labels only</text>
-<rect x="251" y="66" width="178" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
-<text x="265" y="90" font-size="14" font-weight="500" fill="#085041">windows.py</text>
-<text x="265" y="108" font-size="12" fill="#0F6E56">no boundary crossing</text>
-<rect x="450" y="66" width="178" height="56" rx="4" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
-<text x="464" y="90" font-size="14" font-weight="500" fill="#085041">splits.py</text>
-<text x="464" y="108" font-size="12" fill="#0F6E56">hash-verified split</text>
+  <rect width="1800" height="1980" fill="#fff"/>
+  <text class="title" x="48" y="49">TemporalLens</text>
+  <text class="subtitle" x="48" y="80">From multichannel EMG to gesture predictions: what each stage does, produces and saves</text>
+  <text class="small" x="48" y="108">F1 / downstream dimensions shown · 18 classes = 17 gestures + rest · tensor sketches are schematic, not recorded data</text>
+  <rect class="op" x="50" y="128" width="56" height="23" rx="11"/>
+  <text class="small" x="116" y="145">process / model operation</text>
+  <use href="#stack" x="350" y="122" width="49" height="31"/>
+  <text class="small" x="411" y="145">intermediate representation</text>
+  <use href="#file" x="672" y="123" width="25" height="30"/>
+  <text class="small" x="708" y="145">saved product</text>
+  <path class="flow" d="M884 140 H934"/>
+  <text class="small" x="947" y="145">data / prediction flow</text>
+  <path class="load" d="M1157 140 H1207"/>
+  <text class="small" x="1220" y="145">load fitted artifact</text>
+  <text class="small" x="1465" y="145">Status is stated per panel</text>
 
-<line x1="340" y1="144" x2="340" y2="168" stroke="#5F5E5A" stroke-width="0.5" marker-end="url(#arrow)"/>
+  <!-- A: data operations are distinct from recordings and window tensors. -->
+  <g id="data-layer">
+    <rect class="panel" x="48" y="174" width="1704" height="246" rx="9"/>
+    <circle cx="80" cy="204" r="16" fill="#34444e"/>
+    <text class="letter" x="80" y="211">A</text>
+    <text class="panel-title" x="108" y="212">Data preparation</text>
+    <text class="status" x="1718" y="211" text-anchor="end">Implemented · corrected labels, split checks and boundary-safe windows</text>
+    <text class="body" x="80" y="243">NinaPro DB2, Exercise B · 40 subjects · 12 EMG channels at 2 kHz</text>
+    <text class="small" x="895" y="243">32 development subjects → 8 folds of 28 train / 4 validation; 8 final-test subjects held out</text>
+    <use href="#stack" x="82" y="272" width="112" height="69"/>
+    <text class="shape centre" x="135" y="315">N_s × 12</text>
+    <text class="small centre" x="135" y="362">raw EMG array</text>
+    <path class="flow" d="M203 309 H254"/>
+    <rect class="op" x="266" y="276" width="188" height="65" rx="17"/>
+    <text class="label centre" x="360" y="301">Read + validate</text>
+    <text class="small centre" x="360" y="325">restimulus / rerepetition</text>
+    <path class="flow" d="M454 309 H508"/>
+    <use href="#stack" x="521" y="272" width="127" height="69"/>
+    <text class="shape centre" x="579" y="315">N_s × 12</text>
+    <text class="small centre" x="579" y="362">+ label / rep vectors N_s</text>
+    <path class="flow" d="M658 309 H710"/>
+    <rect class="op" x="722" y="276" width="217" height="65" rx="17"/>
+    <text class="label centre" x="830" y="300">Index 400-sample windows</text>
+    <text class="small centre" x="830" y="325">stride 100 · label / rep safe</text>
+    <path class="flow" d="M939 309 H984"/>
+    <rect class="op" x="997" y="276" width="222" height="65" rx="17"/>
+    <text class="label centre" x="1108" y="301">Normalize each channel</text>
+    <text class="small centre" x="1108" y="325">train-only mean / std: 12 each</text>
+    <path class="flow" d="M1219 309 H1271"/>
+    <use href="#stack" x="1285" y="262" width="164" height="91"/>
+    <text class="shape centre" x="1359" y="315">B × 12 × 400</text>
+    <text class="small centre" x="1359" y="373">batch × channels × time</text>
+    <text class="body" x="1486" y="294">200 ms per window</text>
+    <text class="small" x="1486" y="320">50 ms hop · 75% overlap</text>
+    <text class="small" x="1486" y="345">Materialize on demand,</text>
+    <text class="small" x="1486" y="366">not all windows in memory</text>
+    <rect class="artifact-band" x="69" y="384" width="1662" height="27" rx="4"/>
+    <text class="tiny" x="85" y="403">SAVED</text>
+    <text class="small" x="155" y="403">Per-subject processed .npz + frozen split manifest</text>
+    <text class="small" x="733" y="403">Normalization is fitted on covered training samples, each once; saved with the model in B.</text>
+  </g>
+  <path class="flow" d="M1360 420 V446"/>
+  <!-- L4 uses normalized windows, not CNN embeddings. -->
+  <path class="flow" d="M1449 345 H1468 V377 H1781 V1507 H1737"/>
+  <rect x="1758" y="1015" width="38" height="274" fill="#fff"/>
+  <text class="small centre" transform="translate(1780 1152) rotate(-90)">Normalized windows → L4 (bypasses CNN)</text>
 
-<rect x="40" y="168" width="600" height="104" rx="4" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="4 3"/>
-<text x="52" y="186" font-size="12" fill="#5F5E5A">Foundation, F0 to F5</text>
-<rect x="52" y="194" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="66" y="218" font-size="14" font-weight="500" fill="#444441">1-D CNN encoder</text>
-<text x="66" y="236" font-size="12" fill="#5F5E5A">12 ch to 256-d</text>
-<rect x="251" y="194" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="265" y="218" font-size="14" font-weight="500" fill="#444441">classifier head</text>
-<text x="265" y="236" font-size="12" fill="#5F5E5A">18 classes</text>
-<rect x="450" y="194" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="464" y="218" font-size="14" font-weight="500" fill="#444441">refit.pt</text>
-<text x="464" y="236" font-size="12" fill="#5F5E5A">F1 reference row</text>
+  <!-- B: feature-map products include the pre-pool sizes in the source stack. -->
+  <g id="foundation-layer">
+    <rect class="panel" x="48" y="458" width="1704" height="395" rx="9"/>
+    <circle cx="80" cy="489" r="16" fill="#34444e"/>
+    <text class="letter" x="80" y="496">B</text>
+    <text class="panel-title" x="108" y="497">Foundation encoder + classifier</text>
+    <text class="status" x="1718" y="496" text-anchor="end">CNN / head implemented · F1 CV, refit and temperature runner pending</text>
+    <path d="M227 523 V514 H1680 V523" fill="none" stroke="#bf8641" stroke-width="1.5"/>
+    <text class="train-text centre" x="955" y="511">ENCODER · TRAINABLE IN F1; FROZEN IN DOWNSTREAM ARMS</text>
+    <rect class="tensor" x="80" y="552" width="125" height="56" rx="2"/>
+    <text class="shape centre" x="142" y="586">B × 12 × 400</text>
+    <path class="flow" d="M205 580 H234"/>
+    <rect class="op" x="246" y="550" width="118" height="62" rx="16"/>
+    <text class="label centre" x="305" y="576">Conv1d, k=7</text>
+    <text class="tiny centre" x="305" y="598">BN → ReLU</text>
+    <path class="flow" d="M364 580 H391"/>
+    <use href="#stack" x="404" y="548" width="121" height="65"/>
+    <text class="shape centre" x="460" y="590">B × 128 × 400</text>
+    <path class="flow" d="M529 580 H557"/>
+    <rect class="op" x="569" y="550" width="88" height="62" rx="16"/>
+    <text class="label centre" x="613" y="575">MaxPool</text>
+    <text class="small centre" x="613" y="598">÷ 4</text>
+    <path class="flow" d="M657 580 H684"/>
+    <use href="#stack" x="696" y="548" width="121" height="65"/>
+    <text class="shape centre" x="752" y="590">B × 128 × 100</text>
+    <path class="flow" d="M821 580 H848"/>
+    <rect class="op" x="860" y="550" width="118" height="62" rx="16"/>
+    <text class="label centre" x="919" y="576">Conv1d, k=5</text>
+    <text class="tiny centre" x="919" y="598">BN → ReLU</text>
+    <path class="flow" d="M978 580 H1005"/>
+    <use href="#stack" x="1017" y="548" width="121" height="65"/>
+    <text class="shape centre" x="1073" y="590">B × 256 × 100</text>
+    <path class="flow" d="M1142 580 H1169"/>
+    <rect class="op" x="1181" y="550" width="88" height="62" rx="16"/>
+    <text class="label centre" x="1225" y="575">MaxPool</text>
+    <text class="small centre" x="1225" y="598">÷ 4</text>
+    <path class="flow" d="M1269 580 H1296"/>
+    <use href="#stack" x="1308" y="548" width="121" height="65"/>
+    <text class="shape centre" x="1364" y="590">B × 256 × 25</text>
+    <path class="flow" d="M1433 580 H1460"/>
+    <rect class="op" x="1472" y="550" width="118" height="62" rx="16"/>
+    <text class="label centre" x="1531" y="576">Conv1d, k=3</text>
+    <text class="tiny centre" x="1531" y="598">BN → ReLU</text>
+    <path class="flow" d="M1590 580 H1614"/>
+    <use href="#stack" x="1627" y="548" width="102" height="65"/>
+    <text class="shape centre" x="1675" y="590">B × 256 × 25</text>
+    <path class="flow" d="M1675 620 V655 H1620 V675"/>
+    <rect class="op" x="1502" y="687" width="221" height="63" rx="17"/>
+    <text class="label centre" x="1612" y="713">Adaptive average pool</text>
+    <text class="small centre" x="1612" y="737">one value per channel</text>
+    <path class="flow" d="M1502 718 H1462"/>
+    <use href="#stack" x="1328" y="685" width="121" height="65"/>
+    <text class="shape centre" x="1384" y="727">B × 256 × 1</text>
+    <path class="flow" d="M1327 718 H1286"/>
+    <rect class="op" x="1049" y="687" width="225" height="63" rx="17"/>
+    <text class="label centre" x="1161" y="712">Flatten → dropout 0.2</text>
+    <text class="small centre" x="1161" y="737">linear 256 → 256</text>
+    <path class="flow" d="M1049 718 H1008"/>
+    <use href="#stack" x="863" y="681" width="131" height="77"/>
+    <text class="shape centre" x="924" y="728">B × 256</text>
+    <text class="small centre" x="924" y="781">EMG embedding H</text>
+    <path class="flow" d="M862 718 H817"/>
+    <rect class="op" x="555" y="687" width="250" height="63" rx="17"/>
+    <text class="label centre" x="680" y="712">Foundation classifier head</text>
+    <text class="small centre" x="680" y="737">dropout 0.2 → linear 256 → 18</text>
+    <path class="flow" d="M555 718 H504"/>
+    <use href="#stack" x="350" y="681" width="141" height="77"/>
+    <text class="shape centre" x="415" y="728">B × 18</text>
+    <text class="small centre" x="415" y="781">F1 logits → E directly</text>
+    <rect class="train" x="90" y="685" width="200" height="75" rx="5"/>
+    <text class="train-text centre" x="190" y="708">F1 FITTING CONTRACT</text>
+    <text class="small centre" x="190" y="730">8-fold selection → fixed</text>
+    <text class="small centre" x="190" y="750">budget → all-32 refit</text>
+    <text class="tiny" x="82" y="637">Tensor order: batch × feature channels × time. Odd kernels use same-length padding. BN = batch normalization.</text>
+    <rect class="artifact-band" x="69" y="799" width="1662" height="43" rx="4"/>
+    <use href="#file" x="82" y="804" width="24" height="29"/>
+    <text class="label" x="118" y="826">Specified F1 product: refit.pt</text>
+    <text class="small" x="490" y="826">{model_state, model_config} · encoder + head · normalization · fitted T · provenance</text>
+    <text class="tiny" x="1331" y="826">F0 runs now: widths 32 / 64, not 128 / 256</text>
+  </g>
+  <!-- Baseline logits bypass both research arms. -->
+  <path class="flow" d="M350 718 H313 V774 H24 V1742 H79"/>
+  <text class="tiny centre" transform="translate(18 1200) rotate(-90)">Foundation reference · no downstream arm required</text>
+  <!-- Checkpoint reuse is a load relationship, never an activation layer. -->
+  <path class="load" d="M910 853 V893 H460 V928"/>
+  <path class="load" d="M910 893 H1336 V928"/>
+  <rect x="625" y="877" width="567" height="31" fill="#fff"/>
+  <text class="body centre" x="908" y="899">Final pipeline · parallel arms load the frozen F1 refit encoder</text>
 
-<line x1="340" y1="272" x2="340" y2="284" stroke="#5F5E5A" stroke-width="0.5"/>
-<path d="M340 284 L186 284 L186 296" fill="none" stroke="#5F5E5A" stroke-width="0.5" marker-end="url(#arrow)"/>
-<path d="M340 284 L494 284 L494 296" fill="none" stroke="#5F5E5A" stroke-width="0.5" marker-end="url(#arrow)"/>
+  <!-- C: adaptation produces a head; inference with that head produces logits. -->
+  <g id="generation-layer">
+    <rect class="panel" x="48" y="940" width="830" height="625" rx="9"/>
+    <circle cx="80" cy="970" r="16" fill="#34444e"/>
+    <text class="letter" x="80" y="977">C</text>
+    <text class="panel-title" x="108" y="978">Generative arm · real-trial burden</text>
+    <text class="status" x="80" y="1007">G1–G4 specified; runners pending · open protocol choices remain</text>
+    <rect class="op" x="80" y="1031" width="237" height="70" rx="17"/>
+    <text class="label centre" x="198" y="1057">Encode k permitted trials</text>
+    <text class="small centre" x="198" y="1082">same frozen F1 encoder</text>
+    <path class="flow" d="M317 1065 H351"/>
+    <use href="#stack" x="364" y="1031" width="146" height="72"/>
+    <text class="shape centre" x="431" y="1077">N_k × 256</text>
+    <path class="flow" d="M515 1065 H551"/>
+    <rect class="op" x="563" y="1031" width="273" height="70" rx="17"/>
+    <text class="label centre" x="699" y="1057">k &gt; 0: centre → mean → project</text>
+    <text class="small centre" x="699" y="1082">256-d residual → 16-d subject vector</text>
+    <path class="flow" d="M815 1101 H849 V1155 H804"/>
+    <rect class="tensor" x="643" y="1134" width="148" height="41" rx="2"/>
+    <text class="shape centre" x="717" y="1161">s(k) : 16</text>
+    <text class="tiny" x="82" y="1129">k: {0,1,2,5,10,17,20,34} active trials / subject</text>
+    <text class="tiny" x="563" y="1129">k = 0: learned population vector (16-d)</text>
+    <text class="tiny" x="82" y="1153">Replay case shown below</text>
+    <rect class="tensor" x="82" y="1171" width="222" height="44" rx="2"/>
+    <text class="shape centre" x="193" y="1199">noise z : 32</text>
+    <text class="small" x="84" y="1240">+ gesture class</text>
+    <text class="tiny" x="84" y="1261">+ population s or subject s(k)</text>
+    <path class="flow" d="M304 1192 H349"/>
+    <rect class="op" x="361" y="1171" width="231" height="73" rx="17"/>
+    <text class="label centre" x="476" y="1198">Conditional VAE decoder</text>
+    <text class="small centre" x="476" y="1224">hidden width 256 → EMG feature</text>
+    <rect class="frozen" x="414" y="1152" width="124" height="23" rx="4"/>
+    <text class="frozen-text centre" x="476" y="1168">FROZEN G1</text>
+    <path class="flow" d="M643 1155 H616 V1186 H604"/>
+    <path class="flow" d="M592 1207 H634"/>
+    <use href="#stack" x="647" y="1184" width="184" height="76"/>
+    <text class="shape centre" x="731" y="1232">900 × 256</text>
+    <text class="small centre" x="735" y="1281">18 classes × 50 synthetic features</text>
+    <path class="flow" d="M431 1104 V1115 H65 V1334 H80"/>
+    <text class="tiny" x="84" y="1288">Same real support features</text>
+    <rect class="tensor" x="82" y="1300" width="222" height="69" rx="2"/>
+    <text class="shape centre" x="193" y="1341">N_k × 256</text>
+    <path class="flow" d="M304 1334 H349"/>
+    <path class="flow" d="M831 1220 H846 V1264 H580 V1288"/>
+    <rect class="op" x="361" y="1300" width="231" height="69" rx="17"/>
+    <text class="label centre" x="476" y="1328">Fit a copy of the F1 head</text>
+    <text class="small centre" x="476" y="1352">real loss + synthetic loss + L2-SP</text>
+    <rect class="train" x="397" y="1281" width="158" height="23" rx="4"/>
+    <text class="train-text centre" x="476" y="1297">HEAD ONLY TRAINABLE</text>
+    <path class="flow" d="M592 1334 H635"/>
+    <use href="#file" x="650" y="1306" width="35" height="43"/>
+    <text class="label" x="696" y="1328">Adapted head</text>
+    <text class="small" x="696" y="1352">256 → 18 weights</text>
+    <path class="load" d="M748 1372 V1394 H477 V1415"/>
+    <use href="#stack" x="83" y="1417" width="177" height="72"/>
+    <text class="shape centre" x="164" y="1462">B × 256</text>
+    <text class="small centre" x="164" y="1511">evaluation EMG features H</text>
+    <path class="flow" d="M269 1451 H349"/>
+    <rect class="op" x="361" y="1424" width="231" height="57" rx="17"/>
+    <text class="label centre" x="476" y="1449">Apply classifier head</text>
+    <text class="small centre" x="476" y="1471">256 → 18</text>
+    <path class="flow" d="M592 1451 H637"/>
+    <use href="#stack" x="650" y="1417" width="163" height="72"/>
+    <text class="shape centre" x="725" y="1462">B × 18</text>
+    <text class="small centre" x="729" y="1511">logits → E</text>
+    <text class="tiny" x="82" y="1531">Four strategies: unchanged population · real only · real + population replay · real + subject replay</text>
+    <text class="tiny" x="82" y="1553">Support reps {1,4}; evaluate {2,3,5,6}. Replay arms share noise / labels; only conditioning differs.</text>
+  </g>
 
-<rect x="40" y="296" width="292" height="152" rx="4" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="4 3"/>
-<text x="54" y="314" font-size="12" fill="#5F5E5A">Language arm, secondary</text>
-<rect x="54" y="324" width="264" height="50" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="68" y="346" font-size="14" font-weight="500" fill="#444441">projector</text>
-<text x="68" y="363" font-size="12" fill="#5F5E5A">256-d to soft prefix</text>
-<rect x="54" y="386" width="264" height="50" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="68" y="408" font-size="14" font-weight="500" fill="#444441">frozen Llama 3.2</text>
-<text x="68" y="425" font-size="12" fill="#5F5E5A">discriminative head</text>
+  <!-- D: soft-prefix and text inputs are distinct; the vocabulary head is unused. -->
+  <g id="language-layer">
+    <rect class="panel" x="922" y="940" width="830" height="625" rx="9"/>
+    <circle cx="954" cy="970" r="16" fill="#34444e"/>
+    <text class="letter" x="954" y="977">D</text>
+    <text class="panel-title" x="982" y="978">Language arm · frozen-backbone test</text>
+    <text class="status" x="954" y="1007">L2–L4 specified; runners pending · L3 uses random frozen weights</text>
+    <use href="#stack" x="952" y="1041" width="140" height="71"/>
+    <text class="shape centre" x="1016" y="1087">B × 256</text>
+    <text class="small centre" x="1016" y="1140">EMG features H</text>
+    <path class="flow" d="M1098 1075 H1126"/>
+    <rect class="op" x="1138" y="1045" width="193" height="64" rx="17"/>
+    <text class="label centre" x="1234" y="1072">MLP projector</text>
+    <text class="small centre" x="1234" y="1096">256 → 8 × D</text>
+    <rect class="train" x="1186" y="1026" width="96" height="23" rx="4"/>
+    <text class="train-text centre" x="1234" y="1042">TRAINABLE</text>
+    <path class="flow" d="M1331 1075 H1357"/>
+    <use href="#stack" x="1369" y="1037" width="157" height="79"/>
+    <text class="shape centre" x="1441" y="1088">B × 8 × D</text>
+    <text class="small centre" x="1441" y="1140">8 soft-prefix vectors</text>
+    <use href="#stack" x="1572" y="1037" width="146" height="79"/>
+    <text class="shape centre" x="1639" y="1088">B × L × D</text>
+    <text class="small centre" x="1641" y="1140">prompt embeddings</text>
+    <path class="flow" d="M1441 1148 V1172"/>
+    <path class="flow" d="M1640 1148 V1164 H1533 V1184"/>
+    <rect class="op" x="1353" y="1184" width="178" height="46" rx="17"/>
+    <text class="label centre" x="1442" y="1213">Prepend prefix</text>
+    <path class="flow" d="M1531 1207 H1568"/>
+    <rect class="tensor" x="1580" y="1178" width="150" height="60" rx="2"/>
+    <text class="shape centre" x="1655" y="1214">B × (L+8) × D</text>
+    <path class="flow" d="M1655 1238 V1260"/>
+    <rect class="op" x="1372" y="1272" width="358" height="63" rx="17"/>
+    <text class="label centre" x="1551" y="1298">Llama 3.2 3B transformer</text>
+    <text class="small centre" x="1551" y="1322">D = 3072 · 28 layers · vocabulary head unused</text>
+    <rect class="frozen" x="1498" y="1253" width="105" height="23" rx="4"/>
+    <text class="frozen-text centre" x="1551" y="1269">FROZEN</text>
+    <path class="flow" d="M1372 1304 H1339"/>
+    <rect class="tensor" x="1167" y="1274" width="160" height="60" rx="2"/>
+    <text class="shape centre" x="1247" y="1310">B × (L+8) × D</text>
+    <path class="flow" d="M1167 1304 H1134"/>
+    <rect class="op" x="953" y="1272" width="169" height="63" rx="17"/>
+    <text class="label centre" x="1037" y="1298">Pool last non-pad</text>
+    <text class="small centre" x="1037" y="1322">mask-derived position</text>
+    <path class="flow" d="M1037 1335 V1370"/>
+    <use href="#stack" x="955" y="1382" width="161" height="74"/>
+    <text class="shape centre" x="1029" y="1428">B × 3072</text>
+    <text class="small centre" x="1029" y="1480">pooled hidden state</text>
+    <path class="flow" d="M1121 1416 H1153"/>
+    <rect class="op" x="1165" y="1387" width="209" height="60" rx="17"/>
+    <text class="label centre" x="1269" y="1412">Classifier head (MLP)</text>
+    <text class="small centre" x="1269" y="1436">3072 → 256 → 18</text>
+    <rect class="train" x="1221" y="1368" width="96" height="23" rx="4"/>
+    <text class="train-text centre" x="1269" y="1384">TRAINABLE</text>
+    <path class="flow" d="M1374 1416 H1416"/>
+    <use href="#stack" x="1429" y="1382" width="144" height="74"/>
+    <text class="shape centre" x="1495" y="1428">B × 18</text>
+    <text class="small centre" x="1495" y="1480">logits → E</text>
+    <text class="small" x="954" y="1185">D is read from the model config</text>
+    <text class="small" x="954" y="1209">(3072 for the specified 3B backbone),</text>
+    <text class="small" x="954" y="1233">not hard-coded in the projector.</text>
+    <rect class="control-band" x="944" y="1494" width="786" height="59" rx="4"/>
+    <text class="label" x="956" y="1517">L4 control:</text>
+    <text class="small" x="1058" y="1517">windows → 72 engineered features → text → token embeddings → same LLM / head</text>
+    <text class="tiny" x="956" y="1541">12 channels × 6 features ≠ 72 tokens; text length varies. L4 bypasses CNN + projector.</text>
+  </g>
+  <!-- Logits from every path converge on evaluation, not on one another. -->
+  <path class="wire" d="M813 1452 H857 V1600 H24"/>
+  <path class="wire" d="M1577 1416 H1738 V1600 H857"/>
+  <text class="small centre" x="906" y="1620">Shared evaluation below · model outputs are logits, not calibrated probabilities</text>
 
-<rect x="348" y="296" width="292" height="152" rx="4" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="4 3"/>
-<text x="362" y="314" font-size="12" fill="#5F5E5A">Generative arm, headline</text>
-<rect x="362" y="324" width="264" height="50" rx="4" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
-<text x="376" y="346" font-size="14" font-weight="500" fill="#633806">conditional VAE</text>
-<text x="376" y="363" font-size="12" fill="#854F0B">latent-space synthesis</text>
-<rect x="362" y="386" width="264" height="50" rx="4" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
-<text x="376" y="408" font-size="14" font-weight="500" fill="#633806">k-shot adaptation</text>
-<text x="376" y="425" font-size="12" fill="#854F0B">four matched curves</text>
-
-<path d="M186 448 L186 460 L340 460" fill="none" stroke="#5F5E5A" stroke-width="0.5"/>
-<path d="M494 448 L494 460 L340 460" fill="none" stroke="#5F5E5A" stroke-width="0.5"/>
-<line x1="340" y1="460" x2="340" y2="472" stroke="#5F5E5A" stroke-width="0.5" marker-end="url(#arrow)"/>
-
-<rect x="40" y="472" width="600" height="104" rx="4" fill="none" stroke="#D3D1C7" stroke-width="0.5" stroke-dasharray="4 3"/>
-<text x="52" y="490" font-size="12" fill="#5F5E5A">Evaluation and protocol</text>
-<rect x="52" y="498" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="66" y="522" font-size="14" font-weight="500" fill="#444441">metrics</text>
-<text x="66" y="540" font-size="12" fill="#5F5E5A">macro-F1, ECE, Brier</text>
-<rect x="251" y="498" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="265" y="522" font-size="14" font-weight="500" fill="#444441">inference unit</text>
-<text x="265" y="540" font-size="12" fill="#5F5E5A">subject, paired</text>
-<rect x="450" y="498" width="178" height="56" rx="4" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="464" y="522" font-size="14" font-weight="500" fill="#444441">robustness</text>
-<text x="464" y="540" font-size="12" fill="#5F5E5A">every arm, D2</text>
-
-<rect x="40" y="584" width="10" height="10" rx="2" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
-<text x="56" y="593" font-size="12" fill="#5F5E5A">implemented and tested</text>
-<rect x="220" y="584" width="10" height="10" rx="2" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
-<text x="236" y="593" font-size="12" fill="#5F5E5A">specified, not written</text>
-<rect x="396" y="584" width="10" height="10" rx="2" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
-<text x="412" y="593" font-size="12" fill="#5F5E5A">blocked on open decisions</text>
+  <g id="evaluation-layer">
+    <rect class="panel" x="48" y="1640" width="1704" height="258" rx="9"/>
+    <circle cx="80" cy="1670" r="16" fill="#34444e"/>
+    <text class="letter" x="80" y="1677">E</text>
+    <text class="panel-title" x="108" y="1678">Calibration, scoring + paired comparison</text>
+    <text class="status" x="1718" y="1677" text-anchor="end">Metric primitives implemented · temperature fitting / reportable orchestration pending</text>
+    <rect class="tensor" x="80" y="1715" width="137" height="56" rx="2"/>
+    <text class="shape centre" x="148" y="1750">B × 18 logits</text>
+    <path class="wire" d="M217 1742 H242 V1720"/>
+    <path class="flow" d="M242 1720 H266"/>
+    <path class="flow" d="M242 1742 V1795 H266"/>
+    <rect class="op" x="278" y="1696" width="176" height="46" rx="17"/>
+    <text class="label centre" x="366" y="1725">softmax(logits)</text>
+    <rect class="op" x="278" y="1772" width="176" height="46" rx="17"/>
+    <text class="label centre" x="366" y="1801">softmax(logits / T)</text>
+    <path class="flow" d="M454 1720 H488"/>
+    <path class="flow" d="M454 1795 H488"/>
+    <rect class="tensor" x="500" y="1696" width="158" height="46" rx="2"/>
+    <text class="shape centre" x="579" y="1725">B × 18 raw p</text>
+    <rect class="tensor" x="500" y="1772" width="158" height="46" rx="2"/>
+    <text class="shape centre" x="579" y="1801">B × 18 scaled p</text>
+    <path class="flow" d="M658 1720 H684 V1741 H711"/>
+    <path class="flow" d="M658 1795 H684 V1771 H711"/>
+    <rect class="op" x="723" y="1711" width="247" height="89" rx="17"/>
+    <text class="label centre" x="846" y="1737">Score each subject</text>
+    <text class="small centre" x="846" y="1762">macro-F1 · scaled ECE</text>
+    <text class="small centre" x="846" y="1786">+ raw ECE, Brier, overconfidence</text>
+    <path class="flow" d="M970 1756 H1006"/>
+    <rect class="tensor" x="1018" y="1715" width="180" height="80" rx="2"/>
+    <text class="shape centre" x="1108" y="1749">8 × Q</text>
+    <text class="small centre" x="1108" y="1776">test subjects × metrics</text>
+    <path class="flow" d="M1198 1756 H1232"/>
+    <rect class="op" x="1244" y="1711" width="242" height="89" rx="17"/>
+    <text class="label centre" x="1365" y="1737">Compare paired subjects</text>
+    <text class="small centre" x="1365" y="1762">equal subject weighting</text>
+    <text class="small centre" x="1365" y="1786">bootstrap 95% intervals</text>
+    <path class="flow" d="M1486 1756 H1525"/>
+    <use href="#file" x="1539" y="1711" width="45" height="54"/>
+    <text class="label" x="1596" y="1734">Run products</text>
+    <text class="small" x="1596" y="1759">predictions</text>
+    <text class="small" x="1596" y="1783">metrics / curves</text>
+    <text class="tiny" x="723" y="1822">Subject-independent rows shown. G4 repeat / headline aggregation remains Pending; this drawing does not resolve it.</text>
+    <rect class="artifact-band" x="69" y="1836" width="1662" height="47" rx="4"/>
+    <use href="#file" x="82" y="1844" width="24" height="29"/>
+    <text class="label" x="118" y="1865">Frozen T products</text>
+    <text class="small" x="320" y="1865">F1: checkpoint scalar · G4: strategy × k table · fitted on development predictions only, before final-test scoring</text>
+    <text class="tiny" x="1410" y="1865">Temperature leaves argmax unchanged.</text>
+  </g>
+  <text class="small" x="50" y="1926">Notation: B = batch size; N_s = recording samples; N_k = windows from k permitted trials; L = prompt token count; D = transformer width; Q = reported metrics.</text>
+  <text class="small" x="50" y="1953">Robustness (F3–F5): perturb inputs before model inference; definitions / runner pending. Source contracts, implementation limits and figure references: docs/figures/README.md.</text>
 </svg>

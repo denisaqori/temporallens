@@ -14,7 +14,7 @@ Working agreement**.
 > remaining later-arm/F2 protocol choices in [Next up](#next-up-priority-order).
 > **F1's optimizer and calibration protocol is settled (D38–D40); its harness is not implemented.**
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-16_
 
 ## Latest changes
 
@@ -27,6 +27,13 @@ omitted — they are workflow bookkeeping, not changes to the project, and listi
 the real entries. Uncommitted state belongs to `git status`; in-flight work belongs in
 [In progress](#in-progress) or [Paused / mid-flight](#paused--mid-flight), never here.
 
+- Redesigned the system diagram around dimensioned representations, separate processing operations
+  and saved products, following the author's published architecture / processing figures. It now
+  shows the full CNN shape trace, parallel research arms, frozen versus trainable components,
+  baseline and L4 bypasses, head fitting versus inference, and raw versus scaled evaluation.
+  A linked reading guide records source pointers, notation and implementation boundaries in
+  panel-aligned sections with compact dimension tables, without changing protocol choices; the
+  F1 dimensions were checked against a forward pass.
 - Corrected the class-weights docstring: the absent-class weight rule is D11's, not D21's, which
   governs how an undefined class is *scored* at evaluation — a separate, evaluation-side question.
 - Four consistency fixes from the review of the P0 protocol package. The shared fold-local encoder
