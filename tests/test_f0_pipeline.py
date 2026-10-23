@@ -90,6 +90,12 @@ def test_a_run_writes_its_json_log(prepared) -> None:
     state = json.loads((result.run_dir / "run.json").read_text())
     assert state["experiment_name"] == "debug_tiny"
     assert "git_commit" in state
+    # The device actually used sits beside the commit; the config keeps only what was requested.
+    assert state["device"] in {"cpu", "mps", "cuda"}
+    assert state["config"]["device"] == "auto"
+    assert (
+        state["config"]["name"] == "debug_tiny"
+    ), "the run config is recorded directly, not nested"
 
 
 def test_predictions_are_persisted_with_their_subject(prepared) -> None:

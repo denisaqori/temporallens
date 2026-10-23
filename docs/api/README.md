@@ -273,7 +273,9 @@ Chooses the device a run uses.
 ### `utils.run_logger`
 Local, always-on JSON logging for every run.
 
-Each run gets its own directory, with `run.json` (configuration, git commit, timestamps, summary, artifacts) and `metrics.jsonl` (one line per logged step). Logging cannot be switched off and does not depend on a network service, so the record of a run never depends on one.
+Each run gets its own directory, with `run.json` (configuration, git commit, the device the run executed on, timestamps, summary, artifacts) and `metrics.jsonl` (one line per logged step). Logging cannot be switched off and does not depend on a network service, so the record of a run never depends on one.
+
+The device is a required argument and is recorded at the top level beside the git commit, because it describes the run rather than its configuration. The configuration keeps what was *requested*, which may be `auto`; the log refuses `auto` and records what `utils.device` actually resolved, since a log that says only `auto` cannot tell a reader which backend produced its numbers.
 
 **Connects to** `training.encoder` · `tracking.*` in the configs
 

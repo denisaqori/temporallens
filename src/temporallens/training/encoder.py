@@ -254,13 +254,8 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
 
-    # The resolved device, not only the requested one: `device: auto` is a reproducible record
-    # only if the run says what `auto` actually picked.
-    logger = RunLogger(
-        config.name,
-        {"config": _loggable(config), "resolved_device": str(device)},
-        root_dir=config.output_dir,
-    )
+    # The config records what was requested (possibly `auto`); the log records what `auto` picked.
+    logger = RunLogger(config.name, _loggable(config), root_dir=config.output_dir, device=device)
 
     epoch_losses: list[float] = []
     for epoch in range(config.epochs):  # fixed horizon, no early stopping (D18/D19)

@@ -45,14 +45,28 @@ def get_git_commit(repo_dir: str | Path | None = None) -> str:
 
 
 class RunLogger:
-    """Record config, metrics, artifacts, and summaries without a network service."""
+    """Record config, metrics, artifacts, and summaries without a network service.
+
+    ``device`` is the device the run actually executes on, recorded at the top level beside the
+    git commit because it describes the run, not its configuration. It is required so no run can be
+    logged without it, and it must be resolved: ``"auto"`` is a request, and a log that says only
+    ``auto`` cannot tell a reader whether the numbers came from CUDA, MPS or the CPU — which matters,
+    because seeding does not make those backends numerically identical.
+    """
 
     def __init__(
         self,
         experiment_name: str,
         config: dict[str, Any],
         root_dir: str | Path = "results/runs",
+        *,
+        device: torch.device | str,
     ) -> None:
+        if str(device) == "auto":
+            raise ValueError(
+                "RunLogger needs the resolved device, not the 'auto' request; resolve it first "
+                "with temporallens.utils.device.resolve_device"
+            )
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S_%fZ")
         self.run_dir = Path(root_dir) / f"{timestamp}_{experiment_name}"
         self.run_dir.mkdir(parents=True, exist_ok=False)
@@ -63,6 +77,7 @@ class RunLogger:
             "experiment_name": experiment_name,
             "created_at": datetime.now(UTC).isoformat(),
             "git_commit": get_git_commit(),
+            "device": str(device),
             "config": config,
             "summary": {},
             "artifacts": {},

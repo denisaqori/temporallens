@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 import yaml
 
@@ -33,7 +34,7 @@ def test_debug_config_has_expected_local_shape() -> None:
 
 
 def test_run_logger_writes_local_json(tmp_path: Path) -> None:
-    logger = RunLogger("smoke", {"seed": 42}, root_dir=tmp_path)
+    logger = RunLogger("smoke", {"seed": 42}, root_dir=tmp_path, device=torch.device("cpu"))
     logger.log_metrics(
         {
             "loss": np.float32(1.0),
@@ -46,10 +47,23 @@ def test_run_logger_writes_local_json(tmp_path: Path) -> None:
 
     state = json.loads(logger.log_path.read_text())
     assert state["summary"] == {"status": "ok", "artifact_root": "checkpoints"}
+    assert state["device"] == "cpu"
+    assert state["config"] == {"seed": 42}
     metrics = json.loads(logger.metrics_path.read_text())
     assert metrics["metrics"]["loss"] == 1.0
     assert metrics["metrics"]["confusion_matrix"] == [[2, 1], [0, 3]]
     assert metrics["metrics"]["per_class_recall"] == [0.5, 1.0]
+
+
+def test_run_logger_refuses_an_unresolved_device(tmp_path: Path) -> None:
+    """``auto`` is what the config asked for, not where the run happened.
+
+    A log that records only ``auto`` cannot say whether its numbers came from CUDA, MPS or the CPU,
+    and seeding does not make those backends agree, so the request is refused rather than logged.
+    """
+    with pytest.raises(ValueError, match="resolved device"):
+        RunLogger("smoke", {"seed": 42}, root_dir=tmp_path, device="auto")
+    assert not any(tmp_path.iterdir()), "a refused run must not leave a run directory behind"
 
 
 def test_git_commit_is_anchored_to_the_package_worktree(tmp_path: Path, monkeypatch) -> None:
