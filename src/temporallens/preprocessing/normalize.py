@@ -78,12 +78,20 @@ class ChannelStats:
         They arrive from checkpoints written by other runs, and a malformed payload fails late and
         confusingly otherwise: a zero std divides every window by zero, and a short vector only
         fails when the first window of the wrong width meets it.
+
+        The checks run on the float32 values the statistics are used as, not on the payload: a std
+        of 1e-100 is positive but stores as 0, and a mean of 1e39 is finite but stores as
+        infinity. The std must also be at least :data:`STD_FLOOR`, since the fitter never produces
+        less and a smaller divisor can overflow a normalized window.
         """
         try:
-            mean = np.asarray(payload["mean"], dtype=np.float64)
-            std = np.asarray(payload["std"], dtype=np.float64)
+            # Overflow becomes infinity here and is refused below, with a message saying why.
+            with np.errstate(over="ignore"):
+                mean = np.asarray(payload["mean"], dtype=np.float64).astype(np.float32)
+                std = np.asarray(payload["std"], dtype=np.float64).astype(np.float32)
             fitted_on = payload["fitted_on"]
             num_samples = payload["num_samples"]
+            floored = list(payload.get("floored_channels", ()))
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError(f"normalization statistics are malformed: {error!r}") from error
         if mean.ndim != 1 or mean.shape != std.shape or mean.size == 0:
@@ -92,19 +100,26 @@ class ChannelStats:
                 f"{mean.shape} and {std.shape}"
             )
         if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(std))):
-            raise ValueError("normalization statistics must be finite")
-        if np.any(std <= 0):
-            raise ValueError("normalization std must be positive on every channel")
+            raise ValueError("normalization statistics must be finite once stored as float32")
+        if np.any(std < np.float32(STD_FLOOR)):
+            raise ValueError(
+                f"normalization std must be at least the fitting floor {STD_FLOOR:g} on every "
+                "channel once stored as float32"
+            )
         if isinstance(num_samples, bool) or not isinstance(num_samples, int) or num_samples <= 0:
             raise ValueError(f"num_samples must be a positive integer, got {num_samples!r}")
         if not isinstance(fitted_on, str) or not fitted_on:
             raise ValueError("fitted_on must name the fitting set")
+        if not all(type(c) is int and 0 <= c < mean.size for c in floored) or len(
+            set(floored)
+        ) != len(floored):
+            raise ValueError(f"floored_channels must be distinct channel indices, got {floored!r}")
         return cls(
-            mean=mean.astype(np.float32),
-            std=std.astype(np.float32),
+            mean=mean,
+            std=std,
             fitted_on=fitted_on,
             num_samples=num_samples,
-            floored_channels=tuple(int(c) for c in payload.get("floored_channels", ())),
+            floored_channels=tuple(floored),
         )
 
 

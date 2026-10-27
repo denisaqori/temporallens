@@ -322,6 +322,17 @@ def test_a_negative_label_is_refused_rather_than_counted_as_the_last_class() -> 
 
 
 @pytest.mark.parametrize(
+    ("predicted", "true"),
+    [(np.array([-1, 1]), np.array([-1, 1])), (np.array([0, 1]), np.array([0, -1]))],
+)
+def test_accuracy_refuses_a_negative_label_with_no_class_count(predicted, true) -> None:
+    """Accuracy has no class count to range-check against, but a -1 is never a class: matched
+    with a -1 truth it would count as a correct window."""
+    with pytest.raises(ValueError, match="non-negative"):
+        accuracy(predicted, true)
+
+
+@pytest.mark.parametrize(
     ("predicted", "true", "reason"),
     [
         (np.array([0, 1, 1]), np.array([0, 1]), "same length"),
@@ -383,6 +394,24 @@ def test_malformed_confidences_are_refused(confidence, correct, reason) -> None:
 def test_a_bin_count_below_one_is_refused() -> None:
     with pytest.raises(ValueError, match="bins"):
         calibration_bins(np.array([0.5, 0.6]), np.array([True, False]), bins=0)
+
+
+@pytest.mark.parametrize(
+    ("subjects", "reason"),
+    [
+        (np.array([1.1, 1.9]), "integer"),
+        (np.array([1.0, 2.0]), "integer"),
+        (np.array([True, False]), "integer"),
+        (np.array([[1, 2]]), "1-D"),
+        (np.array([], dtype=np.int64), "non-empty"),
+    ],
+)
+def test_per_subject_refuses_subject_ids_that_could_collapse(subjects, reason) -> None:
+    """Results are keyed by `int(subject)`: subjects 1.1 and 1.9 would both become 1, and one
+    subject's score would silently overwrite the other's."""
+    labels = np.zeros(2, dtype=np.int64)
+    with pytest.raises(ValueError, match=reason):
+        per_subject(accuracy, labels, labels, subjects=subjects)
 
 
 def test_per_subject_refuses_subjects_that_do_not_line_up_with_the_windows() -> None:

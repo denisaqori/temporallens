@@ -223,6 +223,18 @@ def test_saving_malformed_statistics_is_refused(tmp_path) -> None:
         )
 
 
+def test_saving_statistics_for_the_wrong_channel_count_is_refused(tmp_path) -> None:
+    """Save runs the loader's validation, so it cannot write a file the loader then refuses."""
+    path = tmp_path / "refit.pt"
+    with pytest.raises(CheckpointError, match="refusing to save .*11 channels"):
+        save_checkpoint(
+            path,
+            Cnn1dClassifier(**F1),
+            normalization=dict(_stats_payload(), mean=[0.0] * 11, std=[1.0] * 11),
+        )
+    assert not path.exists()
+
+
 def test_a_rebuild_without_a_recorded_architecture_is_refused(tmp_path) -> None:
     """Fresh construction may omit the stack -- there is nothing to compare yet. A rebuild may not:
     without the recorded stack, a same-name checkpoint from a different definition of `cnn1d`
@@ -250,4 +262,15 @@ def test_weights_that_do_not_fit_the_described_model_are_a_checkpoint_error(tmp_
     small = Cnn1dClassifier(**dict(F1, hidden_dim=8, embedding_dim=16))
     path = _raw(tmp_path, {"model_state": small.state_dict(), "model_config": _valid_config()})
     with pytest.raises(CheckpointError, match="do not match"):
+        rebuild_model(path)
+
+
+@pytest.mark.parametrize("recorded", [None, "cnn1d", ["block_kernels"]])
+def test_a_rebuild_with_an_empty_or_non_mapping_architecture_is_refused(tmp_path, recorded) -> None:
+    """The key being present is not the stack being recorded: `architecture: null` must not
+    pass where a missing key is refused."""
+    model = Cnn1dClassifier(**F1)
+    config = dict(_valid_config(), architecture=recorded)
+    path = _raw(tmp_path, {"model_state": model.state_dict(), "model_config": config})
+    with pytest.raises(CheckpointError, match="architecture"):
         rebuild_model(path)

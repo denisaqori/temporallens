@@ -78,6 +78,10 @@ def get_git_state(repo_dir: str | Path | None = None) -> dict[str, Any]:
     non-ignored file, so two runs with the same commit and digest ran the same code. Like
     :func:`get_git_commit` it is anchored to this package's worktree, not the process's cwd.
     ``dirty`` is ``None`` when the state cannot be read.
+
+    Untracked files are listed explicitly rather than as the user's Git configuration chooses:
+    with ``status.showUntrackedFiles=no`` a plain ``git status`` omits them, and an uncommitted
+    new module would pass as a clean tree.
     """
     unknown: dict[str, Any] = {
         "commit": "unknown",
@@ -93,7 +97,9 @@ def get_git_state(repo_dir: str | Path | None = None) -> dict[str, Any]:
             ["git", "-C", str(root), "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
         ).strip()
         changes = subprocess.check_output(
-            ["git", "-C", str(root), "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+            stderr=subprocess.DEVNULL,
+            text=True,
         ).splitlines()
         diff = subprocess.check_output(
             ["git", "-C", str(root), "diff", "HEAD", "--binary"], stderr=subprocess.DEVNULL

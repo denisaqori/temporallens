@@ -174,6 +174,9 @@ def build_model(config: dict[str, Any]) -> Cnn1dClassifier:
     to ask for one architecture and report another. A recorded ``architecture`` that disagrees
     with :data:`ARCHITECTURE` means the file was written by a different definition of this name;
     its weights would load into the wrong shapes, or worse, into right-shaped wrong layers.
+
+    Only an absent ``architecture`` key skips the second check. A present one must be the frozen
+    mapping, so ``architecture: null`` cannot stand in for a recorded stack.
     """
     declared = config.get("type")
     if declared is not None and declared != MODEL_TYPE:
@@ -181,6 +184,11 @@ def build_model(config: dict[str, Any]) -> Cnn1dClassifier:
             f"build_model is the {MODEL_TYPE!r} builder but model_config declares {declared!r}"
         )
     recorded = config.get("architecture")
+    if "architecture" in config and not isinstance(recorded, Mapping):
+        raise ValueError(
+            f"model_config records its {MODEL_TYPE!r} architecture as {recorded!r}; it must be "
+            "the mapping model_config() writes (D32)"
+        )
     if recorded is not None and _normalised(recorded) != _normalised(ARCHITECTURE):
         raise ValueError(
             f"model_config records a different {MODEL_TYPE!r} architecture than this code "

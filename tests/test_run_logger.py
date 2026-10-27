@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -106,3 +108,44 @@ def test_the_real_tree_state_describes_this_repository() -> None:
         assert state["changes"] and re.fullmatch(r"[0-9a-f]{64}", state["diff_sha256"])
     else:
         assert state["changes"] == [] and state["diff_sha256"] is None
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+@pytest.fixture
+def committed_repo(tmp_path, monkeypatch) -> Path:
+    """A one-commit repository, isolated from the user's global and system Git configuration."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    _git(tmp_path, "init", "-q")
+    (tmp_path / ".gitignore").write_text("data/\n")
+    (tmp_path / "tracked.py").write_text("x = 1\n")
+    _git(tmp_path, "add", ".gitignore", "tracked.py")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init")
+    return tmp_path
+
+
+@pytest.mark.parametrize("setting", ["no", "normal", "all"])
+def test_untracked_code_is_dirty_whatever_git_is_configured_to_show(
+    committed_repo, setting
+) -> None:
+    """`status.showUntrackedFiles=no` hides new files from a plain `git status`, and an
+    uncommitted new module would then pass the clean-tree guard."""
+    _git(committed_repo, "config", "status.showUntrackedFiles", setting)
+    (committed_repo / "src").mkdir()
+    (committed_repo / "src" / "new_module.py").write_text("y = 2\n")
+    state = get_git_state(committed_repo)
+    assert state["dirty"] is True
+    assert "?? src/new_module.py" in state["changes"]
+    with pytest.raises(run_logger.UncommittedCodeError, match="new_module.py"):
+        run_logger.ensure_clean_tree("smoke", state)
+
+
+def test_ignored_files_leave_the_tree_clean(committed_repo) -> None:
+    """Data and run outputs are gitignored; they are not code, and must not block a run."""
+    (committed_repo / "data").mkdir()
+    (committed_repo / "data" / "subject_01.npz").write_bytes(b"not code")
+    state = get_git_state(committed_repo)
+    assert state["dirty"] is False and state["changes"] == []

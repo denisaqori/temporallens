@@ -191,6 +191,14 @@ def test_a_checkpoint_recording_different_internals_is_refused() -> None:
         build_model(config)
 
 
+def test_a_null_architecture_is_not_treated_as_absent() -> None:
+    """Fresh construction may omit the key; it may not supply an empty one."""
+    config = Cnn1dClassifier(**F1).model_config()
+    config["architecture"] = None
+    with pytest.raises(ValueError, match="must be the mapping"):
+        build_model(config)
+
+
 def test_the_wrong_builder_refuses_rather_than_building_a_cnn() -> None:
     config = Cnn1dClassifier(**F1).model_config()
     config["type"] = "transformer_xl"

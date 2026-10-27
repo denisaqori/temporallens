@@ -73,7 +73,12 @@ def save_checkpoint(
     *,
     normalization: Mapping[str, Any],
 ) -> None:
-    """Write ``{model_state, model_config}``, with the statistics folded into the config."""
+    """Write ``{model_state, model_config}``, with the statistics folded into the config.
+
+    The assembled config passes the loader's own validation before anything is written, so this
+    cannot produce a file :func:`load_checkpoint` refuses — 11-channel statistics for a 12-channel
+    model, say.
+    """
     if not normalization:
         raise CheckpointError(
             "refusing to save without normalization statistics: a consumer that rebuilds this "
@@ -87,18 +92,12 @@ def save_checkpoint(
             "checkpoint contract"
         )
 
-    try:
-        ChannelStats.from_dict(normalization)
-    except ValueError as error:
-        raise CheckpointError(
-            f"refusing to save malformed normalization statistics: {error}"
-        ) from error
-
     config = dict(describe())
     config["normalization"] = dict(normalization)
     config["schema_version"] = MODEL_CONFIG_SCHEMA_VERSION
 
     destination = Path(path)
+    _validate_model_config(config, f"refusing to save {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"model_state": model.state_dict(), "model_config": config}, destination)
 
@@ -138,11 +137,12 @@ def load_checkpoint(path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
         raise CheckpointError(f"{source}: model_state must map parameter names to tensors")
     if not isinstance(config, dict):
         raise CheckpointError(f"{source}: model_config must be a mapping")
-    _validate_model_config(config, source)
+    _validate_model_config(config, str(source))
     return dict(state), config
 
 
-def _validate_model_config(config: dict[str, Any], source: Path) -> None:
+def _validate_model_config(config: dict[str, Any], source: str) -> None:
+    # One validator for both ends of the contract; ``source`` prefixes its messages.
     version = config.get("schema_version")
     if isinstance(version, bool) or version != MODEL_CONFIG_SCHEMA_VERSION:
         raise CheckpointError(

@@ -216,9 +216,17 @@ def test_round_trip_through_a_plain_dict() -> None:
     [
         ({"std": [1.0] * 11}, "same length"),
         ({"mean": [float("nan")] + [0.0] * 11}, "finite"),
-        ({"std": [0.0] * 12}, "positive"),
+        ({"std": [0.0] * 12}, "at least the fitting floor"),
+        # Valid as float64 payloads, invalid as the float32 values the statistics are used as.
+        ({"std": [1e-100] + [1.0] * 11}, "at least the fitting floor"),
+        ({"mean": [1e39] + [0.0] * 11}, "finite once stored as float32"),
+        # Positive, but below anything the fitter can produce.
+        ({"std": [1e-9] + [1.0] * 11}, "at least the fitting floor"),
         ({"num_samples": 0}, "num_samples"),
         ({"fitted_on": ""}, "fitted_on"),
+        ({"floored_channels": [1.9]}, "floored_channels"),
+        ({"floored_channels": [12]}, "floored_channels"),
+        ({"floored_channels": [3, 3]}, "floored_channels"),
     ],
 )
 def test_malformed_statistics_are_refused_when_read_back(change, reason) -> None:
@@ -228,3 +236,17 @@ def test_malformed_statistics_are_refused_when_read_back(change, reason) -> None
     payload.update(change)
     with pytest.raises(ValueError, match=reason):
         ChannelStats.from_dict(payload)
+
+
+def test_a_floored_channel_survives_the_round_trip() -> None:
+    """The floor is the smallest std the reader accepts, so the fitter's own output must pass."""
+    rec = recording(1, seed=9)
+    emg = rec.emg.copy()
+    emg[:, 3] = 0.0
+    from temporallens.data.ninapro import SubjectRecording
+
+    flat = SubjectRecording(1, emg, rec.label, rec.repetition)
+    stats = fit_channel_stats({1: flat}, _index(flat), fitted_on="debug")
+    restored = ChannelStats.from_dict(stats.to_dict())
+    assert restored.floored_channels == (3,)
+    np.testing.assert_array_equal(restored.std, stats.std)

@@ -70,6 +70,10 @@ def _labels(
     for name, values in (("predicted", predicted), ("true", true)):
         if not np.issubdtype(values.dtype, np.integer):
             raise ValueError(f"{name} labels must be an integer array, got {values.dtype}")
+        # Without a class count only the lower bound is knowable, and it still matters: accuracy
+        # would otherwise count a -1 predicted for a -1 truth as correct.
+        if num_classes is None and values.min() < 0:
+            raise ValueError(f"{name} labels must be non-negative, got {values.min()}")
     if num_classes is not None:
         _class_range(predicted, num_classes)
         _class_range(true, num_classes)
@@ -341,8 +345,16 @@ def per_subject(
     """Apply ``metric`` within each subject separately — never pooled (D26).
 
     A pooled number can look respectable while one subject sits at chance.
+
+    Subject IDs must be a non-empty 1-D integer array. Results are keyed by ``int(subject)``, so
+    fractional IDs such as 1.1 and 1.9 would land on the same key and one subject's result would
+    silently overwrite the other's.
     """
     subject_ids = np.asarray(subjects)
+    if subject_ids.ndim != 1 or subject_ids.size == 0:
+        raise ValueError("per_subject needs a non-empty 1-D array of subject IDs")
+    if not np.issubdtype(subject_ids.dtype, np.integer):
+        raise ValueError(f"subject IDs must be an integer array, got {subject_ids.dtype}")
     for array in arrays:
         if len(np.asarray(array)) != subject_ids.size:
             raise ValueError(
