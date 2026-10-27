@@ -187,5 +187,10 @@ def rebuild_model(path: str | Path) -> nn.Module:
         model = builder(config)
     except (ValueError, KeyError) as error:
         raise CheckpointError(f"{path}: {error}") from error
-    model.load_state_dict(state)
+    try:
+        model.load_state_dict(state)
+    except RuntimeError as error:
+        raise CheckpointError(
+            f"{path}: the stored weights do not match the model its config describes: {error}"
+        ) from error
     return model

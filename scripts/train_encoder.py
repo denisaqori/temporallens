@@ -131,15 +131,25 @@ def leaf_paths(node: Any, prefix: str = "") -> dict[str, Any]:
 
 def read_config(config_path: Path) -> dict[str, Any]:
     """Read a config once, strictly: a repeated key is an error, never last-write-wins."""
+    return read_config_with_digest(config_path)[0]
+
+
+def read_config_with_digest(config_path: Path) -> tuple[dict[str, Any], str]:
+    """Read a config and the SHA-256 of the exact bytes that were parsed.
+
+    One read for both, so the recorded digest can never describe a different version of the file
+    from the one the run was built from.
+    """
     try:
-        raw = load_yaml(config_path.read_text())
+        content = config_path.read_bytes()
+        raw = load_yaml(content.decode("utf-8"))
     except DuplicateKeyError as error:
         raise ConfigError(f"{config_path}: {error}") from error
-    except (OSError, yaml.YAMLError) as error:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
         raise ConfigError(f"{config_path}: cannot read config: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{config_path}: expected a YAML mapping")
-    return raw
+    return raw, hashlib.sha256(content).hexdigest()
 
 
 def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConfig, dict[str, Any]]:
@@ -241,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        raw = read_config(args.config)
+        raw, config_file_sha256 = read_config_with_digest(args.config)
         config, recorded = build_run_config(raw, args.config, args.output_dir)
     except ConfigError as error:
         parser.error(str(error))
@@ -266,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     metadata = {
         **recorded,
         "config_path": str(args.config),
-        "config_file_sha256": hashlib.sha256(args.config.read_bytes()).hexdigest(),
+        "config_file_sha256": config_file_sha256,
     }
     try:
         result = train_encoder(

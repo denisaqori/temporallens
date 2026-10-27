@@ -72,6 +72,7 @@ def test_the_real_f0_settings_are_valid() -> None:
         ("max_windows_per_subject", 0, "positive integer"),
         ("num_workers", -1, "non-negative integer"),
         ("seed", -1, "non-negative integer"),
+        ("seed", 2**32, "below 2"),
         ("name", "", "name"),
         ("train_subjects", [1, 1, 2], "repeat"),
         ("held_out_subjects", [3, 3], "repeat"),

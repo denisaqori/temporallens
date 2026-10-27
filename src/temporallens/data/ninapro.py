@@ -21,7 +21,7 @@ live in ``tmp_path``, and no number computed from them is reportable.
 from __future__ import annotations
 
 import os
-import tempfile
+import uuid
 import zipfile
 import zlib
 from dataclasses import dataclass
@@ -248,11 +248,9 @@ def save_processed(recording: SubjectRecording, path: str | Path) -> None:
     """
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary_name = tempfile.mkstemp(
-        prefix=f".{destination.stem}.", suffix=".npz", dir=destination.parent
-    )
-    os.close(handle)
-    temporary = Path(temporary_name)
+    # A unique name, created by the write itself rather than by `tempfile.mkstemp`: mkstemp makes
+    # owner-only files, and `os.replace` would carry that mode onto the final archive.
+    temporary = destination.with_name(f".{destination.stem}.{uuid.uuid4().hex}.npz")
     try:
         np.savez_compressed(
             temporary,
