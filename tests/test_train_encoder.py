@@ -213,3 +213,68 @@ def test_a_mode_this_script_does_not_run_is_refused(tmp_path, debug_config) -> N
     debug_config["experiment"]["mode"] = "evaluate"
     with pytest.raises(_script().ConfigError, match="experiment.mode"):
         _script().load_run_config(_write(tmp_path, debug_config), tmp_path)
+
+
+def test_the_script_records_its_metadata_in_the_run_log(tmp_path, debug_config) -> None:
+    """What the loader records -- mode, protocol state, tracking mode, declared metrics -- and the
+    exact config file it read must reach run.json, not stop at the loader."""
+    import hashlib
+    import json
+
+    from temporallens.data.ninapro import processed_path, save_processed
+
+    data_dir = tmp_path / "processed"
+    for subject, rec in recordings((1, 2, 3), gestures=3, repetitions=2).items():
+        save_processed(rec, processed_path(data_dir, subject))
+    debug_config["dataset"]["data_dir"] = str(data_dir)
+    config_path = _write(tmp_path, debug_config)
+
+    assert (
+        _script().main(["--config", str(config_path), "--output-dir", str(tmp_path / "runs")]) == 0
+    )
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    metadata = json.loads((run_dir / "run.json").read_text())["metadata"]
+    assert metadata["experiment.mode"] == "debug"
+    assert metadata["tracking.wandb_mode"] == "disabled"
+    assert metadata["declared_metrics"] == sorted(debug_config["evaluation"]["metrics"])
+    assert metadata["config_path"] == str(config_path)
+    assert metadata["config_file_sha256"] == hashlib.sha256(config_path.read_bytes()).hexdigest()
+
+
+def test_a_non_debug_run_from_uncommitted_code_is_refused(
+    tmp_path, debug_config, monkeypatch
+) -> None:
+    """Only a debug run may start from uncommitted code; anything else could become a number."""
+    from temporallens.data.ninapro import processed_path, save_processed
+    from temporallens.utils import run_logger
+
+    data_dir = tmp_path / "processed"
+    for subject, rec in recordings((1, 2, 3), gestures=3, repetitions=2).items():
+        save_processed(rec, processed_path(data_dir, subject))
+    debug_config["dataset"]["data_dir"] = str(data_dir)
+    debug_config["experiment"]["mode"] = "train"
+    config_path = _write(tmp_path, debug_config)
+    dirty = {"commit": "a" * 40, "dirty": True, "changes": [" M x.py"], "diff_sha256": "f" * 64}
+    monkeypatch.setattr(run_logger, "get_git_state", lambda: dict(dirty))
+
+    with pytest.raises(SystemExit) as exit_info:
+        _script().main(["--config", str(config_path), "--output-dir", str(tmp_path / "runs")])
+    assert exit_info.value.code == 2
+    assert not (tmp_path / "runs").exists(), "the refusal must come before any run directory"
+
+
+def test_the_clean_tree_refusal_comes_before_any_data_is_loaded(tmp_path, monkeypatch) -> None:
+    """For F1 that is 32 subjects; refusing after loading them all is a slow way to say no."""
+    from temporallens.training import encoder
+    from temporallens.utils import run_logger
+
+    dirty = {"commit": "a" * 40, "dirty": True, "changes": [" M x.py"], "diff_sha256": "f" * 64}
+    monkeypatch.setattr(run_logger, "get_git_state", lambda: dict(dirty))
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("data was loaded before the clean-tree check")
+
+    monkeypatch.setattr(encoder, "_load", fail_if_called)
+    config, _ = _script().load_run_config(DEBUG_CONFIG, tmp_path)
+    with pytest.raises(run_logger.UncommittedCodeError):
+        encoder.train_encoder(config, require_clean_tree=True)

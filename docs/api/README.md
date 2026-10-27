@@ -64,7 +64,7 @@ Two tests keep these honest: every `EncoderRunConfig` setting must have a config
 
 The script runs one train/held-out split, which is F0's protocol. A config describing another protocol is refused rather than approximated: `split: random_window` means the leakage demonstration (F2), and otherwise a `split_manifest` means cross-validation (F1). F2 names the manifest too — only to draw its windows from the development subjects — which is why the random-window check comes first. A single-split number computed from either config would carry the name of a protocol it did not follow.
 
-A config's `protocol:` block governs whether its results may be **reported**, not whether it may train. A blocked config that trains prints `NOT REPORTABLE`.
+A config's `protocol:` block governs whether its results may be **reported**, not whether it may train. A blocked config that trains prints `NOT REPORTABLE`. Only a `debug` run may start from uncommitted code; any other mode must start from a clean tree, so its numbers trace to a commit. What the loader records, plus the config file's path and hash, goes into the run log as metadata.
 
 ### Which config keys reach which module
 
@@ -286,11 +286,18 @@ Chooses the device a run uses.
 **Connects to** `training.encoder`
 
 ### `utils.run_logger`
-Local, always-on JSON logging for every run.
+Local, always-on JSON logging for every run, and the record that traces a run's numbers to their code.
 
-Each run gets its own directory, with `run.json` (configuration, git commit, the device the run executed on, timestamps, summary, artifacts) and `metrics.jsonl` (one line per logged step). Logging cannot be switched off and does not depend on a network service, so the record of a run never depends on one.
+Each run gets its own directory, with `run.json` and `metrics.jsonl` (one line per logged step). Logging cannot be switched off and does not depend on a network service. `run.json` records:
 
-The device is a required argument and is recorded at the top level beside the git commit, because it describes the run rather than its configuration. The configuration keeps what was *requested*, which may be `auto`; the log refuses `auto` and records what `utils.device` actually resolved, since a log that says only `auto` cannot tell a reader which backend produced its numbers.
+- the configuration and its `config_sha256`, a digest of canonical JSON, so key order does not change its identity;
+- the git commit, whether the working tree was dirty, the changed paths, and `git_diff_sha256`, a digest of the tracked diff plus every untracked file — so two runs with the same commit and digest ran the same code;
+- the device the run executed on, as a required argument, beside the commit;
+- the caller's metadata (for the encoder script: mode, protocol state, tracking mode, declared metrics, and the config file's path and hash);
+- every artifact the run wrote, with its SHA-256 and size;
+- timestamps and the summary.
+
+A commit alone is not enough: the first F0 run recorded a commit from before `train_encoder.py` existed, because the script was still uncommitted. A run that may be reported therefore refuses to start from a dirty tree — `ensure_clean_tree` raises `UncommittedCodeError` — and the check runs before any data is loaded, then again when the logger is created. The configuration keeps what was *requested*, which may be `auto`; the log refuses `auto` as a device and records what `utils.device` resolved.
 
 **Connects to** `training.encoder` · `tracking.*` in the configs
 

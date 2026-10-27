@@ -24,6 +24,7 @@ rather than merely documented. Translating a YAML config and a split manifest in
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -61,7 +62,7 @@ from temporallens.models.encoders.cnn1d import MODEL_TYPE, build_model
 from temporallens.preprocessing.normalize import fit_channel_stats
 from temporallens.training.class_weights import inverse_frequency_weights
 from temporallens.utils.device import SUPPORTED_DEVICES, resolve_device
-from temporallens.utils.run_logger import RunLogger
+from temporallens.utils.run_logger import RunLogger, ensure_clean_tree
 
 #: The only loss D11 permits for these runs.
 SUPPORTED_LOSS = "class_weighted_cross_entropy"
@@ -308,8 +309,20 @@ def _weighted_epoch_loss(batches: list[tuple[float, float]]) -> float:
     return sum(loss * weight for loss, weight in batches) / total_weight
 
 
-def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
-    """Train the encoder and head on ``train_subjects``, score on ``held_out_subjects``."""
+def train_encoder(
+    config: EncoderRunConfig,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+    require_clean_tree: bool = False,
+) -> EncoderRunResult:
+    """Train the encoder and head on ``train_subjects``, score on ``held_out_subjects``.
+
+    ``metadata`` is what the caller knows that the run config does not: the source config file,
+    its mode and protocol state. ``require_clean_tree`` refuses to start from uncommitted code,
+    which a reportable run must; see ``utils.run_logger``.
+    """
+    if require_clean_tree:  # before loading anything, so a refusal is immediate
+        ensure_clean_tree(config.name)
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     device = resolve_device(config.device)
@@ -357,7 +370,14 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
     )
 
     # The config records what was requested (possibly `auto`); the log records what `auto` picked.
-    logger = RunLogger(config.name, _loggable(config), root_dir=config.output_dir, device=device)
+    logger = RunLogger(
+        config.name,
+        _loggable(config),
+        root_dir=config.output_dir,
+        device=device,
+        metadata=metadata,
+        require_clean_tree=require_clean_tree,
+    )
 
     epoch_losses: list[float] = []
     for epoch in range(config.epochs):  # fixed horizon, no early stopping (D18/D19)
@@ -408,14 +428,17 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
         # F0 is not a measurement, so it may not write the name downstream arms load (D7).
         checkpoint_path = Path(logger.run_dir) / "encoder.pt"
         save_checkpoint(checkpoint_path, model, normalization=normalization.to_dict())
+        logger.add_artifact("checkpoint", checkpoint_path)
 
     if config.save_predictions:
+        predictions_path = Path(logger.run_dir) / "predictions.npz"
         np.savez_compressed(
-            Path(logger.run_dir) / "predictions.npz",
+            predictions_path,
             probs=probabilities.astype(np.float32),
             label=labels,
             subject=subjects,
         )
+        logger.add_artifact("predictions", predictions_path)
 
     logger.finalize({"metrics": metrics, "per_subject": per_subject_metrics})
 

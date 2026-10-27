@@ -23,6 +23,7 @@ config would look like F1 and not be it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ import yaml
 
 from temporallens.evaluation.robustness import protocol_blockers
 from temporallens.training.encoder import EncoderRunConfig, train_encoder
+from temporallens.utils.run_logger import UncommittedCodeError
 from temporallens.utils.yaml_io import DuplicateKeyError, load_yaml
 
 #: Config path -> ``EncoderRunConfig`` field. One entry per field the run actually takes.
@@ -256,7 +258,21 @@ def main(argv: list[str] | None = None) -> int:
         f"Training {config.name}: {len(config.train_subjects)} train subject(s), "
         f"{len(config.held_out_subjects)} held out, {config.epochs} epoch(s)"
     )
-    result = train_encoder(config)
+    # Only a debug run may start from uncommitted code; anything else could become a reported
+    # number, and a reported number has to be traceable to a commit.
+    metadata = {
+        **recorded,
+        "config_path": str(args.config),
+        "config_file_sha256": hashlib.sha256(args.config.read_bytes()).hexdigest(),
+    }
+    try:
+        result = train_encoder(
+            config,
+            metadata=metadata,
+            require_clean_tree=recorded["experiment.mode"] != "debug",
+        )
+    except UncommittedCodeError as error:
+        parser.error(str(error))
     print(f"Run directory: {result.run_dir}")
     for key in ("accuracy", "macro_f1"):
         print(f"  {key}: {result.metrics[key]:.4f}")

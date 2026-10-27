@@ -12,6 +12,7 @@ epochs, no early stopping), and the checkpoint contract.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -263,3 +264,17 @@ def test_the_logged_epoch_loss_weights_batches_by_their_class_weight() -> None:
 
     # Two batches: mean 1.0 over weight sum 1.0, mean 3.0 over weight sum 3.0.
     assert _weighted_epoch_loss([(1.0, 1.0), (3.0, 3.0)]) == pytest.approx(2.5)  # not 2.0
+
+
+def test_written_artifacts_are_registered_with_their_hashes(prepared) -> None:
+    """The run log lists what the run wrote, with hashes, so a file can be matched to its run."""
+    import hashlib
+
+    data_dir, out_dir = prepared
+    result = train_encoder(_config(data_dir, out_dir, save_checkpoint=True, save_predictions=True))
+    artifacts = json.loads((result.run_dir / "run.json").read_text())["artifacts"]
+    assert set(artifacts) == {"checkpoint", "predictions"}
+    for entry in artifacts.values():
+        content = Path(entry["path"]).read_bytes()
+        assert entry["sha256"] == hashlib.sha256(content).hexdigest()
+        assert entry["bytes"] == len(content)
