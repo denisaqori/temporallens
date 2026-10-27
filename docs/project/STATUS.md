@@ -97,6 +97,7 @@ Work that is started but not finished. Each entry must be resumable cold by a di
 1. **P0 — Owner protocol decisions.** D38–D40 resolve F1's remaining optimizer and calibration choices; F1 is protocol-ready but still needs its P1 harness and fitted artifacts. The choices below block F2 or later-arm execution/headline inference; all are tracked in DECISIONS → Pending and must be resolved explicitly rather than receiving runner defaults.
 
    **Still open** — tracked in DECISIONS → Pending:
+   - **F1 CUDA run scope.** D42 runs F1 on MPS first and then on CUDA; whether the CUDA run retrains F1 or re-scores the MPS checkpoint decides which encoder both arms freeze.
    - **Project-wide random-generator convention.** One generator, seed derivation keyed by experiment, purpose and index, and a persistence rule. The F2-fold, G3-schedule (and G1-rotation) and language-seed choices each need it, and would then name only their keys.
    - **F2 window-fold reproducibility.** Fix outer random-window test assignment, inner eight-fold permutation/assignment and index/seed rules; persist both assignments. D39/D40 resolve the shared calibration and F1 validation-source choices, so this does not block F1.
    - **Language repeat seeds.** D36 fixes common paired seed indices and within-subject reduction; the numeric count and deterministic component-seed derivation remain open.
