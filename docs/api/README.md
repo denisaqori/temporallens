@@ -58,6 +58,8 @@ The declarations at the top of the script are the contract itself:
 | `RECORDED_PATHS` | Kept as run metadata, not acted on: `experiment.mode`, `protocol.*` |
 | `PRODUCED_METRICS` | What a run computes; a config may ask for a subset, never more |
 
+Every config is read once, through `utils.yaml_io`, so a repeated key is an error rather than a silent last-write-wins. Checked keys are required as well as checked — a check that applies only when a key is present can be dodged by leaving the key out — and `experiment.mode` must be `debug` or `train`, since this script only trains and the mode decides whether a run can ever be reportable. A value the run config refuses is reported as a config error naming the file.
+
 Two tests keep these honest: every `EncoderRunConfig` setting must have a config key (except `output_dir` — where runs are written is not a protocol choice), and a real training pass must produce exactly `PRODUCED_METRICS`.
 
 The script runs one train/held-out split, which is F0's protocol. A config describing another protocol is refused rather than approximated: `split: random_window` means the leakage demonstration (F2), and otherwise a `split_manifest` means cross-validation (F1). F2 names the manifest too — only to draw its windows from the development subjects — which is why the random-window check comes first. A single-split number computed from either config would carry the name of a protocol it did not follow.
@@ -111,7 +113,7 @@ Eight subjects are the project's final test set and are never used for developme
 
 `SplitManifest.load()` first checks the structure: the roles partition all 40 subjects, every development subject validates in exactly one fold, no fold validates on a test subject, and calibration and evaluation repetitions do not overlap. It then compares a SHA-256 over the split-defining fields with a digest pinned in code, so editing the manifest and re-hashing it does not pass. The digest comes last so that structural problems get specific messages.
 
-**Connects to** every reportable config, through `dataset.split_manifest` · **Decisions** D13, D16
+**Connects to** every reportable config, through `dataset.split_manifest` · `utils.yaml_io` (reads the manifest strictly) · **Decisions** D13, D16
 
 ### `data.dataset`
 A PyTorch `Dataset` over a window index.
@@ -213,7 +215,7 @@ Rest is 50.2% of windows at stride 100, about 17.5 times the median gesture clas
 ### `training.encoder`
 One encoder training run: a run configuration in, a recorded result out.
 
-`EncoderRunConfig` takes explicit lists of training and held-out subjects rather than a config path, so it has no way to resolve "every subject". It refuses overlapping lists, and checks the loss, model type, normalization policy and device against what this code can do.
+`EncoderRunConfig` takes explicit lists of training and held-out subjects rather than a config path, so it has no way to resolve "every subject". It refuses overlapping lists, and checks the loss, model type, normalization policy and device against what this code can do. It also refuses values that would quietly train something other than what was declared: a non-positive epoch count, batch size or learning rate, a stride longer than the window, dropout outside [0, 1), channel or class counts other than DB2's 12 and 18, and a subject listed twice. The last matters because recordings are loaded into a dictionary keyed by subject, which would collapse the repeat and train on fewer subjects than the config lists.
 
 `train_encoder()` runs these steps in order:
 
@@ -262,6 +264,13 @@ A robustness evaluation pairs a perturbation (noise, channel dropout, amplitude 
 `protocol_blockers` is a single function used by both checks — a perturbation config checks itself, and each target checks the experiment that produced it — so the two cannot apply different rules. Readiness has to be declared: a config with no `protocol:` block produces no blockers, which is indistinguishable from `status: ready`, so every config the registry names is required (by test) to state its status.
 
 **Connects to** `scripts/evaluate.py` (calls it) · `configs/experiment/robustness_targets.yaml` · **Decision** D2
+
+### `utils.yaml_io`
+Strict YAML reading for every file whose contents decide what a run does.
+
+PyYAML's safe loader keeps the *last* value when a mapping repeats a key, silently. In a config that means `epochs: 2` near the top and `epochs: 500` further down trains for 500 epochs while a reader of the top sees 2, and nothing records that two values existed. `load_yaml` refuses a repeated or unhashable key and names its line. It started as the split manifest's private loader and is shared so that configs and the manifest follow one rule. YAML merge keys (`<<:`) are not supported, and no project file uses them.
+
+**Connects to** `data.splits` · `scripts/train_encoder.py`
 
 ### `utils.device`
 Chooses the device a run uses.

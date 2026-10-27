@@ -23,6 +23,7 @@ rather than merely documented. Translating a YAML config and a split manifest in
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,14 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from temporallens.data.dataset import WindowDataset
-from temporallens.data.ninapro import SubjectRecording, load_processed, processed_path
+from temporallens.data.ninapro import (
+    NUM_CHANNELS,
+    NUM_CLASSES,
+    NUM_SUBJECTS,
+    SubjectRecording,
+    load_processed,
+    processed_path,
+)
 from temporallens.data.windows import WindowIndex, concatenate, index_recording, segment_spans
 from temporallens.evaluation.metrics import (
     accuracy,
@@ -63,6 +71,40 @@ SUPPORTED_LOSS = "class_weighted_cross_entropy"
 #: window split needs `train_split_covered_sample_stats` instead — a different fitting set, and
 #: not written — so declaring it here fails rather than silently using the subject-based one.
 SUPPORTED_NORMALIZATION = "train_subject_covered_sample_stats"
+
+
+def _is_int(value: Any) -> bool:
+    """True for a real integer. ``bool`` is an ``int`` subclass, and YAML's ``true`` is one."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _require_positive_int(name: str, value: Any) -> None:
+    if not _is_int(value) or value <= 0:
+        raise ValueError(f"{name} must be a positive integer, got {value!r}")
+
+
+def _require_non_negative_int(name: str, value: Any) -> None:
+    if not _is_int(value) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer, got {value!r}")
+
+
+def _require_subjects(name: str, subjects: Any) -> None:
+    """Subjects named once each, as DB2 subject numbers. Repeats matter because recordings are
+    loaded into a dictionary keyed by subject, which would silently collapse them."""
+    if not isinstance(subjects, (list, tuple)) or not all(
+        _is_int(s) and 1 <= s <= NUM_SUBJECTS for s in subjects
+    ):
+        raise ValueError(f"{name} must be subject numbers in 1..{NUM_SUBJECTS}, got {subjects!r}")
+    repeated = sorted({s for s in subjects if list(subjects).count(s) > 1})
+    if repeated:
+        raise ValueError(
+            f"{name} repeats subject(s) {repeated}; each subject is one recording, so a repeat "
+            "would be silently collapsed and the run would use fewer subjects than declared"
+        )
 
 
 @dataclass(frozen=True)
@@ -100,6 +142,51 @@ class EncoderRunConfig:
     save_predictions: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError(f"name must be a non-empty string, got {self.name!r}")
+        _require_non_negative_int("seed", self.seed)
+        _require_subjects("train_subjects", self.train_subjects)
+        _require_subjects("held_out_subjects", self.held_out_subjects)
+        for name in (
+            "window_size",
+            "stride",
+            "hidden_dim",
+            "embedding_dim",
+            "batch_size",
+            "epochs",
+        ):
+            _require_positive_int(name, getattr(self, name))
+        if self.stride > self.window_size:
+            raise ValueError(
+                f"stride ({self.stride}) must not exceed window_size ({self.window_size}); a larger "
+                "stride skips the samples between windows, which no protocol here intends"
+            )
+        if self.input_channels != NUM_CHANNELS or not _is_int(self.input_channels):
+            raise ValueError(
+                f"input_channels must be {NUM_CHANNELS}: DB2 Exercise B has {NUM_CHANNELS} "
+                f"channels, got {self.input_channels!r}"
+            )
+        if self.num_classes != NUM_CLASSES or not _is_int(self.num_classes):
+            raise ValueError(
+                f"num_classes must be {NUM_CLASSES}: DB2 Exercise B has {NUM_CLASSES} classes "
+                f"(17 gestures and rest), got {self.num_classes!r}"
+            )
+        if not _is_finite_number(self.learning_rate) or self.learning_rate <= 0:
+            raise ValueError(
+                f"learning_rate must be a positive finite number, got {self.learning_rate!r}"
+            )
+        if not _is_finite_number(self.weight_decay) or self.weight_decay < 0:
+            raise ValueError(
+                f"weight_decay must be a non-negative finite number, got {self.weight_decay!r}"
+            )
+        if not _is_finite_number(self.dropout) or not 0 <= self.dropout < 1:
+            raise ValueError(f"dropout must be a finite number in [0, 1), got {self.dropout!r}")
+        if self.max_windows_per_subject is not None:
+            _require_positive_int("max_windows_per_subject", self.max_windows_per_subject)
+        _require_non_negative_int("num_workers", self.num_workers)
+        for name in ("save_checkpoint", "save_predictions"):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be true or false, got {getattr(self, name)!r}")
         overlap = set(self.train_subjects) & set(self.held_out_subjects)
         if overlap:
             raise ValueError(

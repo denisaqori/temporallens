@@ -178,3 +178,38 @@ def test_a_declared_metric_the_run_never_computes_is_refused(tmp_path, debug_con
     debug_config["evaluation"]["metrics"].append("per_subject_brier_score")
     with pytest.raises(_script().ConfigError, match="does not compute"):
         _script().load_run_config(_write(tmp_path, debug_config), tmp_path)
+
+
+# --- strict reading: no silent last-write-wins, no silently optional checked keys --------------
+
+
+def test_a_repeated_key_in_the_config_is_refused(tmp_path) -> None:
+    """A second `epochs:` used to win silently: a config showing 2 near the top trained for 500."""
+    text = DEBUG_CONFIG.read_text().replace("  epochs: 2\n", "  epochs: 2\n  epochs: 500\n")
+    assert text.count("epochs:") == 2, "premise: the duplicate was inserted"
+    path = tmp_path / "duplicate.yaml"
+    path.write_text(text)
+    with pytest.raises(_script().ConfigError, match="duplicate YAML mapping key: 'epochs'"):
+        _script().load_run_config(path, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("section", "key"),
+    [
+        ("dataset", "name"),
+        ("dataset", "exercise"),
+        ("tracking", "json_logging"),
+        ("experiment", "mode"),
+    ],
+)
+def test_a_checked_key_may_not_be_omitted(tmp_path, debug_config, section, key) -> None:
+    """A checked key that is only checked when present can be dropped to dodge the check."""
+    del debug_config[section][key]
+    with pytest.raises(_script().ConfigError, match="missing required keys"):
+        _script().load_run_config(_write(tmp_path, debug_config), tmp_path)
+
+
+def test_a_mode_this_script_does_not_run_is_refused(tmp_path, debug_config) -> None:
+    debug_config["experiment"]["mode"] = "evaluate"
+    with pytest.raises(_script().ConfigError, match="experiment.mode"):
+        _script().load_run_config(_write(tmp_path, debug_config), tmp_path)

@@ -31,6 +31,7 @@ import yaml
 
 from temporallens.evaluation.robustness import protocol_blockers
 from temporallens.training.encoder import EncoderRunConfig, train_encoder
+from temporallens.utils.yaml_io import DuplicateKeyError, load_yaml
 
 #: Config path -> ``EncoderRunConfig`` field. One entry per field the run actually takes.
 FIELD_PATHS = {
@@ -70,10 +71,18 @@ CHECKED_PATHS = {
 
 #: Keys with several legal values, none of which this script may silently widen. `wandb_mode:
 #: online` asserts remote logging that nothing performs, so it is refused rather than ignored.
-ALLOWED_VALUE_PATHS = {"tracking.wandb_mode": ("disabled", "offline")}
+#: `experiment.mode` decides whether a run may be reportable, and this script only trains.
+ALLOWED_VALUE_PATHS = {
+    "tracking.wandb_mode": ("disabled", "offline"),
+    "experiment.mode": ("debug", "train"),
+}
+
+#: Checked keys that must be present. A check that applies only when the key exists is one a
+#: config can dodge by leaving the key out.
+REQUIRED_CHECK_PATHS = (*CHECKED_PATHS, "experiment.mode")
 
 #: Kept in the run log; they do not steer this script.
-RECORDED_PATHS = ("experiment.mode", "protocol.status", "protocol.blocked_on")
+RECORDED_PATHS = ("protocol.status", "protocol.blocked_on")
 
 #: Declared twice in the configs, once under `dataset` and once under `model`. Both are read, and
 #: they have to agree — otherwise one of them is decoration and nobody knows which.
@@ -118,11 +127,28 @@ def leaf_paths(node: Any, prefix: str = "") -> dict[str, Any]:
     return {prefix: node}
 
 
-def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConfig, dict[str, Any]]:
-    """Build a run config, refusing anything this script cannot honour exactly."""
-    raw = yaml.safe_load(config_path.read_text())
+def read_config(config_path: Path) -> dict[str, Any]:
+    """Read a config once, strictly: a repeated key is an error, never last-write-wins."""
+    try:
+        raw = load_yaml(config_path.read_text())
+    except DuplicateKeyError as error:
+        raise ConfigError(f"{config_path}: {error}") from error
+    except (OSError, yaml.YAMLError) as error:
+        raise ConfigError(f"{config_path}: cannot read config: {error}") from error
     if not isinstance(raw, dict):
         raise ConfigError(f"{config_path}: expected a YAML mapping")
+    return raw
+
+
+def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConfig, dict[str, Any]]:
+    """Read and build a run config, refusing anything this script cannot honour exactly."""
+    return build_run_config(read_config(config_path), config_path, output_dir)
+
+
+def build_run_config(
+    raw: dict[str, Any], config_path: Path, output_dir: Path
+) -> tuple[EncoderRunConfig, dict[str, Any]]:
+    """Build a run config from an already-read config mapping."""
     leaves = leaf_paths(raw)
 
     if leaves.get("dataset.split") == "random_window":
@@ -153,7 +179,9 @@ def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConf
         )
 
     missing = sorted(
-        path for path in FIELD_PATHS if path not in leaves and path not in OPTIONAL_FIELD_PATHS
+        {path for path in FIELD_PATHS if path not in OPTIONAL_FIELD_PATHS}
+        .union(REQUIRED_CHECK_PATHS)
+        .difference(leaves)
     )
     if missing:
         raise ConfigError(f"{config_path} is missing required keys: {missing}")
@@ -192,7 +220,11 @@ def load_run_config(config_path: Path, output_dir: Path) -> tuple[EncoderRunConf
     recorded = {path: leaves[path] for path in RECORDED_PATHS if path in leaves}
     recorded.update({path: leaves[path] for path in ALLOWED_VALUE_PATHS if path in leaves})
     recorded["declared_metrics"] = sorted(declared)
-    return EncoderRunConfig(**kwargs), recorded
+    try:
+        config = EncoderRunConfig(**kwargs)
+    except ValueError as error:
+        raise ConfigError(f"{config_path}: {error}") from error
+    return config, recorded
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -207,13 +239,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        config, recorded = load_run_config(args.config, args.output_dir)
+        raw = read_config(args.config)
+        config, recorded = build_run_config(raw, args.config, args.output_dir)
     except ConfigError as error:
         parser.error(str(error))
 
     # Reportability, not permission to train. The status blocks quoting numbers from this run, not
     # producing the checkpoint, so this is a loud note rather than a refusal.
-    blockers = protocol_blockers(yaml.safe_load(args.config.read_text()), origin=str(args.config))
+    blockers = protocol_blockers(raw, origin=str(args.config))
     if blockers:
         print(f"NOT REPORTABLE: {args.config} is protocol-blocked ({', '.join(blockers)})")
     if recorded.get("experiment.mode") == "debug":

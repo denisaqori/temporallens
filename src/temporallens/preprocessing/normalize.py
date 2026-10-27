@@ -119,7 +119,7 @@ def fit_channel_stats(
     channels = recordings[int(subjects[0])].emg.shape[1]
 
     # Two passes. The identity E[x^2] - E[x]^2 is fine in float64 at these magnitudes, but a
-    # mean-centred second pass is exact and the data is already resident.
+    # mean-centred second pass is exact and the data is already resident (loaded in memory).
     total = np.zeros(channels, dtype=np.float64)
     count = 0
     for subject, mask in masks.items():

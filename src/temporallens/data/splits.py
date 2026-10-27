@@ -26,8 +26,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from yaml.nodes import MappingNode
-from yaml.resolver import BaseResolver
+
+from temporallens.utils.yaml_io import DuplicateKeyError, load_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 _SOURCE_MANIFEST_PATH = REPO_ROOT / "configs" / "splits" / "subject_independent_v1.yaml"
@@ -74,29 +74,6 @@ _HASH_PREFIX = "sha256:"
 
 class SplitManifestError(RuntimeError):
     """A manifest is internally inconsistent, or its content does not match its digest."""
-
-
-class _UniqueKeyLoader(yaml.SafeLoader):
-    """Safe YAML loader that rejects ambiguous duplicate mapping keys."""
-
-
-def _construct_unique_mapping(
-    loader: yaml.SafeLoader, node: MappingNode, deep: bool = False
-) -> dict[Any, Any]:
-    mapping: dict[Any, Any] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        try:
-            duplicate = key in mapping
-        except TypeError as exc:
-            raise SplitManifestError(f"unhashable YAML mapping key: {key!r}") from exc
-        if duplicate:
-            raise SplitManifestError(f"duplicate YAML mapping key: {key!r}")
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
-
-
-_UniqueKeyLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 def canonical_json(manifest: Mapping[str, Any]) -> str:
@@ -157,8 +134,8 @@ class SplitManifest:
             raise SplitManifestError(f"cannot read split manifest {manifest_path}: {exc}") from exc
 
         try:
-            raw = yaml.load(manifest_text, Loader=_UniqueKeyLoader)
-        except SplitManifestError as exc:
+            raw = load_yaml(manifest_text)
+        except DuplicateKeyError as exc:
             raise SplitManifestError(f"{manifest_path}: {exc}") from exc
         except yaml.YAMLError as exc:
             raise SplitManifestError(f"{manifest_path}: invalid YAML: {exc}") from exc
