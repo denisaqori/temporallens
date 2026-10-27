@@ -91,6 +91,8 @@ DB2 stores two versions of the gesture labels: the prompted ones (`stimulus`, `r
 
 The processed format stores signals and labels, not windows, because experiments window the same recordings differently (stride 200 in F0, 100 in F1).
 
+Both readers convert labels, repetitions and identifiers to integers only if nothing is lost: a fraction, a non-finite value or a number outside int16 is refused rather than truncated or wrapped. Casting first and checking afterwards had read 1.9 as 1. MATLAB stores whole numbers as doubles, so whole-number floats are accepted. `save_processed` writes to a temporary file in the same directory and moves it into place in one step, so an interrupted write never leaves a partial archive at the final name; any file `load_processed` cannot read is reported as a format error.
+
 **Connects to** `scripts/prepare_dataset.py` (writes) · `training.encoder` (reads) · **Decision** D12
 
 ### `data.windows`
@@ -307,7 +309,7 @@ A commit alone is not enough: the first F0 run recorded a commit from before `tr
 
 | Script | What it does |
 |---|---|
-| `prepare_dataset.py` | Converts raw `.mat` recordings to processed `.npz`, one per subject — about 75 MB each, 3 GB for all 40. `make prepare-debug-subjects` prepares the three F0 needs |
+| `prepare_dataset.py` | Converts raw `.mat` recordings to processed `.npz`, one per subject — about 75 MB each, 3 GB for all 40. It opens an existing file before skipping it and rebuilds one it cannot read, so an interrupted run is never skipped forever. `--subjects` needs at least one value; omit the flag for all 40. `make prepare-debug-subjects` prepares the three F0 needs |
 | `train_encoder.py` | Turns a config into a run; see [Configuration](#configuration). `make debug` |
 | `evaluate.py` | Robustness driver: works out which perturbation × target pairs may run. The evaluation itself is not written yet |
 | `verify_environment.py` | `make verify`: interpreter, packages, MPS |

@@ -20,6 +20,10 @@ live in ``tmp_path``, and no number computed from them is reportable.
 
 from __future__ import annotations
 
+import os
+import tempfile
+import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -102,6 +106,37 @@ class SubjectRecording:
         return int(self.emg.shape[0])
 
 
+def _exact_integers(values: Any, *, field: str, source: Path | str) -> npt.NDArray[np.int64]:
+    """Convert to integers only if nothing is lost: no fractions, no non-finite, no int16 wrap.
+
+    Casting first and validating afterwards read 1.9 as 1, and a value outside int16 wrapped to a
+    plausible label before any range check saw it. MATLAB stores whole numbers as doubles, so
+    whole-number floats are accepted.
+    """
+    array = np.asarray(values)
+    if array.dtype.kind not in "iuf":
+        raise NinaProFormatError(f"{source}: {field} must be numeric, got {array.dtype}")
+    if array.dtype.kind == "f" and not (
+        np.all(np.isfinite(array)) and np.all(array == np.round(array))
+    ):
+        raise NinaProFormatError(f"{source}: {field} must hold whole numbers")
+    limits = np.iinfo(np.int16)
+    if array.size and (array.min() < limits.min or array.max() > limits.max):
+        raise NinaProFormatError(
+            f"{source}: {field} holds values outside int16 [{limits.min}, {limits.max}]"
+        )
+    return array.astype(np.int64)
+
+
+def _exact_integer(values: Any, *, field: str, source: Path | str) -> int:
+    array = np.asarray(values).reshape(-1)
+    if array.size != 1:
+        raise NinaProFormatError(f"{source}: {field} must be a scalar, got {array.size} values")
+    if array.dtype.kind == "f" and not (np.isfinite(array[0]) and array[0] == np.round(array[0])):
+        raise NinaProFormatError(f"{source}: {field} must be a whole number, got {array[0]!r}")
+    return int(_exact_integers(array, field=field, source=source)[0])
+
+
 def read_raw_mat(path: str | Path, subject: int) -> SubjectRecording:
     """Read one subject's Exercise B ``.mat`` from ``data/raw/``.
 
@@ -144,12 +179,7 @@ def read_raw_mat(path: str | Path, subject: int) -> SubjectRecording:
         raise NinaProFormatError(f"{path}: missing required field(s) {missing}")
 
     def scalar_int(field: str) -> int:
-        values = np.asarray(mat[field]).reshape(-1)
-        if values.size != 1:
-            raise NinaProFormatError(
-                f"{path}: {field} must be a scalar, got shape {np.asarray(mat[field]).shape}"
-            )
-        return int(values[0])
+        return _exact_integer(mat[field], field=field, source=path)
 
     stored_subject = scalar_int("subject")
     if stored_subject != subject:
@@ -163,8 +193,16 @@ def read_raw_mat(path: str | Path, subject: int) -> SubjectRecording:
         )
 
     emg = np.asarray(mat["emg"], dtype=np.float32)
-    label = np.asarray(mat[LABEL_COLUMN], dtype=np.int16).reshape(-1)
-    repetition = np.asarray(mat[REPETITION_COLUMN], dtype=np.int16).reshape(-1)
+    label: npt.NDArray[np.int16] = (
+        _exact_integers(mat[LABEL_COLUMN], field=LABEL_COLUMN, source=path)
+        .reshape(-1)
+        .astype(np.int16)
+    )
+    repetition: npt.NDArray[np.int16] = (
+        _exact_integers(mat[REPETITION_COLUMN], field=REPETITION_COLUMN, source=path)
+        .reshape(-1)
+        .astype(np.int16)
+    )
     recording = SubjectRecording(subject=subject, emg=emg, label=label, repetition=repetition)
 
     if not np.any(recording.label == 0):
@@ -200,24 +238,50 @@ def read_raw_mat(path: str | Path, subject: int) -> SubjectRecording:
 
 
 def save_processed(recording: SubjectRecording, path: str | Path) -> None:
-    """Write one subject's processed ``.npz``."""
+    """Write one subject's processed ``.npz`` atomically.
+
+    The archive is written to a temporary file in the same directory and moved into place in one
+    step, so an interrupted write never leaves a partial archive at the final name. The temporary
+    name ends in ``.npz`` because ``np.savez_compressed`` appends that suffix to any name lacking
+    it, which would otherwise move the wrong file; it starts with a dot so ``available_subjects``
+    never mistakes it for a subject.
+    """
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        destination,
-        format_version=np.asarray(PROCESSED_FORMAT_VERSION, dtype=np.int16),
-        subject=np.asarray(recording.subject, dtype=np.int16),
-        emg=recording.emg,
-        label=recording.label,
-        repetition=recording.repetition,
-        label_column=np.asarray(LABEL_COLUMN),
-        repetition_column=np.asarray(REPETITION_COLUMN),
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.stem}.", suffix=".npz", dir=destination.parent
     )
+    os.close(handle)
+    temporary = Path(temporary_name)
+    try:
+        np.savez_compressed(
+            temporary,
+            format_version=np.asarray(PROCESSED_FORMAT_VERSION, dtype=np.int16),
+            subject=np.asarray(recording.subject, dtype=np.int16),
+            emg=recording.emg,
+            label=recording.label,
+            repetition=recording.repetition,
+            label_column=np.asarray(LABEL_COLUMN),
+            repetition_column=np.asarray(REPETITION_COLUMN),
+        )
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def load_processed(path: str | Path) -> SubjectRecording:
     """Read one processed ``.npz``, validating its schema, identity, and corrected columns."""
     source = Path(path)
+    try:
+        return _load_processed(source)
+    except NinaProFormatError:
+        raise
+    except (OSError, ValueError, EOFError, KeyError, zipfile.BadZipFile, zlib.error) as error:
+        raise NinaProFormatError(f"{source}: cannot read processed file: {error}") from error
+
+
+def _load_processed(source: Path) -> SubjectRecording:
     with np.load(source, allow_pickle=False) as archive:
         required = {
             "format_version",
@@ -232,7 +296,9 @@ def load_processed(path: str | Path) -> SubjectRecording:
         if missing:
             raise NinaProFormatError(f"{source}: missing processed field(s) {missing}")
 
-        format_version = int(archive["format_version"])
+        format_version = _exact_integer(
+            archive["format_version"], field="format_version", source=source
+        )
         if format_version != PROCESSED_FORMAT_VERSION:
             raise NinaProFormatError(
                 f"{source}: processed format version {format_version}, expected "
@@ -248,7 +314,7 @@ def load_processed(path: str | Path) -> SubjectRecording:
                 f"{LABEL_COLUMN!r}/{REPETITION_COLUMN!r}. "
                 "Re-run scripts/prepare_dataset.py (D12)."
             )
-        stored_subject = int(archive["subject"])
+        stored_subject = _exact_integer(archive["subject"], field="subject", source=source)
         filename_subject = source.stem.removeprefix("subject_")
         if filename_subject.isdigit() and int(filename_subject) != stored_subject:
             raise NinaProFormatError(
@@ -259,8 +325,10 @@ def load_processed(path: str | Path) -> SubjectRecording:
         return SubjectRecording(
             subject=stored_subject,
             emg=np.asarray(archive["emg"], dtype=np.float32),
-            label=np.asarray(archive["label"], dtype=np.int16),
-            repetition=np.asarray(archive["repetition"], dtype=np.int16),
+            label=_exact_integers(archive["label"], field="label", source=source).astype(np.int16),
+            repetition=_exact_integers(
+                archive["repetition"], field="repetition", source=source
+            ).astype(np.int16),
         )
 
 

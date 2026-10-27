@@ -23,6 +23,7 @@ from pathlib import Path
 from temporallens.data.ninapro import (
     NUM_SUBJECTS,
     NinaProFormatError,
+    load_processed,
     processed_path,
     read_raw_mat,
     save_processed,
@@ -42,8 +43,16 @@ def prepare(raw_dir: Path, out_dir: Path, subjects: list[int], *, force: bool) -
     for subject in subjects:
         source, destination = raw_path(raw_dir, subject), processed_path(out_dir, subject)
         if destination.exists() and not force:
-            print(f"  S{subject:<3} skip     already prepared ({destination.name})")
-            continue
+            # Open it before trusting it: an interrupted earlier run, or a file from an older
+            # format, would otherwise be skipped forever.
+            try:
+                if load_processed(destination).subject == subject:
+                    print(f"  S{subject:<3} skip     already prepared ({destination.name})")
+                    continue
+                reason = "it stores a different subject"
+            except NinaProFormatError as error:
+                reason = str(error)
+            print(f"  S{subject:<3} REBUILD  existing file is unusable: {reason}")
         if not source.is_file():
             print(f"  S{subject:<3} MISSING  {source}")
             failures += 1
@@ -69,8 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--subjects",
         type=int,
-        nargs="*",
-        help=f"subject ids to prepare; default is 1..{NUM_SUBJECTS}",
+        nargs="+",
+        help=f"subject ids to prepare (at least one); omit the flag for all of 1..{NUM_SUBJECTS}",
     )
     parser.add_argument(
         "--force", action="store_true", help="re-prepare subjects that already exist"
