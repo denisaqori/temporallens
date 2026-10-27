@@ -103,7 +103,7 @@ def get_git_state(repo_dir: str | Path | None = None) -> dict[str, Any]:
             stderr=subprocess.DEVNULL,
             text=True,
         ).split("\0")
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, UnicodeDecodeError):
         return unknown
     changes = [line for line in changes if line]
     if not changes:
@@ -111,7 +111,12 @@ def get_git_state(repo_dir: str | Path | None = None) -> dict[str, Any]:
     digest = hashlib.sha256(diff)
     for name in sorted(path for path in untracked if path):
         digest.update(b"\0untracked\0" + name.encode())
-        digest.update((root / name).read_bytes())
+        try:
+            digest.update((root / name).read_bytes())
+        except OSError:
+            # Removed since it was listed, or not a regular file: record that, but never let
+            # provenance capture be the thing that stops a run.
+            digest.update(b"\0unreadable\0")
     return {"commit": commit, "dirty": True, "changes": changes, "diff_sha256": digest.hexdigest()}
 
 

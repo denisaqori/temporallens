@@ -189,3 +189,13 @@ def test_a_bare_subjects_flag_is_an_error_not_all_forty(tmp_path) -> None:
             ["--subjects", "--raw-dir", str(tmp_path), "--out-dir", str(tmp_path)]
         )
     assert exit_info.value.code == 2
+
+
+def test_an_atomic_write_keeps_the_usual_file_permissions(tmp_path) -> None:
+    """`tempfile.mkstemp` creates owner-only files, and moving one into place keeps that mode.
+    A processed file must get the same permissions as any other file the user writes."""
+    reference = tmp_path / "reference"
+    reference.write_bytes(b"")
+    destination = processed_path(tmp_path, 1)
+    save_processed(recording(1, gestures=3, repetitions=2), destination)
+    assert os.stat(destination).st_mode & 0o777 == os.stat(reference).st_mode & 0o777

@@ -146,6 +146,8 @@ class EncoderRunConfig:
         if not isinstance(self.name, str) or not self.name:
             raise ValueError(f"name must be a non-empty string, got {self.name!r}")
         _require_non_negative_int("seed", self.seed)
+        if self.seed >= 2**32:
+            raise ValueError(f"seed must be below 2**32 (NumPy's limit), got {self.seed}")
         _require_subjects("train_subjects", self.train_subjects)
         _require_subjects("held_out_subjects", self.held_out_subjects)
         for name in (

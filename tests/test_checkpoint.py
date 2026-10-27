@@ -242,3 +242,12 @@ def test_a_checkpoint_that_needs_code_to_load_is_refused(tmp_path) -> None:
     path = _raw(tmp_path, {"model_state": {}, "model_config": config})
     with pytest.raises(CheckpointError, match="plain data"):
         load_checkpoint(path)
+
+
+def test_weights_that_do_not_fit_the_described_model_are_a_checkpoint_error(tmp_path) -> None:
+    """The config says one model, the weights belong to another: a contract violation, reported
+    as one rather than as a raw PyTorch error from deep inside `load_state_dict`."""
+    small = Cnn1dClassifier(**dict(F1, hidden_dim=8, embedding_dim=16))
+    path = _raw(tmp_path, {"model_state": small.state_dict(), "model_config": _valid_config()})
+    with pytest.raises(CheckpointError, match="do not match"):
+        rebuild_model(path)
