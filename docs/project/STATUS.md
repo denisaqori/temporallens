@@ -90,7 +90,7 @@ Claim here **before** starting; commit and push the claim immediately (an unpush
 
 | Task | Owner | Branch |
 |---|---|---|
-| rng-contract | codex | `codex/rng-contract` |
+| _(none — claim work here before starting)_ | — | — |
 
 ## Paused / mid-flight
 
