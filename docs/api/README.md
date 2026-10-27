@@ -53,18 +53,18 @@ The declarations at the top of the script are the contract itself:
 |---|---|
 | `FIELD_PATHS` | Config key → run setting, one to one |
 | `CHECKED_PATHS` | Keys with exactly one legal value for this script, such as `dataset.exercise: B` |
-| `ALLOWED_VALUE_PATHS` | Keys limited to a set; `tracking.wandb_mode` may not be `online`, because nothing logs remotely |
+| `ALLOWED_VALUE_PATHS` | Keys limited to a set: `tracking.wandb_mode` may not be `online`, because nothing logs remotely; `experiment.mode` must be `debug` or `train` |
 | `MIRRORED_PATHS` | One quantity declared twice — `input_channels` and `num_classes` under both `dataset` and `model` — which must agree |
-| `RECORDED_PATHS` | Kept as run metadata, not acted on: `experiment.mode`, `protocol.*` |
+| `RECORDED_PATHS` | Kept as run metadata, not acted on: `protocol.*` |
 | `PRODUCED_METRICS` | What a run computes; a config may ask for a subset, never more |
 
-Every config is read once, through `utils.yaml_io`, so a repeated key is an error rather than a silent last-write-wins. Checked keys are required as well as checked — a check that applies only when a key is present can be dodged by leaving the key out — and `experiment.mode` must be `debug` or `train`, since this script only trains and the mode decides whether a run can ever be reportable. A value the run config refuses is reported as a config error naming the file.
+Every config is read once, through `utils.yaml_io`, so a repeated key is an error rather than a silent last-write-wins. Checked keys are required as well as checked — a check that applies only when a key is present can be dodged by leaving the key out. The mode matters beyond validation: only a `debug` run may start from uncommitted code. A value the run config refuses is reported as a config error naming the file.
 
 Two tests keep these honest: every `EncoderRunConfig` setting must have a config key (except `output_dir` — where runs are written is not a protocol choice), and a real training pass must produce exactly `PRODUCED_METRICS`.
 
 The script runs one train/held-out split, which is F0's protocol. A config describing another protocol is refused rather than approximated: `split: random_window` means the leakage demonstration (F2), and otherwise a `split_manifest` means cross-validation (F1). F2 names the manifest too — only to draw its windows from the development subjects — which is why the random-window check comes first. A single-split number computed from either config would carry the name of a protocol it did not follow.
 
-A config's `protocol:` block governs whether its results may be **reported**, not whether it may train. A blocked config that trains prints `NOT REPORTABLE`. Only a `debug` run may start from uncommitted code; any other mode must start from a clean tree, so its numbers trace to a commit. What the loader records, plus the config file's path and hash, goes into the run log as metadata.
+A config's `protocol:` block governs whether its results may be **reported**, not whether it may train. A blocked config that trains prints `NOT REPORTABLE`. What the loader records, plus the config file's path and hash, goes into the run log as metadata.
 
 ### Which config keys reach which module
 
@@ -98,11 +98,11 @@ Both readers convert labels, repetitions and identifiers to integers only if not
 ### `data.windows`
 Turns a recording into a window index, and materialises windows from it on demand.
 
-A window never spans two `(label, repetition)` segments. A window running from rest into a gesture can carry only one label, so it would be wrong for part of itself — the uncorrected-label problem again, concentrated at onsets. As a result the last `(L − window) mod stride` samples of each segment host no window.
+A window never spans two `(label, repetition)` segments. A window running from rest into a gesture can carry only one label, so it would be wrong for part of itself — the uncorrected-label problem again, concentrated at onsets. Windows start at each segment's first sample and step by the stride, so the last `(L − window) mod stride` samples of each segment host no window: 9,711 samples (0.54%) on subject 2 at stride 100, 1.10% at F0's stride 200.
 
 Indexing is kept apart from materialising because of memory. At stride 100 a subject yields about 17,300 windows (17,239–17,374 on subjects 1–3), overlapping 75%, so a materialised subject is about 330 MB and a 28-subject fold about 9.3 GB (twice that at peak), while the signals themselves are about 87 MB per subject. The index holds positions and labels, not samples.
 
-What a recording looks like, measured on subject 2 (about 900 s): 102 gesture segments (17 gestures × 6 repetitions) and 103 rest segments, one before each gesture and one after the last. Because the labels are the corrected ones, gesture segments are shorter than the protocol's 5 s prompt (1.96–6.51 s, median 4.07 s) and rest segments longer than its 3 s (0.81–8.05 s, median 4.65 s): the correction moves the late-onset and early-offset samples into rest. No segment is shorter than one 400-sample window, so none is lost whole. Windows start at each segment's first sample and step by the stride; whatever remains at the end of the segment, fewer than `stride` samples, hosts no window. At stride 100 that leaves 9,711 samples (0.54%) uncovered; at F0's stride 200, 1.10%.
+What a recording looks like, measured on subject 2 (about 900 s): 102 gesture segments (17 × 6) and 103 rest segments, one before each gesture and one after the last. Because the labels are corrected, gestures are shorter than the protocol's 5 s prompt (median 4.07 s) and rest longer than its 3 s (median 4.65 s). No segment is shorter than one window, so none is lost whole.
 
 The debug cap (`max_windows_per_subject`) takes a seeded subsample that keeps at least one window of every class present. Truncating instead would drop whole classes.
 
@@ -141,7 +141,7 @@ Within the training subjects, the statistics are computed over the samples the t
 | Window-weighted (a sample counted once per window containing it) | 1.432% | Yes — 0.230% between stride 100 and 200 |
 | **Covered samples, each once** | — | No |
 
-They agree within 1.4%, so the choice fixes a definition rather than improving accuracy. Covered-once does not depend on stride, which matters because the statistics travel inside the encoder checkpoint and are reused by consumers that may window differently. It also leaves out the windowless segment tails — 0.54% of the signal, 9,711 samples on subject 2 — which are quieter than the rest (std 0.445–0.928 of the covered samples) because they are where contractions decay.
+They agree within 1.4%, so the choice fixes a definition rather than improving accuracy. Covered-once does not depend on stride, which matters because the statistics travel inside the encoder checkpoint and are reused by consumers that may window differently. It also leaves out the windowless segment tails (see `data.windows`), which are quieter than the rest (std 0.445–0.928 of the covered samples) because they are where contractions decay.
 
 The config names the policy: `train_subject_covered_sample_stats` for subject splits and `train_split_covered_sample_stats` for the random-window split.
 
@@ -152,11 +152,11 @@ The config names the policy: `train_subject_covered_sample_stats` for subject sp
 ### `models.encoders.cnn1d`
 The reference encoder and its classification head.
 
-The encoder is three convolution, batch-norm and ReLU blocks (kernels 7, 5 and 3; `hidden_dim` channels, then twice that), max-pooling by 4 after the first two, adaptive average pooling, dropout and a linear projection to `embedding_dim`. The adaptive pool makes the embedding size independent of window length. The head is dropout plus a linear layer to the 18 classes; the downstream experiments keep the encoder and replace the head.
+The encoder is three convolution, batch-norm and ReLU blocks (kernels 7, 5 and 3; `hidden_dim` channels, then twice that), max-pooling by 4 after the first two, adaptive average pooling, dropout and a linear projection to `embedding_dim`. The adaptive pool makes the embedding size independent of window length. The head is dropout plus a linear layer to the 18 classes. Which of the two each downstream experiment uses is in the table below.
 
-The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option, because those values are what the name `cnn1d` means. If a config could change them, two runs could both declare `model.type: cnn1d` and be different networks. `model_config()` records the stack in every checkpoint, and `build_model` refuses one whose recorded stack or type differs from this code — `rebuild_from_config`, the path a checkpoint takes, also refuses a config that records no stack at all; otherwise weights would load into right-shaped but wrong layers. Changing the stack means a new model type with a new name.
+The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option, because those values are what the name `cnn1d` means. If a config could change them, two runs could both declare `model.type: cnn1d` and be different networks. `model_config()` records the stack in every checkpoint, and both builders refuse a recorded stack or type that differs from this code. `rebuild_from_config`, the path a checkpoint takes, also refuses a config that records no stack at all: fresh construction through `build_model` has nothing recorded yet, but a checkpoint must. Otherwise weights would load into right-shaped but wrong layers. Changing the stack means a new model type with a new name.
 
-`freeze()` sets `requires_grad=False` and switches to eval mode, and `train()` is overridden so a later `model.train()` cannot undo it. The eval half matters because of batch norm: a frozen encoder left in train mode keeps updating its running statistics from whichever experiment is using it, silently changing the checkpoint all of them share.
+`freeze()` sets `requires_grad=False` and switches to eval mode, and `train()` is overridden so a later `model.train()` — including one on a larger model that wraps the encoder — cannot undo it. The eval half matters because of batch norm: a frozen encoder left in train mode keeps updating its running statistics from whichever experiment is using it, silently changing the checkpoint all of them share.
 
 **`embedding_dim` is the interface every consumer reads.** It is the length of the vector the encoder produces for one window — 256 in F1, 64 in F0. The head, the language-arm projector, the generator and G2's discriminator all take this vector as input, so changing its size means a new F1 checkpoint and retraining everything downstream. Training to classify gestures arranges the embedding space so that windows of the same gesture land close together; that is why the generative arm centres embeddings on each gesture's mean before using them to describe a subject (D27). The layer-by-layer shapes are in [the figure guide](../figures/README.md#b--foundation-encoder--classifier).
 
@@ -174,9 +174,7 @@ The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option
 
 **Easily missed:**
 
-- The head travels in the checkpoint even though most consumers discard it, because G3/G4 and the F1 robustness target need F1's trained head.
 - Only the encoder can be frozen. Wherever a head is used downstream, it is trainable.
-- A frozen encoder wrapped inside a larger model stays in eval mode when the larger model is put in train mode; that is the `train()` override at work, not an accident.
 - Three different things are called an embedding or latent here and are easy to confuse: the encoder embedding (256-d), the VAE's noise latent (32-d) and the subject embedding the generator is conditioned on (16-d). The language model's hidden width (3,072 for the 3B model) is a fourth size, and the projector maps the first into it.
 
 **Connects to** `training.encoder` (builds) · `models.checkpoint` (rebuilds) · **Decision** D32; the meaning of *frozen* is fixed in AGENTS.md
@@ -186,7 +184,7 @@ Saves and rebuilds models under the `{model_state, model_config}` contract.
 
 A checkpoint holds exactly two things: the weights, and a description complete enough to rebuild the model with no outside information. That is why a robustness target can be just a name and a file, with no model type alongside it. The normalization statistics are part of the description, and saving without them is refused: a consumer that normalized differently would get a working-looking but different model, and the downstream experiments would stop being comparable with the F1 reference. The fitted temperature belongs in the description for the same reason.
 
-Loading is as strict as saving. `load_checkpoint` refuses any top-level key set other than the two, a `model_state` that is not named tensors, a `model_config` without the current `schema_version`, and missing or malformed normalization statistics — including statistics for a different channel count than the model takes. It reads with `weights_only=True`, so a file can never make unpickling run code. Weights that do not fit the model the config describes are a checkpoint error too, not a raw PyTorch one. `rebuild_model` also requires the recorded architecture: fresh construction through `build_model` may omit it, because nothing has been recorded yet, but a rebuild may not. The schema version is bumped whenever `model_config` gains or changes a field a consumer relies on; in version 1, `probability_calibration` is optional until the F1 harness fixes its fields.
+Loading is as strict as saving. `load_checkpoint` refuses any top-level key set other than the two, a `model_state` that is not named tensors, a `model_config` without the current `schema_version`, and missing or malformed normalization statistics — including statistics for a different channel count than the model takes. It reads with `weights_only=True`, so a file can never make unpickling run code. `rebuild_model` also refuses weights that do not fit the model the config describes, and a config with no recorded architecture (see `models.encoders.cnn1d`). The schema version is bumped whenever `model_config` gains or changes a field a consumer relies on; in version 1, `probability_calibration` is optional until the F1 harness fixes its fields.
 
 Checkpoint names carry their role:
 
@@ -227,19 +225,19 @@ One encoder training run: a run configuration in, a recorded result out.
 
 | Step | What it guarantees |
 |---|---|
+| Check the working tree | Non-debug runs only: refuses uncommitted code before anything is loaded (see `utils.run_logger`) |
 | Resolve the device | See `utils.device`; the device used is recorded |
 | Load and index recordings | Training and held-out subjects are loaded separately; no window crosses a segment |
 | Fit normalization and class weights | From the training subjects' windows only, after the split |
 | Build the model | Through `build_model`, so the declared model type is honoured |
 | Train | Class-weighted cross-entropy; Adam with PyTorch's default betas and epsilon and coupled L2 weight decay; a fixed number of epochs, no early stopping, no scheduler |
 | Evaluate | Softmax probabilities on the held-out subjects, then the metric set |
-| Record | The run directory, an optional checkpoint, and an `EncoderRunResult` |
+| Record | The run directory with its provenance, an optional checkpoint, and an `EncoderRunResult` |
 
 The result carries two audit facts so tests can check that the protocol held: the total and unique training-window counts (equal means nothing was resampled), and the number of windows crossing a segment boundary, recounted from the raw labels rather than taken from the windower. The recount uses a binary search over segment starts; the obvious nested loop gives the same answer about 95 times more slowly, roughly 3 s per 28-subject fold.
 
 The logged training loss is the class-weighted objective over the whole epoch. PyTorch's batch mean divides by the batch's weight sum rather than its size, so each batch contributes its mean times that sum; averaging batch means equally would over-count rest-heavy batches, whose weight sum is small. The loss is only logged — epochs are selected on validation macro-F1.
 
-A debug run is not a measurement, so it cannot write the checkpoint names other experiments load.
 
 **Connects to** every module above · `scripts/train_encoder.py` (drives it) · **Decisions** D7, D11, D18/D19 (fixed epochs), D24, D38 (these optimizer mechanics are the F1 reference)
 
@@ -256,7 +254,7 @@ Each function scores one set of windows and returns a number or a per-class arra
 | `average_confusion_matrices` | Averages the fold models' matrices, never sums them; every fold model scores the same test subjects (D8) |
 | `brier_score` | Squared error of the whole probability vector, summed over classes and averaged over windows, not halved. Its range is 0–2, because a confident wrong answer both misses the true class and puts its mass on another (D39) |
 | `calibration_bins`, `CalibrationBins` | The one place confidence bins are formed: boundaries from the confidences alone, a confidence on a boundary in the upper bin, identical confidences always in one bin, empty bins dropped. It records both the nominal and the occupied bin count, because a value computed over 2 occupied bins is not comparable with one over 10 unless the report says so. ECE and the overconfidence error are computed from this object, so a reported occupancy and the number beside it cannot come from two different binnings (D39) |
-| `expected_calibration_error` | Top-label ECE over 10 nominal equal-mass bins. Identical confidences always share a bin, so heavy ties — such as confidences that round to exactly 1.0 in float32 — can leave fewer than 10 bins occupied. A perfectly calibrated model still scores above 0 at finite sample size; that threshold depends on the evaluation design and is never subtracted (D23, D39) |
+| `expected_calibration_error` | Top-label ECE over 10 nominal equal-mass bins, formed by `calibration_bins`; heavy ties — such as confidences that round to exactly 1.0 in float32 — leave fewer occupied. A perfectly calibrated model still scores above 0 at finite sample size; that threshold depends on the evaluation design and is never subtracted (D23, D39) |
 | `overconfidence_error` | The part of the calibration gap where confidence exceeds accuracy, weighted by confidence. Read it only beside ECE: a uniformly under-confident model scores a perfect 0 (D25) |
 | `mean_confidence_when_wrong` | Descriptive only; `None` rather than 0 when there are no errors (D25) |
 | `per_subject` | Applies a metric to each subject separately. A pooled number can look fine while one subject sits at chance (D26) |
@@ -278,7 +276,7 @@ Strict YAML reading for every file whose contents decide what a run does.
 
 PyYAML's safe loader keeps the *last* value when a mapping repeats a key, silently. In a config that means `epochs: 2` near the top and `epochs: 500` further down trains for 500 epochs while a reader of the top sees 2, and nothing records that two values existed. `load_yaml` refuses a repeated or unhashable key and names its line. It started as the split manifest's private loader and is shared so that configs and the manifest follow one rule. YAML merge keys (`<<:`) are not supported, and no project file uses them.
 
-**Connects to** `data.splits` · `scripts/train_encoder.py`
+**Connects to** `data.splits` · `evaluation.robustness` · `scripts/train_encoder.py` · `scripts/evaluate.py`
 
 ### `utils.device`
 Chooses the device a run uses.
@@ -294,12 +292,12 @@ Each run gets its own directory, with `run.json` and `metrics.jsonl` (one line p
 
 - the configuration and its `config_sha256`, a digest of canonical JSON, so key order does not change its identity;
 - the git commit, whether the working tree was dirty, the changed paths, and `git_diff_sha256`, a digest of the tracked diff plus every untracked file — so two runs with the same commit and digest ran the same code;
-- the device the run executed on, as a required argument, beside the commit;
+- the device the run executed on — required, and never the unresolved `auto`;
 - the caller's metadata (for the encoder script: mode, protocol state, tracking mode, declared metrics, and the config file's path and hash);
 - every artifact the run wrote, with its SHA-256 and size;
 - timestamps and the summary.
 
-A commit alone is not enough: the first F0 run recorded a commit from before `train_encoder.py` existed, because the script was still uncommitted. A run that may be reported therefore refuses to start from a dirty tree — `ensure_clean_tree` raises `UncommittedCodeError` — and the check runs before any data is loaded, then again when the logger is created. The configuration keeps what was *requested*, which may be `auto`; the log refuses `auto` as a device and records what `utils.device` resolved.
+A commit alone is not enough: the first F0 run recorded a commit from before `train_encoder.py` existed, because the script was still uncommitted. A run that may be reported therefore refuses to start from a dirty tree: `ensure_clean_tree` raises `UncommittedCodeError` before any data is loaded, and the logger checks again when it is created.
 
 **Connects to** `training.encoder` · `tracking.*` in the configs
 
