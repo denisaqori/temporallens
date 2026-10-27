@@ -11,6 +11,7 @@ protocol:
   status: blocked_pending_decisions
   blocked_on:
     - training.objective_components
+    - generator.subject_embedding.pseudo_calibration_schedule.reproducibility
     - generator.subject_embedding.pseudo_calibration_schedule.rotation_selection
     - generator.subject_embedding.class_information_control
 experiment:
@@ -58,17 +59,30 @@ generator:
       k_grid: [0, 1, 2, 5, 10, 17, 20, 34]
       k_draw: uniform_per_subject_per_step
       support_builder: d14_nested_class_aware_prefix
+      # Covers BOTH k draws and support-rotation choices. The component identities/rule
+      # still need approval; D43 does not choose a sampler by choosing its seed factory.
+      reproducibility:
+        status: pending_decision
+        prng: numpy_pcg64
+        seed_derivation: temporallens_rng_v1
+        draw_index_base: 0
+        component_stream_keys: null
+        persist_lossless_draw_ledger: true
+        persist_rng_provenance: true
+        persist_before_fitting: true  # Each per-step draw is recorded before its update.
+        required_assignment_provenance: [source_pool_identity, source_pool_sha256, assignment_sha256]
+        required_rng_provenance: [key, derived_seed, assignment_prng, numpy_version]
       # D27 as revised: ROTATE the support repetition pair among the early/late-spanning pairs,
       # so every repetition serves as a reconstruction target in 2 of 3 rotations. Rotation is
       # augmentation -- it stops the estimator memorising artefacts of reps 1 and 4 -- and the
       # spanning shape still matches inference and still straddles the drift D13 measured.
       support_repetition_rotation: [[1, 4], [2, 5], [3, 6]]
-      # WHICH rotation a given draw uses, and how it is seeded, inherits D14's PRNG and
-      # schedule-index convention -- still Pending. A listed pair set is not a draw rule.
+      # D43 fixes the assignment backend/factory. WHICH rotation a draw uses, and its
+      # component key, are still Pending. A listed pair set is not a draw rule.
       rotation_selection:
         status: pending_decision
         rule: null
-        prng: null
+        component_stream_keys: null
     # Support and targets stay complementary WITHIN each draw, so a target latent can never
     # appear in the set conditioning its own reconstruction. Exclusion is per-draw, not global.
     target_exclusion_policy: draw_complement_of_support_repetitions

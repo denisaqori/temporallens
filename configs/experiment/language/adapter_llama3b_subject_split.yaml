@@ -83,7 +83,9 @@ training:
   repeats:
     status: pending_decision
     seed_count: null
-    seed_derivation: null
+    seed_derivation: temporallens_rng_v1
+    seed_index_base: 0
+    component_stream_keys: null
     pairing: seed_index
     shared_seed_count_across_l2_l3_l4: true
     record_component_rng_streams: true

@@ -117,6 +117,18 @@ Eight subjects are the project's final test set and are never used for developme
 
 **Connects to** every reportable config, through `dataset.split_manifest` · `utils.yaml_io` (reads the manifest strictly) · **Decisions** D13, D16
 
+### `data.assignments`
+
+Constructs the two approved randomized data assignments without implementing their training runners. F2 globally permutes the 32-subject window pool into a fixed `ceil(N/5)` outer test, re-canonicalizes the non-test membership and independently permutes it into eight nearly equal calibration folds. No labels or repetition values affect membership, and no favourable composition is obtained by redrawing. Canonical IDs make the output independent of the caller's row order; explicit stride metadata is needed because `WindowIndex` cannot infer it from offsets.
+
+G3/G4 share one 34-trial schedule per subject/index. The first pass covers all gestures once with alternating repetitions; separately shuffled complementary-repetition groups then interleave, preserving balance at every prefix without always repeating the earliest gestures first. The builder checks the actual recording for complete eligible segments, and its source fingerprint includes segment boundaries and calibration signal rather than assuming the expected pairs exist. `window_pool_sha256` and `trial_pool_sha256` fingerprint current inputs without random draws, so a persisted assignment can be checked without re-generating it.
+
+`save_assignment` creates an immutable JSON atomically and refuses an existing path. `load_assignment` checks schema, the frozen manifest, source binding, partition/schedule invariants, original RNG identities and checksums; it never redraws the assignment under today's NumPy version. The material assignment hash identifies selected IDs/memberships independently of labels or library-version provenance; the source hash identifies eligible inputs; the envelope hash protects logical provenance; the writer returns the exact-file hash for the run registry. The F2 source fingerprint covers window metadata, not EMG values, so a future F2 run must also register its processed-recording artifacts. These helpers do not lift the F2 trainer refusal or the remaining G3/G4 execution gates.
+
+The writer creates missing parent directories and refuses to overwrite an existing path. This is write-once helper behavior, not filesystem protection: the loader additionally requires the exact-file digest anchored by the creation/run record, the current source-pool digest, and G3's requested schedule index. A different schedule for the same subject shares the source hash and is not interchangeable. The metadata-only F2 builder trusts its explicit stride declaration; a future runner must prove full, uncapped index construction from the processed recordings rather than pass debug-subsampled or differently windowed indices under that declaration.
+
+**Connects to** `data.windows` (stable window IDs), `data.ninapro` (actual calibration recordings), `data.splits` (frozen subject/repetition roles), `utils.randomness` (the one seed implementation) · **Decisions** D43–D45
+
 ### `data.dataset`
 A PyTorch `Dataset` over a window index.
 
@@ -272,6 +284,14 @@ A robustness evaluation pairs a perturbation (noise, channel dropout, amplitude 
 `protocol_blockers` is a single function used by both checks — a perturbation config checks itself, and each target checks the experiment that produced it — so the two cannot apply different rules. Readiness has to be declared. A config with no `protocol:` block, a block with no status, or a target with no `source_config` is a blocker, because silence is indistinguishable from someone having written `ready`; `require_declared=False` exists only for configs that are never reportable. `status: ready` beside a non-empty `blocked_on` is a contradiction — one of the two was not updated — and raises. All of these files are read through `utils.yaml_io`, so a repeated key is an error here too.
 
 **Connects to** `scripts/evaluate.py` (calls it) · `configs/experiment/robustness_targets.yaml` · **Decision** D2
+
+### `utils.randomness`
+
+Gives each randomized protocol object its own reproducible identity without a mutable global stream. `derive_seed` hashes one versioned canonical key; `assignment_rng` constructs a fresh explicit NumPy PCG64 generator; `randomization_provenance` records that key, seed, backend and NumPy version. Adding an unrelated diagnostic draw cannot change a fold or acquisition schedule. The helper does not seed or consume global NumPy/PyTorch state, and it does not change F1's accepted initialization or the paired bootstrap.
+
+Shared randomness follows the scientific pairing, not the config filename: G3/G4 acquisition keys are identical, replay-pair noise omits strategy, and the shared *k*=0 replay object omits subject/schedule. Each future runner must declare its component keys and sampling calls before execution, then persist the actual stable-ID assignment with its pool identity and SHA-256 alongside this provenance. This module supplies seed identity; `data.assignments` implements D44/D45's F2 splitter and G3/G4 scheduler. Seeds alone do not archive a higher-level NumPy assignment across versions. Remaining rotation/component and repeat-domain choices stay blocked in their configs.
+
+**Connects to** future F2, G1, G3/G4 and language runners · README §3.5 (canonical key and persistence contract) · **Decision** D43
 
 ### `utils.yaml_io`
 Strict YAML reading for every file whose contents decide what a run does.

@@ -156,9 +156,9 @@ def build_run_config(
     if leaves.get("dataset.split") == "random_window":
         raise ConfigError(
             f"{config_path} is the random-window leakage demonstration (F2). This script splits "
-            "by subject; a random window split needs its own fitting set "
-            "(`train_split_covered_sample_stats`) and window assignment, neither of which is "
-            "implemented. F2's number is only meaningful as the leakage contrast, so it must not "
+            "by subject; D44's window assignment is implemented separately, but its eight-fold "
+            "training, fold-only fitting statistics, refit and temperature-calibration harness "
+            "are not implemented here. F2's number is only meaningful as the leakage contrast, so it must not "
             "be produced by a subject-split path."
         )
 

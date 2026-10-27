@@ -60,6 +60,85 @@ def _load(relative_path: str) -> dict[str, Any]:
     return raw
 
 
+def test_all_experiment_root_seeds_remain_42_under_d43() -> None:
+    for path in sorted((REPO_ROOT / "configs" / "experiment").glob("*/*.yaml")):
+        assert _load(str(path.relative_to(REPO_ROOT)))["experiment"]["seed"] == 42
+
+
+def test_g3_g4_share_d43_acquisition_identity_and_realized_assignment_contract() -> None:
+    from temporallens.utils.randomness import assignment_rng, derive_seed
+
+    configs = [
+        _load(f"configs/experiment/generation/{name}.yaml")
+        for name in ("gen_personalization_efficiency", "gen_calibration_efficiency")
+    ]
+    policies = [config["personalization"]["trial_selection"] for config in configs]
+    for config in configs:
+        assert config["experiment"]["seed"] == 42
+        assert config["personalization"]["schedules_per_subject"] == 5
+    assert policies[0] == policies[1]
+    policy = policies[0]
+    assert policy["seed_derivation"] == "temporallens_rng_v1"
+    assert policy["randomization_scope"] == "g3_g4_personalization"
+    assert policy["randomization_purpose"] == "acquisition_schedule"
+    assert policy["seed_indices"] == ["subject_id", "schedule_index"]
+    assert policy["shared_across_strategies"] is True
+    assert policy["reproducibility"]["persist_selected_trial_ids"] is True
+    assert policy["reproducibility"]["persist_rng_provenance"] is True
+    assert policy["reproducibility"]["persist_before_fitting"] is True
+    assert policy["reproducibility"]["require_trusted_file_sha256"] is True
+    assert policy["reproducibility"]["assignment_reuse"] == "load_verified_existing_or_create_once"
+    assert policy["reproducibility"]["assignment_artifact"].startswith(
+        "data/processed/assignments/g3_g4_personalization/v1/"
+    )
+    # An implementation cannot key by literal G3/G4 names, strategy or k and pass this identity.
+    indices = {"subject_id": 5, "schedule_index": 0}
+    seeds = [
+        derive_seed(
+            c["experiment"]["seed"], p["randomization_scope"], p["randomization_purpose"], indices
+        )
+        for c, p in zip(configs, policies, strict=True)
+    ]
+    assert seeds[0] == seeds[1]
+    streams = [
+        assignment_rng(
+            c["experiment"]["seed"], p["randomization_scope"], p["randomization_purpose"], indices
+        )
+        .integers(0, 2**32, size=8)
+        .tolist()
+        for c, p in zip(configs, policies, strict=True)
+    ]
+    assert streams[0] == streams[1]
+
+
+def test_d43_assignments_require_pool_digest_material_assignment_and_rng_provenance() -> None:
+    g1 = _load("configs/experiment/generation/gen_vae_train.yaml")
+    f2 = _load("configs/experiment/foundation/baseline_cnn_random_split.yaml")
+    policies = [
+        g1["generator"]["subject_embedding"]["pseudo_calibration_schedule"]["reproducibility"],
+        f2["evaluation"]["temperature_fit"]["execution"],
+        *(
+            _load(f"configs/experiment/generation/{name}.yaml")["personalization"][
+                "trial_selection"
+            ]["reproducibility"]
+            for name in ("gen_personalization_efficiency", "gen_calibration_efficiency")
+        ),
+    ]
+    for policy in policies:
+        assert policy["persist_before_fitting"] is True
+        assert policy["required_assignment_provenance"] == [
+            "source_pool_identity",
+            "source_pool_sha256",
+            "assignment_sha256",
+        ]
+        assert policy["required_rng_provenance"] == [
+            "key",
+            "derived_seed",
+            "assignment_prng",
+            "numpy_version",
+        ]
+
+
 @pytest.mark.parametrize("relative_path", REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS)
 def test_reportable_subject_independent_configs_use_only_the_manifest(
     relative_path: str,
@@ -255,6 +334,7 @@ def test_g1_still_fails_closed_on_the_vae_objective_components() -> None:
     assert config["protocol"]["status"] == "blocked_pending_decisions"
     assert config["protocol"]["blocked_on"] == [
         "training.objective_components",
+        "generator.subject_embedding.pseudo_calibration_schedule.reproducibility",
         "generator.subject_embedding.pseudo_calibration_schedule.rotation_selection",
         "generator.subject_embedding.class_information_control",
     ]
@@ -263,11 +343,19 @@ def test_g1_still_fails_closed_on_the_vae_objective_components() -> None:
     assert components["reconstruction_likelihood"] is None
 
     embedding = config["generator"]["subject_embedding"]
-    # D27 chose the rotation pairs, but WHICH pair a draw uses inherits D14's PRNG convention,
-    # which is itself Pending. A pair list is not a draw rule.
+    # D43 fixes the backend/factory, not WHICH pair a draw uses or its component identity.
+    reproducibility = embedding["pseudo_calibration_schedule"]["reproducibility"]
+    assert reproducibility["status"] == "pending_decision"
+    assert reproducibility["prng"] == "numpy_pcg64"
+    assert reproducibility["seed_derivation"] == "temporallens_rng_v1"
+    assert reproducibility["draw_index_base"] == 0
+    assert reproducibility["component_stream_keys"] is None
+    assert reproducibility["persist_lossless_draw_ledger"] is True
+    assert reproducibility["persist_rng_provenance"] is True
     rotation = embedding["pseudo_calibration_schedule"]["rotation_selection"]
     assert rotation["status"] == "pending_decision"
-    assert rotation["rule"] is None and rotation["prng"] is None
+    assert rotation["rule"] is None
+    assert rotation["component_stream_keys"] is None
     # Centring removes the class mean, not class-conditional covariance, so the probe is
     # load-bearing -- and a gate needs a target, a grouping, a score and a threshold.
     probe = config["generator"]["subject_embedding"]["class_information_control"]
@@ -289,13 +377,30 @@ def test_g3_g4_encode_d28_d29_and_fail_closed_on_remaining_choices(
     assert config["protocol"]["status"] == "blocked_pending_decisions"
     personalization = config["personalization"]
     assert personalization["rest_calibration_policy"] == "pending_decision"
-    assert personalization["trial_selection"]["reproducibility"]["prng"] is None
+    reproducibility = personalization["trial_selection"]["reproducibility"]
+    assert reproducibility["status"] == "ready"
+    assert reproducibility["prng"] == "numpy_pcg64"
+    assert reproducibility["schedule_index_base"] == 0
+    assert reproducibility["permutation_algorithm"] == "d45_three_sequential_numpy_permutations"
+    assert reproducibility["permutation_call_order"] == [
+        "ascending_active_gestures",
+        "ascending_complement_rep_1_gestures",
+        "ascending_complement_rep_4_gestures",
+    ]
+    assert reproducibility["second_pass_order"] == (
+        "shuffled_complement_groups_interleaved_underrepresented_repetition_first"
+    )
+    assert reproducibility["parity_to_starting_repetition"] == {"even": 1, "odd": 4}
+    assert "personalization.trial_selection.reproducibility" not in config["protocol"]["blocked_on"]
     repeat_reproducibility = personalization["repeated_run_reproducibility"]
     assert repeat_reproducibility["status"] == "pending_decision"
     assert repeat_reproducibility["adaptation_seed_count"] is None
-    assert repeat_reproducibility["adaptation_seed_derivation"] is None
+    assert repeat_reproducibility["adaptation_seed_derivation"] == "temporallens_rng_v1"
     assert repeat_reproducibility["synthetic_draw_count"] is None
-    assert repeat_reproducibility["synthetic_draw_seed_derivation"] is None
+    assert repeat_reproducibility["synthetic_draw_seed_derivation"] == "temporallens_rng_v1"
+    assert repeat_reproducibility["seed_index_base"] == 0
+    assert repeat_reproducibility["draw_index_base"] == 0
+    assert repeat_reproducibility["component_stream_keys"] is None
     assert repeat_reproducibility["repeat_axis_pairing"] is None
     assert "personalization.repeated_run_reproducibility" in config["protocol"]["blocked_on"]
 
@@ -616,16 +721,27 @@ def test_f2_temperature_preserves_outer_test_and_intentional_window_split() -> N
     assert fit["class_weight_fit"] == "current_inner_fold_training_windows_only"
     assert fit["persist_outer_test_and_inner_fold_assignments"] is True
     assert fit["final_test_fitting"] == "forbidden"
-    assert fit["execution"]["fold_assignment_algorithm"] is None
-    assert fit["execution"]["seed_derivation"] is None
-    assert fit["execution"]["status"] == "pending_decision"
-    assert config["protocol"] == {
-        "status": "blocked_pending_decisions",
-        "blocked_on": [
-            "evaluation.temperature_fit.execution.fold_assignment_algorithm",
-            "evaluation.temperature_fit.execution.seed_derivation",
-        ],
+    assert fit["execution"]["fold_assignment_algorithm"] == "d44_global_window_split_v1"
+    assert fit["execution"]["canonical_window_order"] == ["subject_id", "start_sample"]
+    assert fit["execution"]["outer_test_count"] == "ceil_n_windows_divided_by_5"
+    assert fit["execution"]["inner_input_order"] == "recanonicalized_non_test_windows"
+    assert fit["execution"]["inner_membership"] == (
+        "one_independent_permutation_then_numpy_array_split_8"
+    )
+    assert fit["execution"]["stratification"] == "none"
+    assert fit["execution"]["composition_triggered_redraw"] == "forbidden"
+    assert fit["execution"]["seed_derivation"] == "temporallens_rng_v1"
+    assert fit["execution"]["prng"] == "numpy_pcg64"
+    assert fit["execution"]["fold_index_base"] == 0
+    assert fit["execution"]["component_stream_keys"] == {
+        "scope": "f2_random_window",
+        "outer": {"purpose": "outer_test_assignment", "indices": {}},
+        "inner": {"purpose": "inner_calibration_folds", "indices": {}},
     }
+    assert fit["execution"]["status"] == "ready"
+    assert fit["execution"]["require_trusted_file_sha256"] is True
+    assert fit["execution"]["assignment_reuse"] == "load_verified_existing_or_create_once"
+    assert config["protocol"] == {"status": "ready", "blocked_on": []}
     assert config["evaluation"]["per_subject_metric_role"] == "descriptive_seen_subject_only"
 
 
@@ -670,7 +786,10 @@ def test_language_repeats_are_paired_declared_and_temperature_source_stays_block
         config = _load(relative_path)
         policy = config["training"]["repeats"]
         repeats.append(policy)
-        assert policy["seed_count"] is None and policy["seed_derivation"] is None
+        assert policy["seed_count"] is None
+        assert policy["seed_derivation"] == "temporallens_rng_v1"
+        assert policy["seed_index_base"] == 0
+        assert policy["component_stream_keys"] is None
         assert policy["pairing"] == "seed_index"
         assert policy["within_subject_metric_reduction"] == "equal_weight_mean_over_seed_runs"
         assert policy["outcome_triggered_seed_extension"] == "forbidden"

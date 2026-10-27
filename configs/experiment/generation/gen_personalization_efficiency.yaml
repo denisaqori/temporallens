@@ -20,7 +20,6 @@ protocol:
     # declared after results are inspected is not a selection protocol.
     - personalization.adaptation.objective.candidate_grid
     - personalization.adaptation.training_budget.synthetic_only_k0_optimizer_steps
-    - personalization.trial_selection.reproducibility
     - personalization.repeated_run_reproducibility
     - evaluation.within_subject_repeat_aggregation
     - evaluation.headline_extraction
@@ -58,24 +57,43 @@ personalization:
     schedule: nested_class_aware_prefix
     first_pass: one_trial_per_gesture
     second_pass: other_eligible_repetition
-    seed_derivation: sha256_64bit_experiment_seed_subject_schedule
+    # D43: one shared G3/G4 schedule stream; no strategy or k in its identity.
+    seed_derivation: temporallens_rng_v1
+    randomization_scope: g3_g4_personalization
+    randomization_purpose: acquisition_schedule
+    seed_indices: [subject_id, schedule_index]
     first_pass_repetition_assignment: alternating_8_9_flip_by_subject_plus_schedule_parity
     shared_across_strategies: true
     reproducibility:
-      status: pending_decision
-      prng: null
-      schedule_index_base: null
+      status: ready
+      prng: numpy_pcg64
+      schedule_index_base: 0
+      permutation_algorithm: d45_three_sequential_numpy_permutations
+      permutation_call_order: [ascending_active_gestures, ascending_complement_rep_1_gestures, ascending_complement_rep_4_gestures]
+      second_pass_order: shuffled_complement_groups_interleaved_underrepresented_repetition_first
+      parity_to_starting_repetition: {even: 1, odd: 4}
+      assignment_artifact: data/processed/assignments/g3_g4_personalization/v1/{source_pool_sha256}/subject{subject_id}/schedule{schedule_index}.json
+      assignment_reuse: load_verified_existing_or_create_once
+      require_trusted_file_sha256: true
+      trusted_file_digest_source: assignment_creation_record_or_frozen_run_registry
       persist_selected_trial_ids: true
+      persist_rng_provenance: true
+      persist_before_fitting: true
+      required_assignment_provenance: [source_pool_identity, source_pool_sha256, assignment_sha256]
+      required_rng_provenance: [key, derived_seed, assignment_prng, numpy_version]
   # MAT inspection established that assignment is feasible; the ownership rule remains Pending.
   rest_calibration_policy: pending_decision
   # D29/D30 require persisted adaptation-seed and synthetic-draw identities, but their domain and
-  # deterministic derivation are not yet chosen. Keep execution blocked instead of inventing them.
+  # component keys are not yet chosen. D43 fixes the seed factory, not those identities/counts.
   repeated_run_reproducibility:
     status: pending_decision
     adaptation_seed_count: null
-    adaptation_seed_derivation: null
+    adaptation_seed_derivation: temporallens_rng_v1
     synthetic_draw_count: null
-    synthetic_draw_seed_derivation: null
+    synthetic_draw_seed_derivation: temporallens_rng_v1
+    seed_index_base: 0
+    draw_index_base: 0
+    component_stream_keys: null
     repeat_axis_pairing: null
     persist_adaptation_seed_and_synthetic_draw_id: true
   calibration_strategy:

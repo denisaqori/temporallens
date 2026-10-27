@@ -7,10 +7,9 @@ protocol:
   # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
   # what is blocked is quoting numbers from it. The evaluator must reject any status other than
   # `ready`, and pending values never get defaults.
-  status: blocked_pending_decisions
-  blocked_on:
-    - evaluation.temperature_fit.execution.fold_assignment_algorithm
-    - evaluation.temperature_fit.execution.seed_derivation
+  # D44 settles the protocol; the dedicated training/refit/temperature runner is still unwritten.
+  status: ready
+  blocked_on: []
 experiment:
   name: baseline_cnn_random_split
   seed: 42
@@ -89,9 +88,29 @@ evaluation:
     artifact: model_config.probability_calibration
     required_provenance: [window_assignment_sha256, fold_artifact_sha256, config_digests, query_logits_sha256, subject_ids, fitting_weights, fit_diagnostics]
     execution:
-      status: pending_decision
-      fold_assignment_algorithm: null
-      seed_derivation: null
+      status: ready
+      fold_assignment_algorithm: d44_global_window_split_v1
+      canonical_window_order: [subject_id, start_sample]
+      outer_test_count: ceil_n_windows_divided_by_5
+      outer_membership: prefix_of_one_global_permutation
+      inner_input_order: recanonicalized_non_test_windows
+      inner_membership: one_independent_permutation_then_numpy_array_split_8
+      stratification: none
+      composition_triggered_redraw: forbidden
+      seed_derivation: temporallens_rng_v1
+      prng: numpy_pcg64
+      fold_index_base: 0
+      component_stream_keys:
+        scope: f2_random_window
+        outer: {purpose: outer_test_assignment, indices: {}}
+        inner: {purpose: inner_calibration_folds, indices: {}}
+      assignment_artifact: data/processed/assignments/f2_random_window/v1/{source_pool_sha256}/assignment.json
+      assignment_reuse: load_verified_existing_or_create_once
+      require_trusted_file_sha256: true
+      trusted_file_digest_source: assignment_creation_record_or_frozen_run_registry
+      persist_before_fitting: true
+      required_assignment_provenance: [source_pool_identity, source_pool_sha256, assignment_sha256]
+      required_rng_provenance: [key, derived_seed, assignment_prng, numpy_version]
       # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
       solver: scipy_minimize_scalar_bounded
       parameter: inverse_temperature
