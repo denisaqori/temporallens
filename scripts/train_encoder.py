@@ -248,7 +248,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # Reportability, not permission to train. The status blocks quoting numbers from this run, not
     # producing the checkpoint, so this is a loud note rather than a refusal.
-    blockers = protocol_blockers(raw, origin=str(args.config))
+    try:
+        blockers = protocol_blockers(raw, origin=str(args.config))
+    except ValueError as error:
+        parser.error(str(error))
     if blockers:
         print(f"NOT REPORTABLE: {args.config} is protocol-blocked ({', '.join(blockers)})")
     if recorded.get("experiment.mode") == "debug":

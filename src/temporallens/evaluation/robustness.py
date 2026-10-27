@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-import yaml
+from temporallens.utils.yaml_io import load_yaml
 
 
 def pending_field_paths(value: object, prefix: str = "") -> list[str]:
@@ -45,28 +45,46 @@ def invalid_shared_k0_aliases(targets: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def protocol_blockers(
-    config: dict[str, Any], *, prefix: str = "", origin: str = "config"
+    config: dict[str, Any],
+    *,
+    prefix: str = "",
+    origin: str = "config",
+    require_declared: bool = True,
 ) -> list[str]:
     """Return blocker paths when a loaded config's own protocol block is not ready.
 
     Shared by both gates so they cannot drift: a perturbation config checks itself, and a
     registry target checks the experiment that produced it. ``prefix`` is what the reported
     paths are relative to, so a caller can tell its own unresolved field from a target's.
+
+    Readiness must be *declared*. A missing block or a missing status is a blocker, because
+    silence is indistinguishable from someone having written ``ready``; pass
+    ``require_declared=False`` only where a config is never reportable. ``status: ready`` with a
+    non-empty ``blocked_on`` is a contradiction and raises: one of the two was not updated.
     """
     protocol = config.get("protocol")
     if protocol is None:
-        return []
+        return [f"{prefix}protocol=undeclared"] if require_declared else []
     if not isinstance(protocol, dict):
         raise ValueError(f"{origin} protocol must be a mapping")
 
-    status = protocol.get("status")
-    if status in (None, "ready"):
-        return []
-
-    blockers = [f"{prefix}protocol.status={status}"]
     blocked_on = protocol.get("blocked_on", [])
     if not isinstance(blocked_on, list):
         raise ValueError(f"{origin} protocol.blocked_on must be a list")
+    status = protocol.get("status")
+    if status is None:
+        return [f"{prefix}protocol.status=undeclared"]
+    if not isinstance(status, str):
+        raise ValueError(f"{origin} protocol.status must be a string, got {status!r}")
+    if status == "ready":
+        if blocked_on:
+            raise ValueError(
+                f"{origin} protocol.status is ready but blocked_on still lists {blocked_on}; "
+                "resolve those fields or set a blocking status"
+            )
+        return []
+
+    blockers = [f"{prefix}protocol.status={status}"]
     blockers.extend(f"{prefix}{path}" for path in blocked_on)
     return blockers
 
@@ -75,10 +93,10 @@ def source_protocol_blockers(target: dict[str, Any]) -> list[str]:
     """Return blocker paths when a target's source experiment is not protocol-ready."""
     source = target.get("source_config")
     if source is None:
-        return []
+        return ["source_config=undeclared"]
 
     source_path = Path(str(source))
-    config = yaml.safe_load(source_path.read_text())
+    config = load_yaml(source_path.read_text())
     if not isinstance(config, dict):
         raise ValueError(f"source config {source_path} must contain a YAML mapping")
 

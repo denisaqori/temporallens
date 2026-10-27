@@ -45,12 +45,17 @@ from temporallens.evaluation.robustness import (
     protocol_blockers,
     source_protocol_blockers,
 )
+from temporallens.utils.yaml_io import load_yaml as strict_load_yaml
 
 DEFAULT_REGISTRY = Path("configs/experiment/robustness_targets.yaml")
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
-    return yaml.safe_load(path.read_text())
+    """Read strictly: a repeated key is an error, never last-write-wins (see utils.yaml_io)."""
+    loaded = strict_load_yaml(path.read_text())
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path} must contain a YAML mapping")
+    return loaded
 
 
 def target_artifact(target: dict[str, Any]) -> Path:
@@ -82,21 +87,32 @@ def main() -> int:
     parser.add_argument("--config", required=True, type=Path, help="perturbation config path")
     parser.add_argument("--targets", type=Path, default=DEFAULT_REGISTRY, help="target registry")
     parser.add_argument("--target", type=str, default=None, help="restrict to one target name")
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="exit 0 even when no target was evaluated (for inspecting an incremental suite)",
+    )
     args = parser.parse_args()
 
-    perturbation_cfg = load_yaml(args.config)
+    try:
+        perturbation_cfg = load_yaml(args.config)
+        registry = load_yaml(args.targets)
+    except (OSError, ValueError, yaml.YAMLError) as error:
+        parser.error(str(error))
     # The perturbation gates itself before any target is considered. A type and a level list are
     # not an operational definition: without the application order, sampling, seeds, repetitions
     # and aggregation, every target would be scored against an undefined transform. This is one
     # refusal rather than a per-target skip because the axis itself is what is unresolved.
-    own_blockers = protocol_blockers(perturbation_cfg, origin=str(args.config))
+    try:
+        own_blockers = protocol_blockers(perturbation_cfg, origin=str(args.config))
+    except ValueError as error:
+        parser.error(str(error))
     if own_blockers:
         parser.error(
             f"perturbation config {args.config} is not protocol-ready "
             f"(unresolved: {', '.join(own_blockers)})"
         )
     perturbation = perturbation_cfg["perturbation"]
-    registry = load_yaml(args.targets)
     targets: list[dict[str, Any]] = registry["targets"]
 
     duplicates = duplicate_target_names(targets)
@@ -140,8 +156,13 @@ def main() -> int:
         print(f"  skip    {target['name']:24s} (no artifact at {target_artifact(target)})")
 
     if not present:
-        print("No ready target artifacts are available; nothing to evaluate.")
-        return 0
+        # Nothing evaluated is not a success: a fully blocked or missing suite exiting 0 reads as
+        # a pass in any script that runs it. Inspecting an incremental suite is the explicit case.
+        print("No ready target artifacts are available; nothing was evaluated.")
+        if args.allow_empty:
+            return 0
+        print("Exiting non-zero; pass --allow-empty to accept an empty evaluation.")
+        return 1
 
     for target in present:
         print(f"  run     {target['name']:24s} -> {target_artifact(target)}")

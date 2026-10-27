@@ -269,7 +269,7 @@ Decides which robustness evaluations may run.
 
 A robustness evaluation pairs a perturbation (noise, channel dropout, amplitude scaling) with a trained model from the shared registry. These helpers find the reasons a pair must not run: an unresolved `pending_*` value anywhere in a registry entry, a source experiment whose `protocol.status` is not `ready`, duplicate target names, or a `shared_k0_with` reference to a target that does not exist.
 
-`protocol_blockers` is a single function used by both checks — a perturbation config checks itself, and each target checks the experiment that produced it — so the two cannot apply different rules. Readiness has to be declared: a config with no `protocol:` block produces no blockers, which is indistinguishable from `status: ready`, so every config the registry names is required (by test) to state its status.
+`protocol_blockers` is a single function used by both checks — a perturbation config checks itself, and each target checks the experiment that produced it — so the two cannot apply different rules. Readiness has to be declared. A config with no `protocol:` block, a block with no status, or a target with no `source_config` is a blocker, because silence is indistinguishable from someone having written `ready`; `require_declared=False` exists only for configs that are never reportable. `status: ready` beside a non-empty `blocked_on` is a contradiction — one of the two was not updated — and raises. All of these files are read through `utils.yaml_io`, so a repeated key is an error here too.
 
 **Connects to** `scripts/evaluate.py` (calls it) · `configs/experiment/robustness_targets.yaml` · **Decision** D2
 
@@ -311,7 +311,7 @@ A commit alone is not enough: the first F0 run recorded a commit from before `tr
 |---|---|
 | `prepare_dataset.py` | Converts raw `.mat` recordings to processed `.npz`, one per subject — about 75 MB each, 3 GB for all 40. It opens an existing file before skipping it and rebuilds one it cannot read, so an interrupted run is never skipped forever. `--subjects` needs at least one value; omit the flag for all 40. `make prepare-debug-subjects` prepares the three F0 needs |
 | `train_encoder.py` | Turns a config into a run; see [Configuration](#configuration). `make debug` |
-| `evaluate.py` | Robustness driver: works out which perturbation × target pairs may run. The evaluation itself is not written yet |
+| `evaluate.py` | Robustness driver: works out which perturbation × target pairs may run. A run that evaluates nothing exits non-zero, since a fully blocked suite exiting 0 reads as a pass in any script that runs it; `--allow-empty` accepts that for inspecting an incremental suite. The evaluation itself is not written yet |
 | `verify_environment.py` | `make verify`: interpreter, packages, MPS |
 | `worktree.sh` | The one tool every agent uses for parallel work (AGENTS.md) |
 

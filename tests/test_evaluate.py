@@ -14,10 +14,18 @@ from temporallens.evaluation.robustness import (
     duplicate_target_names,
     invalid_shared_k0_aliases,
     pending_field_paths,
+    protocol_blockers,
     source_protocol_blockers,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+#: A perturbation that declares itself ready, so a test reaches the target logic it is about
+#: rather than stopping at the perturbation's own gate.
+READY_PERTURBATION = {
+    "protocol": {"status": "ready", "blocked_on": []},
+    "perturbation": {"type": "noise", "levels": [0.1]},
+}
 
 
 def _load_evaluate_script() -> ModuleType:
@@ -85,9 +93,7 @@ def test_pending_target_never_dispatches_even_when_its_artifact_exists(
 ) -> None:
     evaluate = _load_evaluate_script()
     perturbation_path = tmp_path / "perturbation.yaml"
-    perturbation_path.write_text(
-        yaml.safe_dump({"perturbation": {"type": "noise", "levels": [0.1]}})
-    )
+    perturbation_path.write_text(yaml.safe_dump(READY_PERTURBATION))
 
     existing_run = tmp_path / "existing-run"
     existing_run.mkdir()
@@ -137,9 +143,7 @@ def test_nonready_source_protocol_never_dispatches_existing_artifact(
 ) -> None:
     evaluate = _load_evaluate_script()
     perturbation_path = tmp_path / "perturbation.yaml"
-    perturbation_path.write_text(
-        yaml.safe_dump({"perturbation": {"type": "noise", "levels": [0.1]}})
-    )
+    perturbation_path.write_text(yaml.safe_dump(READY_PERTURBATION))
     source_config = tmp_path / "g3.yaml"
     source_config.write_text(
         yaml.safe_dump(
@@ -263,3 +267,108 @@ def test_every_registry_source_config_declares_a_protocol_block() -> None:
         if not isinstance(protocol, dict) or "status" not in protocol:
             missing.append(f"{target['name']} -> {source}")
     assert not missing, f"registry source configs with no protocol.status: {missing}"
+
+
+# --- readiness is declared and consistent, and an empty run is not a success -----------------
+
+
+def test_ready_with_leftover_blockers_is_a_contradiction() -> None:
+    """`status: ready` beside a non-empty `blocked_on` means someone forgot one of the two."""
+    config = {"protocol": {"status": "ready", "blocked_on": ["evaluation.ece.temperature_source"]}}
+    with pytest.raises(ValueError, match="ready but"):
+        protocol_blockers(config, origin="x.yaml")
+
+
+def test_an_undeclared_protocol_blocks_by_default() -> None:
+    assert protocol_blockers({}) == ["protocol=undeclared"]
+    assert protocol_blockers({"protocol": {"blocked_on": []}}) == ["protocol.status=undeclared"]
+    assert protocol_blockers({}, require_declared=False) == []
+
+
+def test_a_target_without_a_source_config_is_blocked() -> None:
+    assert source_protocol_blockers({"name": "t", "checkpoint": "x.pt"}) == [
+        "source_config=undeclared"
+    ]
+
+
+def _ready_source(tmp_path: Path) -> Path:
+    source = tmp_path / "source.yaml"
+    source.write_text(yaml.safe_dump({"protocol": {"status": "ready", "blocked_on": []}}))
+    return source
+
+
+def _run(evaluate, monkeypatch, *argv: str) -> int:
+    monkeypatch.setattr(sys, "argv", ["evaluate.py", *argv])
+    return evaluate.main()
+
+
+def test_an_evaluation_that_runs_nothing_is_not_a_success(tmp_path, monkeypatch, capsys) -> None:
+    evaluate = _load_evaluate_script()
+    perturbation = tmp_path / "perturbation.yaml"
+    perturbation.write_text(yaml.safe_dump(READY_PERTURBATION))
+    registry = tmp_path / "targets.yaml"
+    registry.write_text(
+        yaml.safe_dump(
+            {
+                "targets": [
+                    {
+                        "name": "absent",
+                        "source_config": str(_ready_source(tmp_path)),
+                        "checkpoint": str(tmp_path / "none.pt"),
+                    }
+                ]
+            }
+        )
+    )
+    args = ("--config", str(perturbation), "--targets", str(registry))
+    assert _run(evaluate, monkeypatch, *args) == 1
+    assert "--allow-empty" in capsys.readouterr().out
+    assert _run(evaluate, monkeypatch, *args, "--allow-empty") == 0
+
+
+def test_a_perturbation_claiming_ready_with_blockers_is_refused(tmp_path, monkeypatch) -> None:
+    evaluate = _load_evaluate_script()
+    perturbation = tmp_path / "perturbation.yaml"
+    perturbation.write_text(
+        yaml.safe_dump(
+            {
+                "protocol": {"status": "ready", "blocked_on": ["perturbation.seed_derivation"]},
+                "perturbation": {"type": "noise", "levels": [0.1]},
+            }
+        )
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        _run(evaluate, monkeypatch, "--config", str(perturbation))
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("which", ["perturbation", "source"])
+def test_a_repeated_key_anywhere_on_the_robustness_path_is_refused(
+    tmp_path, monkeypatch, which
+) -> None:
+    """The encoder loader already refused repeated keys; this path read with plain safe_load."""
+    evaluate = _load_evaluate_script()
+    perturbation = tmp_path / "perturbation.yaml"
+    source = _ready_source(tmp_path)
+    if which == "perturbation":
+        perturbation.write_text(yaml.safe_dump(READY_PERTURBATION) + "protocol: {status: ready}\n")
+    else:
+        perturbation.write_text(yaml.safe_dump(READY_PERTURBATION))
+        source.write_text(source.read_text() + "protocol: {status: ready}\n")
+    registry = tmp_path / "targets.yaml"
+    registry.write_text(
+        yaml.safe_dump(
+            {
+                "targets": [
+                    {
+                        "name": "t",
+                        "source_config": str(source),
+                        "checkpoint": str(tmp_path / "none.pt"),
+                    }
+                ]
+            }
+        )
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        _run(evaluate, monkeypatch, "--config", str(perturbation), "--targets", str(registry))
+    assert exit_info.value.code == 2
