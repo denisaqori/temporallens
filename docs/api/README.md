@@ -143,6 +143,8 @@ They agree within 1.4%, so the choice fixes a definition rather than improving a
 
 The config names the policy: `train_subject_covered_sample_stats` for subject splits and `train_split_covered_sample_stats` for the random-window split.
 
+`ChannelStats.from_dict` checks what it reads back — equal-length finite vectors, a positive std on every channel, a named fitting set — because the statistics arrive from checkpoints written by other runs, and a malformed payload otherwise fails late: a zero std divides every window by zero.
+
 **Connects to** `training.encoder` (fits) · `data.dataset` (applies) · `models.checkpoint` (stores) · **Decision** D31
 
 ### `models.encoders.cnn1d`
@@ -150,7 +152,7 @@ The reference encoder and its classification head.
 
 The encoder is three convolution, batch-norm and ReLU blocks (kernels 7, 5 and 3; `hidden_dim` channels, then twice that), max-pooling by 4 after the first two, adaptive average pooling, dropout and a linear projection to `embedding_dim`. The adaptive pool makes the embedding size independent of window length. The head is dropout plus a linear layer to the 18 classes; the downstream experiments keep the encoder and replace the head.
 
-The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option, because those values are what the name `cnn1d` means. If a config could change them, two runs could both declare `model.type: cnn1d` and be different networks. `model_config()` records the stack in every checkpoint, and `build_model` refuses one whose recorded stack or type differs from this code; otherwise weights would load into right-shaped but wrong layers. Changing the stack means a new model type with a new name.
+The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option, because those values are what the name `cnn1d` means. If a config could change them, two runs could both declare `model.type: cnn1d` and be different networks. `model_config()` records the stack in every checkpoint, and `build_model` refuses one whose recorded stack or type differs from this code — `rebuild_from_config`, the path a checkpoint takes, also refuses a config that records no stack at all; otherwise weights would load into right-shaped but wrong layers. Changing the stack means a new model type with a new name.
 
 `freeze()` sets `requires_grad=False` and switches to eval mode, and `train()` is overridden so a later `model.train()` cannot undo it. The eval half matters because of batch norm: a frozen encoder left in train mode keeps updating its running statistics from whichever experiment is using it, silently changing the checkpoint all of them share.
 
@@ -181,6 +183,8 @@ The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option
 Saves and rebuilds models under the `{model_state, model_config}` contract.
 
 A checkpoint holds exactly two things: the weights, and a description complete enough to rebuild the model with no outside information. That is why a robustness target can be just a name and a file, with no model type alongside it. The normalization statistics are part of the description, and saving without them is refused: a consumer that normalized differently would get a working-looking but different model, and the downstream experiments would stop being comparable with the F1 reference. The fitted temperature belongs in the description for the same reason.
+
+Loading is as strict as saving. `load_checkpoint` refuses any top-level key set other than the two, a `model_state` that is not named tensors, a `model_config` without the current `schema_version`, and missing or malformed normalization statistics — including statistics for a different channel count than the model takes. It reads with `weights_only=True`, so a file can never make unpickling run code. `rebuild_model` also requires the recorded architecture: fresh construction through `build_model` may omit it, because nothing has been recorded yet, but a rebuild may not. The schema version is bumped whenever `model_config` gains or changes a field a consumer relies on; in version 1, `probability_calibration` is optional until the F1 harness fixes its fields.
 
 Checkpoint names carry their role:
 

@@ -73,12 +73,38 @@ class ChannelStats:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> ChannelStats:
+        """Read statistics back, checking them rather than trusting the file.
+
+        They arrive from checkpoints written by other runs, and a malformed payload fails late and
+        confusingly otherwise: a zero std divides every window by zero, and a short vector only
+        fails when the first window of the wrong width meets it.
+        """
+        try:
+            mean = np.asarray(payload["mean"], dtype=np.float64)
+            std = np.asarray(payload["std"], dtype=np.float64)
+            fitted_on = payload["fitted_on"]
+            num_samples = payload["num_samples"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"normalization statistics are malformed: {error!r}") from error
+        if mean.ndim != 1 or mean.shape != std.shape or mean.size == 0:
+            raise ValueError(
+                "normalization mean and std must be non-empty vectors of the same length, got "
+                f"{mean.shape} and {std.shape}"
+            )
+        if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(std))):
+            raise ValueError("normalization statistics must be finite")
+        if np.any(std <= 0):
+            raise ValueError("normalization std must be positive on every channel")
+        if isinstance(num_samples, bool) or not isinstance(num_samples, int) or num_samples <= 0:
+            raise ValueError(f"num_samples must be a positive integer, got {num_samples!r}")
+        if not isinstance(fitted_on, str) or not fitted_on:
+            raise ValueError("fitted_on must name the fitting set")
         return cls(
-            mean=np.asarray(payload["mean"], dtype=np.float32),
-            std=np.asarray(payload["std"], dtype=np.float32),
-            fitted_on=payload["fitted_on"],
-            num_samples=int(payload["num_samples"]),
-            floored_channels=tuple(payload.get("floored_channels", ())),
+            mean=mean.astype(np.float32),
+            std=std.astype(np.float32),
+            fitted_on=fitted_on,
+            num_samples=num_samples,
+            floored_channels=tuple(int(c) for c in payload.get("floored_channels", ())),
         )
 
 

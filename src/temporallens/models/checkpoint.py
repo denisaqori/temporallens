@@ -7,7 +7,10 @@ stacks (encoder + projector + backbone + head) anyway.
 
 Two keys, and only two. Extra top-level keys are how consumers start depending on things the
 contract does not promise, so :func:`save_checkpoint` writes exactly those two and
-:func:`load_checkpoint` refuses a file missing either.
+:func:`load_checkpoint` refuses a file with any other set. Loading is as strict as the contract:
+``model_state`` must be named tensors, ``model_config`` must carry the current
+``schema_version`` and valid normalization statistics for the declared channel count, and the
+file is read with ``weights_only=True`` so unpickling can never run code from it.
 
 Normalization statistics live inside ``model_config``. The encoder is frozen and reused by both
 arms, so if its statistics did not travel with the file each arm would normalize differently and
@@ -20,6 +23,7 @@ reads, :func:`fold_checkpoint_path` is per-fold and for analysis only.
 
 from __future__ import annotations
 
+import pickle
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -28,12 +32,21 @@ import torch
 from torch import nn
 
 from temporallens.models.encoders.cnn1d import MODEL_TYPE as CNN1D
-from temporallens.models.encoders.cnn1d import build_model
+from temporallens.models.encoders.cnn1d import rebuild_from_config
+from temporallens.preprocessing.normalize import ChannelStats
 
 CONTRACT_KEYS = frozenset({"model_state", "model_config"})
 
-#: Rebuilders by ``model_config["type"]``. A type absent here is refused by name.
-_BUILDERS = {CNN1D: build_model}
+#: Bumped whenever ``model_config`` gains or changes a field a consumer relies on, so an old file
+#: is refused by name rather than misread. Version 1: type, constructor arguments, recorded
+#: architecture, normalization; ``probability_calibration`` is optional until the F1 harness fixes
+#: its fields (D33).
+MODEL_CONFIG_SCHEMA_VERSION = 1
+
+#: Rebuilders by ``model_config["type"]``. A type absent here is refused by name. These are the
+#: *checkpoint* rebuilders, which require the recorded architecture; fresh construction uses
+#: ``build_model`` directly.
+_BUILDERS = {CNN1D: rebuild_from_config}
 
 
 class CheckpointError(RuntimeError):
@@ -74,8 +87,16 @@ def save_checkpoint(
             "checkpoint contract"
         )
 
+    try:
+        ChannelStats.from_dict(normalization)
+    except ValueError as error:
+        raise CheckpointError(
+            f"refusing to save malformed normalization statistics: {error}"
+        ) from error
+
     config = dict(describe())
     config["normalization"] = dict(normalization)
+    config["schema_version"] = MODEL_CONFIG_SCHEMA_VERSION
 
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -85,7 +106,15 @@ def save_checkpoint(
 def load_checkpoint(path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return ``(model_state, model_config)``, refusing anything off-contract."""
     source = Path(path)
-    payload = torch.load(source, map_location="cpu", weights_only=False)
+    try:
+        payload = torch.load(source, map_location="cpu", weights_only=True)
+    except pickle.UnpicklingError as error:
+        raise CheckpointError(
+            f"{source}: contains objects other than tensors and plain data, so loading it would "
+            f"have to run code from the file: {error}"
+        ) from error
+    except (OSError, RuntimeError, EOFError, ValueError) as error:
+        raise CheckpointError(f"{source}: cannot read checkpoint: {error}") from error
     if not isinstance(payload, dict):
         raise CheckpointError(f"{source}: expected a mapping, got {type(payload).__name__}")
 
@@ -95,7 +124,53 @@ def load_checkpoint(path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
             f"{source}: missing contract key(s) {missing}. Every checkpoint stores "
             "{model_state, model_config} so a consumer can rebuild from the file alone."
         )
-    return payload["model_state"], payload["model_config"]
+    extra = sorted(str(key) for key in payload.keys() - CONTRACT_KEYS)
+    if extra:
+        raise CheckpointError(
+            f"{source}: unexpected top-level key(s) {extra}; the contract is exactly "
+            "{model_state, model_config}"
+        )
+
+    state, config = payload["model_state"], payload["model_config"]
+    if not isinstance(state, Mapping) or not all(
+        isinstance(key, str) and isinstance(value, torch.Tensor) for key, value in state.items()
+    ):
+        raise CheckpointError(f"{source}: model_state must map parameter names to tensors")
+    if not isinstance(config, dict):
+        raise CheckpointError(f"{source}: model_config must be a mapping")
+    _validate_model_config(config, source)
+    return dict(state), config
+
+
+def _validate_model_config(config: dict[str, Any], source: Path) -> None:
+    version = config.get("schema_version")
+    if isinstance(version, bool) or version != MODEL_CONFIG_SCHEMA_VERSION:
+        raise CheckpointError(
+            f"{source}: model_config schema_version is {version!r}, expected "
+            f"{MODEL_CONFIG_SCHEMA_VERSION}; a file from another schema would be misread"
+        )
+    if not isinstance(config.get("type"), str):
+        raise CheckpointError(f"{source}: model_config must name its model type")
+    if "normalization" not in config:
+        raise CheckpointError(
+            f"{source}: model_config carries no normalization statistics, so a consumer would "
+            "normalize its inputs differently from the run that trained it"
+        )
+    try:
+        stats = ChannelStats.from_dict(config["normalization"])
+    except (ValueError, TypeError) as error:
+        raise CheckpointError(
+            f"{source}: normalization statistics are malformed: {error}"
+        ) from error
+    channels = config.get("input_channels")
+    if channels is not None and stats.mean.size != channels:
+        raise CheckpointError(
+            f"{source}: normalization statistics cover {stats.mean.size} channels but the model "
+            f"takes {channels}"
+        )
+    calibration = config.get("probability_calibration")
+    if calibration is not None and not isinstance(calibration, Mapping):
+        raise CheckpointError(f"{source}: probability_calibration must be a mapping")
 
 
 def rebuild_model(path: str | Path) -> nn.Module:
@@ -108,6 +183,9 @@ def rebuild_model(path: str | Path) -> nn.Module:
             f"{path}: cannot rebuild model type {model_type!r}; known types are "
             f"{sorted(_BUILDERS)}"
         )
-    model = builder(config)
+    try:
+        model = builder(config)
+    except (ValueError, KeyError) as error:
+        raise CheckpointError(f"{path}: {error}") from error
     model.load_state_dict(state)
     return model

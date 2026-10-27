@@ -192,3 +192,19 @@ def build_model(config: dict[str, Any]) -> Cnn1dClassifier:
         for key in ("input_channels", "hidden_dim", "embedding_dim", "num_classes", "dropout")
     }
     return Cnn1dClassifier(**kwargs)
+
+
+def rebuild_from_config(config: dict[str, Any]) -> Cnn1dClassifier:
+    """Rebuild a model *from a checkpoint's* ``model_config``, where the stack must be recorded.
+
+    :func:`build_model` serves fresh construction too, where nothing has been recorded yet, so it
+    accepts a config without ``architecture``. A checkpoint is different: without the recorded
+    stack there is no way to tell whether its weights came from this definition of ``cnn1d``, and a
+    same-name file from another definition would load into right-shaped but wrong layers.
+    """
+    if "architecture" not in config:
+        raise ValueError(
+            f"model_config does not record its {MODEL_TYPE!r} architecture, so this code cannot "
+            "confirm the weights were trained under the same definition (D32)"
+        )
+    return build_model(config)

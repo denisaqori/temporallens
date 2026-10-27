@@ -209,3 +209,22 @@ def test_round_trip_through_a_plain_dict() -> None:
     np.testing.assert_allclose(restored.mean, stats.mean)
     np.testing.assert_allclose(restored.std, stats.std)
     assert restored.fitted_on == stats.fitted_on
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"std": [1.0] * 11}, "same length"),
+        ({"mean": [float("nan")] + [0.0] * 11}, "finite"),
+        ({"std": [0.0] * 12}, "positive"),
+        ({"num_samples": 0}, "num_samples"),
+        ({"fitted_on": ""}, "fitted_on"),
+    ],
+)
+def test_malformed_statistics_are_refused_when_read_back(change, reason) -> None:
+    """Statistics are read back from checkpoints written by other runs, so the reader checks them
+    rather than trusting the file: a zero std would divide every window by zero downstream."""
+    payload = {"mean": [0.0] * 12, "std": [1.0] * 12, "fitted_on": "train", "num_samples": 10}
+    payload.update(change)
+    with pytest.raises(ValueError, match=reason):
+        ChannelStats.from_dict(payload)
