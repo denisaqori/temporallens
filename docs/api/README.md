@@ -235,6 +235,8 @@ One encoder training run: a run configuration in, a recorded result out.
 
 The result carries two audit facts so tests can check that the protocol held: the total and unique training-window counts (equal means nothing was resampled), and the number of windows crossing a segment boundary, recounted from the raw labels rather than taken from the windower. The recount uses a binary search over segment starts; the obvious nested loop gives the same answer about 95 times more slowly, roughly 3 s per 28-subject fold.
 
+The logged training loss is the class-weighted objective over the whole epoch. PyTorch's batch mean divides by the batch's weight sum rather than its size, so each batch contributes its mean times that sum; averaging batch means equally would over-count rest-heavy batches, whose weight sum is small. The loss is only logged — epochs are selected on validation macro-F1.
+
 A debug run is not a measurement, so it cannot write the checkpoint names other experiments load.
 
 **Connects to** every module above · `scripts/train_encoder.py` (drives it) · **Decisions** D7, D11, D18/D19 (fixed epochs), D24, D38 (these optimizer mechanics are the F1 reference)
@@ -242,7 +244,7 @@ A debug run is not a measurement, so it cannot write the checkpoint names other 
 ### `evaluation.metrics`
 The metric functions every experiment reports.
 
-Each function scores one set of windows and returns a number or a per-class array. Grouping by subject or by run happens outside them, so no metric can quietly choose an aggregation the protocol leaves open. Temperature scaling is not part of them either: they score whatever probabilities they receive, raw or scaled, and how the temperature is fitted is set by the protocol (§3.4).
+Each function scores one set of windows and returns a number or a per-class array, and checks its inputs first: labels must be 1-D integer arrays of equal length in `[0, num_classes)`, probabilities finite rows in [0, 1] that sum to 1 within 1e-5 (which admits float32 softmax), confidences finite in [0, 1] with a true/false outcome per window, and nothing may be empty. Unchecked, NumPy either fails somewhere unrelated or returns a plausible number — a confidence of 1.7 gave an ECE of 0.33, and a label of -1 was counted as the last class, because negative indices wrap around. Grouping by subject or by run happens outside them, so no metric can quietly choose an aggregation the protocol leaves open. Temperature scaling is not part of them either: they score whatever probabilities they receive, raw or scaled, and how the temperature is fitted is set by the protocol (§3.4).
 
 | Function | What it measures, and the choice behind it |
 |---|---|

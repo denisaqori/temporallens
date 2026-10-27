@@ -308,3 +308,96 @@ def test_a_consistent_difference_excludes_zero_and_a_noisy_one_does_not() -> Non
 def test_paired_interval_requires_matched_subjects() -> None:
     with pytest.raises(ValueError, match="at least two"):
         paired_bootstrap_interval(np.array([0.1]), seed=42)
+
+
+# --- inputs are checked, not trusted ----------------------------------------------------------
+# Each case below used to be accepted: NumPy either failed somewhere unrelated or returned a
+# plausible number. A confidence of 1.7 produced an ECE of 0.33; a label of -1 was counted as
+# class 17, because negative indices wrap around.
+
+
+def test_a_negative_label_is_refused_rather_than_counted_as_the_last_class() -> None:
+    with pytest.raises(ValueError, match=r"labels must lie in \[0, 18\)"):
+        confusion_matrix(np.array([0, 1]), np.array([0, -1]), num_classes=18)
+
+
+@pytest.mark.parametrize(
+    ("predicted", "true", "reason"),
+    [
+        (np.array([0, 1, 1]), np.array([0, 1]), "same length"),
+        (np.array([[0, 1]]), np.array([[0, 1]]), "1-D"),
+        (np.array([], dtype=np.int64), np.array([], dtype=np.int64), "empty"),
+        (np.array([0.5, 1.0]), np.array([0, 1]), "integer"),
+        (np.array([True, False]), np.array([0, 1]), "integer"),
+    ],
+)
+def test_malformed_labels_are_refused(predicted, true, reason) -> None:
+    with pytest.raises(ValueError, match=reason):
+        accuracy(predicted, true)
+    with pytest.raises(ValueError, match=reason):
+        macro_f1(predicted, true, num_classes=18)
+
+
+@pytest.mark.parametrize(
+    ("probabilities", "true", "reason"),
+    [
+        (np.array([[0.9, 0.9], [0.1, 0.1]]), np.array([0, 1]), "sum to 1"),
+        (np.array([[1.2, -0.2], [0.5, 0.5]]), np.array([0, 1]), r"\[0, 1\]"),
+        (np.array([[np.nan, 1.0], [0.5, 0.5]]), np.array([0, 1]), "finite"),
+        (np.array([[0.5, 0.5], [0.5, 0.5]]), np.array([0, 1, 1]), "one row per label"),
+        (np.array([[0.5, 0.5], [0.5, 0.5]]), np.array([0, 2]), r"labels must lie in \[0, 2\)"),
+        (np.array([0.5, 0.5]), np.array([0]), "2-D"),
+    ],
+)
+def test_malformed_probabilities_are_refused(probabilities, true, reason) -> None:
+    with pytest.raises(ValueError, match=reason):
+        brier_score(probabilities, true)
+
+
+def test_float32_softmax_rows_are_accepted() -> None:
+    """The tolerance has to admit what the trainer actually produces."""
+    logits = np.random.default_rng(0).normal(size=(500, 18)).astype(np.float32)
+    probabilities = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+    brier_score(probabilities.astype(np.float64), np.zeros(500, dtype=np.int64))
+
+
+@pytest.mark.parametrize(
+    ("confidence", "correct", "reason"),
+    [
+        (np.array([1.7, 0.2, 0.9]), np.array([True, False, True]), r"\[0, 1\]"),
+        (np.array([-0.1, 0.2, 0.9]), np.array([True, False, True]), r"\[0, 1\]"),
+        (np.array([np.nan, 0.2, 0.9]), np.array([True, False, True]), "finite"),
+        (np.array([0.5, 0.2]), np.array([True, False, True]), "same length"),
+        (np.array([0.5, 0.2]), np.array([1, 2]), "true or false"),
+        (np.array([], dtype=np.float64), np.array([], dtype=bool), "empty"),
+    ],
+)
+def test_malformed_confidences_are_refused(confidence, correct, reason) -> None:
+    for metric in (expected_calibration_error, overconfidence_error, mean_confidence_when_wrong):
+        with pytest.raises(ValueError, match=reason):
+            metric(confidence, correct)
+    with pytest.raises(ValueError, match=reason):
+        calibration_bins(confidence, correct)
+
+
+def test_a_bin_count_below_one_is_refused() -> None:
+    with pytest.raises(ValueError, match="bins"):
+        calibration_bins(np.array([0.5, 0.6]), np.array([True, False]), bins=0)
+
+
+def test_per_subject_refuses_subjects_that_do_not_line_up_with_the_windows() -> None:
+    with pytest.raises(ValueError, match="one subject per window"):
+        per_subject(accuracy, np.array([0, 1, 1]), np.array([0, 1, 0]), subjects=np.array([1, 2]))
+
+
+@pytest.mark.parametrize(
+    ("differences", "kwargs", "reason"),
+    [
+        (np.array([0.1, np.nan, 0.2]), {}, "finite"),
+        (np.array([0.1, 0.2, 0.3]), {"resamples": 0}, "resamples"),
+        (np.array([0.1, 0.2, 0.3]), {"confidence": 1.0}, "confidence"),
+    ],
+)
+def test_the_paired_interval_refuses_malformed_inputs(differences, kwargs, reason) -> None:
+    with pytest.raises(ValueError, match=reason):
+        paired_bootstrap_interval(differences, seed=0, **kwargs)

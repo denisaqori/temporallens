@@ -43,6 +43,91 @@ IntArray = npt.NDArray[np.int64]
 FloatArray = npt.NDArray[np.float64]
 BoolArray = npt.NDArray[np.bool_]
 
+#: Rows of a float32 softmax sum to 1 within about 1e-6; this admits them and refuses anything
+#: that is not a probability vector.
+PROBABILITY_SUM_TOLERANCE = 1e-5
+
+
+# --- input checks -----------------------------------------------------------------------------
+# Every metric checks its inputs before computing, because NumPy otherwise fails somewhere
+# unrelated or returns a plausible number: a confidence of 1.7 gave an ECE of 0.33, and a label of
+# -1 was counted as the last class because negative indices wrap around.
+
+
+def _labels(
+    predicted: Any, true: Any, *, num_classes: int | None = None
+) -> tuple[IntArray, IntArray]:
+    predicted, true = np.asarray(predicted), np.asarray(true)
+    if predicted.ndim != 1 or true.ndim != 1:
+        raise ValueError("predicted and true labels must be 1-D arrays")
+    if predicted.shape != true.shape:
+        raise ValueError(
+            f"predicted and true labels must have the same length, got {predicted.size} and "
+            f"{true.size}"
+        )
+    if predicted.size == 0:
+        raise ValueError("cannot score an empty set of windows")
+    for name, values in (("predicted", predicted), ("true", true)):
+        if not np.issubdtype(values.dtype, np.integer):
+            raise ValueError(f"{name} labels must be an integer array, got {values.dtype}")
+    if num_classes is not None:
+        _class_range(predicted, num_classes)
+        _class_range(true, num_classes)
+    return predicted.astype(np.int64), true.astype(np.int64)
+
+
+def _class_range(labels: IntArray, num_classes: int) -> None:
+    if labels.min() < 0 or labels.max() >= num_classes:
+        raise ValueError(
+            f"labels must lie in [0, {num_classes}), got values from {labels.min()} to "
+            f"{labels.max()}"
+        )
+
+
+def _probabilities(probabilities: Any, true: Any) -> tuple[FloatArray, IntArray]:
+    probs = np.asarray(probabilities, dtype=np.float64)
+    labels = np.asarray(true)
+    if probs.ndim != 2:
+        raise ValueError(
+            f"probabilities must be a 2-D (windows, classes) array, got {probs.ndim}-D"
+        )
+    if labels.ndim != 1 or labels.size != probs.shape[0]:
+        raise ValueError(
+            f"probabilities need one row per label: {probs.shape[0]} rows, {labels.size} labels"
+        )
+    if probs.shape[0] == 0:
+        raise ValueError("cannot score an empty set of windows")
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise ValueError(f"true labels must be an integer array, got {labels.dtype}")
+    _class_range(labels, probs.shape[1])
+    if not np.all(np.isfinite(probs)):
+        raise ValueError("probabilities must be finite")
+    if probs.min() < 0 or probs.max() > 1:
+        raise ValueError("probabilities must lie in [0, 1]")
+    if not np.allclose(probs.sum(axis=1), 1.0, rtol=0.0, atol=PROBABILITY_SUM_TOLERANCE):
+        raise ValueError("each row of probabilities must sum to 1")
+    return probs, labels.astype(np.int64)
+
+
+def _confidences(confidence: Any, correct: Any) -> tuple[FloatArray, BoolArray]:
+    conf = np.asarray(confidence, dtype=np.float64)
+    hits = np.asarray(correct)
+    if conf.ndim != 1 or hits.ndim != 1:
+        raise ValueError("confidence and correct must be 1-D arrays")
+    if conf.shape != hits.shape:
+        raise ValueError(
+            f"confidence and correct must have the same length, got {conf.size} and {hits.size}"
+        )
+    if conf.size == 0:
+        raise ValueError("cannot measure calibration on an empty set of windows")
+    if not np.all(np.isfinite(conf)):
+        raise ValueError("confidences must be finite")
+    if conf.min() < 0 or conf.max() > 1:
+        raise ValueError("confidences must lie in [0, 1]")
+    if hits.dtype != np.bool_ and not np.all((hits == 0) | (hits == 1)):
+        raise ValueError("correct must hold only true or false per window")
+    return conf, hits.astype(bool)
+
 
 def accuracy(predicted: IntArray, true: IntArray) -> float:
     """Fraction of windows whose predicted class matches the truth.
@@ -50,13 +135,15 @@ def accuracy(predicted: IntArray, true: IntArray) -> float:
     Misleading alone under this project's imbalance: rest is ~50% of windows, so a model
     predicting only rest scores 0.5. `macro_f1` is the headline for that reason.
     """
-    return float(np.mean(np.asarray(predicted) == np.asarray(true)))
+    predicted, true = _labels(predicted, true)
+    return float(np.mean(predicted == true))
 
 
 def confusion_matrix(predicted: IntArray, true: IntArray, *, num_classes: int) -> IntArray:
     """Rows are truth, columns are predictions."""
+    predicted, true = _labels(predicted, true, num_classes=num_classes)
     matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
-    np.add.at(matrix, (np.asarray(true), np.asarray(predicted)), 1)
+    np.add.at(matrix, (true, predicted), 1)
     return matrix
 
 
@@ -116,9 +203,9 @@ def brier_score(probabilities: FloatArray, true: IntArray) -> float:
     A certain wrong prediction misses the true class and predicts another, contributing 1
     from each. Dividing by the class count or by 2 would implement a different convention.
     """
-    probs = np.asarray(probabilities, dtype=np.float64)
+    probs, labels = _probabilities(probabilities, true)
     target = np.zeros_like(probs)
-    target[np.arange(len(true)), np.asarray(true)] = 1.0
+    target[np.arange(labels.size), labels] = 1.0
     return float(np.mean(np.sum((probs - target) ** 2, axis=1)))
 
 
@@ -187,8 +274,9 @@ def calibration_bins(
     Boundaries come from the confidences alone, never the labels. A confidence equal to a
     boundary goes to the upper bin, and identical confidences always share one.
     """
-    confidence = np.asarray(confidence, dtype=np.float64)
-    correct = np.asarray(correct, dtype=bool)
+    confidence, correct = _confidences(confidence, correct)
+    if isinstance(bins, bool) or not isinstance(bins, int) or bins < 1:
+        raise ValueError(f"bins must be a positive integer, got {bins!r}")
     edges = _bin_edges(confidence, bins, binning)
     intervals = len(edges) - 1
     assignment = np.clip(np.digitize(confidence, edges[1:-1], right=False), 0, intervals - 1)
@@ -237,10 +325,11 @@ def mean_confidence_when_wrong(confidence: FloatArray, correct: BoolArray) -> fl
     this purely from their confidence profiles, so no value of it means "calibrated". 0 would
     read as "perfectly humble when wrong", which is why the empty case is ``None`` (D25).
     """
-    errors = ~np.asarray(correct, dtype=bool)
+    conf, hits = _confidences(confidence, correct)
+    errors = ~hits
     if not errors.any():
         return None
-    return float(np.asarray(confidence, dtype=np.float64)[errors].mean())
+    return float(conf[errors].mean())
 
 
 def per_subject(
@@ -254,6 +343,12 @@ def per_subject(
     A pooled number can look respectable while one subject sits at chance.
     """
     subject_ids = np.asarray(subjects)
+    for array in arrays:
+        if len(np.asarray(array)) != subject_ids.size:
+            raise ValueError(
+                f"per_subject needs one subject per window: {subject_ids.size} subjects for "
+                f"{len(np.asarray(array))} windows"
+            )
     return {
         int(subject): metric(
             *(np.asarray(a)[subject_ids == subject] for a in arrays),
@@ -277,6 +372,12 @@ def paired_bootstrap_interval(
     subject-by-arm interaction. A difference is reportable when this interval excludes zero.
     """
     differences = np.asarray(per_subject_differences, dtype=np.float64)
+    if not np.all(np.isfinite(differences)):
+        raise ValueError("per-subject differences must be finite")
+    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 1:
+        raise ValueError(f"resamples must be a positive integer, got {resamples!r}")
+    if not 0 < confidence < 1:
+        raise ValueError(f"confidence must lie strictly between 0 and 1, got {confidence!r}")
     if differences.size < 2:
         raise ValueError(f"a paired interval needs at least two subjects, got {differences.size}")
     rng = np.random.default_rng(seed)

@@ -294,6 +294,20 @@ def _evaluate(
     )
 
 
+def _weighted_epoch_loss(batches: list[tuple[float, float]]) -> float:
+    """The epoch's class-weighted loss from ``(batch mean loss, batch weight sum)`` pairs.
+
+    With class weights, PyTorch's batch mean divides by the batch's *weight* sum, not its size,
+    so the objective over the whole epoch is each batch mean times its weight sum, summed and
+    divided by the total weight. Averaging batch means equally instead over-counts rest-heavy
+    batches, whose weight sum is small. Logged only: epochs are selected on validation macro-F1.
+    """
+    total_weight = sum(weight for _, weight in batches)
+    if total_weight <= 0:
+        raise ValueError("an epoch with no class weight cannot have a weighted mean loss")
+    return sum(loss * weight for loss, weight in batches) / total_weight
+
+
 def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
     """Train the encoder and head on ``train_subjects``, score on ``held_out_subjects``."""
     torch.manual_seed(config.seed)
@@ -336,7 +350,8 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
             "dropout": config.dropout,
         }
     ).to(device)
-    criterion = nn.CrossEntropyLoss(weight=torch.from_numpy(class_weights).to(device))
+    weight_tensor = torch.from_numpy(class_weights).to(device)
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
@@ -347,15 +362,15 @@ def train_encoder(config: EncoderRunConfig) -> EncoderRunResult:
     epoch_losses: list[float] = []
     for epoch in range(config.epochs):  # fixed horizon, no early stopping (D18/D19)
         model.train()
-        total, batches = 0.0, 0
+        batch_losses: list[tuple[float, float]] = []
         for windows, labels, _ in train_loader:
+            labels = labels.to(device)
             optimizer.zero_grad()
-            loss = criterion(model(windows.to(device)), labels.to(device))
+            loss = criterion(model(windows.to(device)), labels)
             loss.backward()
             optimizer.step()
-            total += float(loss.detach())
-            batches += 1
-        mean_loss = total / max(batches, 1)
+            batch_losses.append((float(loss.detach()), float(weight_tensor[labels].sum())))
+        mean_loss = _weighted_epoch_loss(batch_losses)
         epoch_losses.append(mean_loss)
         logger.log_metrics({"train_loss": mean_loss}, step=epoch)
 

@@ -241,3 +241,25 @@ def test_the_boundary_audit_agrees_with_an_independent_count(prepared) -> None:
     )
     assert _count_boundary_crossing(index, {subject: recording}) == naive
     assert naive == 0, "the windower should not be producing boundary-crossing windows at all"
+
+
+def test_the_logged_epoch_loss_weights_batches_by_their_class_weight() -> None:
+    """With class weights, a batch's mean loss divides by that batch's weight sum, not its size.
+
+    Averaging batch means equally then over-counts rest-heavy batches, whose weight sum is small.
+    The epoch loss is the weighted objective over every window: each batch contributes its mean
+    times its weight sum. The first assertion pins the PyTorch behaviour this relies on.
+    """
+    import torch
+
+    from temporallens.training.encoder import _weighted_epoch_loss
+
+    weights = torch.tensor([0.2, 3.0])
+    logits = torch.tensor([[2.0, 0.0], [0.0, 2.0], [1.0, 1.0]])
+    labels = torch.tensor([0, 1, 1])
+    mean = torch.nn.functional.cross_entropy(logits, labels, weight=weights)
+    per_window = torch.nn.functional.cross_entropy(logits, labels, weight=weights, reduction="none")
+    assert float(mean) * float(weights[labels].sum()) == pytest.approx(float(per_window.sum()))
+
+    # Two batches: mean 1.0 over weight sum 1.0, mean 3.0 over weight sum 3.0.
+    assert _weighted_epoch_loss([(1.0, 1.0), (3.0, 3.0)]) == pytest.approx(2.5)  # not 2.0
