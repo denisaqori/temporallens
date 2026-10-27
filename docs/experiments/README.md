@@ -272,6 +272,8 @@ D43 fixes the common seed/generator/index/persistence convention; D44 fixes F2 a
 
 **Easily missed:** seeding Python/NumPy/PyTorch does not make MPS and CUDA produce identical results. Do not compare a local MPS number against a cloud CUDA number and call the difference an effect. Cross-device comparisons need the same device.
 
+**Where F1 runs, and which F1 the arms freeze (D42, D47).** F1 runs twice. The local MPS run validates the pipeline and produces preliminary development results on the 32 development subjects only; it never scores the eight held-out subjects, not even for a preliminary look. The CUDA run then repeats the complete procedure — cross-validation with D18–D21 epoch selection and D19's escalation, the D28 fixed-budget development fits, D33's temperature fit from their predictions, D40's diagnostics and the refit on all 32 — and inherits no epoch budget or temperature from MPS. Only the CUDA run performs the one-shot held-out evaluation and D10's cross-check, and it is not rerun except to correct a recorded defect, with both runs kept. Both arms freeze the CUDA lineage: the refit for final experiments and the matching fold-local checkpoints for development. F2, and F3–F5 on the F1 target, run on CUDA too, because they are compared with it. A preliminary run writes its artifacts apart from the canonical ones and carries the same provenance as a reportable run, and a reportable consumer verifies its encoder's lineage — the checkpoint's digest and the device its F1 run recorded — rather than trusting a path. Preliminary numbers may be published, in their own labelled table and never beside held-out numbers. They come from the same subjects and procedure as the CUDA run's development numbers, so the gap between the two measures device sensitivity, never an effect.
+
 ### 3.6 Class imbalance
 
 Rest is over-represented in DB2 Exercise B — measured on subject 2 at `stride: 100`, **rest is 50.2% of all windows**, about **17.5×** the median gesture class (338–761 windows each). A model that predicted rest and nothing else would score 50% accuracy, which is why `macro_f1` and not `accuracy` is the headline. Handle the imbalance in the loss, never by resampling:
@@ -444,7 +446,7 @@ Config paths below are relative to `configs/experiment/` (D1 layout, now in plac
 | F4 | Robustness — channel dropout | `foundation/robustness_channel_dropout.yaml` |
 | F5 | Robustness — amplitude scaling | `foundation/robustness_amplitude_scaling.yaml` |
 
-F1 produces the frozen encoder checkpoint that **both arms depend on**. Neither arm can start until F1 is done and its accuracy is written down as measured.
+F1 produces the frozen encoder checkpoint that **both arms depend on** — the CUDA run's, never the local preliminary one (D47, §3.5). Neither arm can start until F1 is done and its accuracy is written down as measured.
 
 **F3–F5 run against every arm, not just the encoder (D2).** Each perturbation is evaluated on the F1 encoder, on the language-arm models, and on the generative arm's augmented decoders. "The encoder is robust" says nothing about whether soft-prefix conditioning or synthetic augmentation preserves that robustness — and whether augmentation buys accuracy at the cost of robustness is the first question a reviewer will ask.
 

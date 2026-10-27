@@ -57,6 +57,7 @@ Each arm fits its own temperature from its eventual held-out development model p
 
 **Easily missed.**
 - **This is not a result.** The explicit debug split uses subjects 1–3 for training and subject 4 for holdout, capped at `max_windows_per_subject: 100` for one epoch. Never report a number from this config.
+- It runs before the CUDA F1 exists, so, like any local debug run of a downstream arm, it freezes the preliminary MPS encoder (D47). Its `encoder.checkpoint` still names the canonical refit path and must be repointed when the F1 harness defines the preliminary location.
 - Llama weights are **gated**. `hf auth login` and accepting Meta's licence must happen first; this is an account action, not a code action.
 - `torch_dtype: float16` on MPS: some ops silently fall back or lose precision. If loss is NaN, test in float32 before assuming the adapter is wrong.
 - `llm.device: mps` and `training.device: mps` are hard-coded here on purpose — this config is local-only by design. The 3B config uses `cuda` for the same reason.

@@ -111,9 +111,20 @@ Four strategies across complete real gesture-trial budgets, evaluated per held-o
 | Encoder + projection + **random-init transformer** (matched)| – | – | – |
 | Encoder + **text-summary-only** LLM                         | – | – | – |
 
-Calibration reporting uses scaled ECE as the primary endpoint, with raw ECE and raw/scaled Brier alongside it. Macro-F1 measures decoding; raw ECE describes native confidence reliability; scaled ECE evaluates the model plus its frozen development-fitted calibrator; Brier scores the full probability vector. These outcomes can disagree, so no single one establishes an overall win. Definitions, limitations and interpretation examples are in the [shared metric protocol](docs/experiments/README.md#34-metrics). L2 versus L4 compares learned-latent and engineered-text pipelines; it does not isolate the projector's contribution.
+Every held-out number comes from the cloud CUDA runs. Calibration reporting uses scaled ECE as the primary endpoint, with raw ECE and raw/scaled Brier alongside it. Macro-F1 measures decoding; raw ECE describes native confidence reliability; scaled ECE evaluates the model plus its frozen development-fitted calibrator; Brier scores the full probability vector. These outcomes can disagree, so no single one establishes an overall win. Definitions, limitations and interpretation examples are in the [shared metric protocol](docs/experiments/README.md#34-metrics). L2 versus L4 compares learned-latent and engineered-text pipelines; it does not isolate the projector's contribution.
 
 > The random-init-transformer and text-summary-only rows exist to answer the first question any reviewer will ask: is any LLM benefit due to *language pretraining*, or merely to having a large transformer / a hand-written prompt of numbers?
+
+### Encoder development cross-validation _(pending — Phase 1)_
+
+The encoder baseline runs twice: first on a local Mac (Apple MPS) to validate the pipeline, then in full on cloud CUDA, which produces every held-out number above and the encoder both arms freeze. The local run never scores the eight held-out subjects, so its preliminary results are development numbers only, reported here and kept apart from the held-out results:
+
+| Run | Development-subject accuracy | Macro F1 | Scaled ECE |
+|---|---|---|---|
+| Local MPS (preliminary) | – | – | – |
+| Cloud CUDA | – | – | – |
+
+Eight-fold cross-validation over the 32 development subjects, scored at the selected epoch with each subject weighted equally; scaled ECE uses temperatures fitted with the scored subject left out. These numbers are optimistic next to held-out ones, because epoch selection used the same subjects. Both rows use identical subjects and procedure, so their difference shows how much the device alone moves the numbers; it is not an effect.
 
 ### Robustness _(pending — Phase 1)_
 
