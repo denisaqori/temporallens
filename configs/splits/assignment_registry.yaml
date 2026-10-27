@@ -1,0 +1,9 @@
+# FROZEN ASSIGNMENT REGISTRY (D46) -- the trust anchor for F2/G3 assignment artifacts.
+#
+# Written only by temporallens.data.assignment_registry.register_assignment, after it has
+# re-derived the artifact's membership and verified it against the current source pool. The
+# artifacts live under data/ (gitignored); this file holds their identities and digests, so
+# Git, not the artifact's directory, vouches for them. Entries are appended, never edited or
+# removed: an assignment is frozen once. Commit this file before a run consumes an entry.
+schema_version: 1
+assignments: []

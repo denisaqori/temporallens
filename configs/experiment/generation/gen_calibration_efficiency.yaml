@@ -71,7 +71,8 @@ personalization:
       assignment_artifact: data/processed/assignments/g3_g4_personalization/v1/{source_pool_sha256}/subject{subject_id}/schedule{schedule_index}.json
       assignment_reuse: load_verified_existing_or_create_once
       require_trusted_file_sha256: true
-      trusted_file_digest_source: assignment_creation_record_or_frozen_run_registry
+      assignment_registry: configs/splits/assignment_registry.yaml  # D46 Git-tracked trust anchor
+      creation_verification: regenerate_under_recorded_numpy_version
       persist_selected_trial_ids: true
       persist_rng_provenance: true
       persist_before_fitting: true

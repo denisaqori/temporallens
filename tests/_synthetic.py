@@ -7,9 +7,12 @@ reportable. The real data is downloaded under its own terms and is never fabrica
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
-from temporallens.data.ninapro import NUM_CHANNELS, SubjectRecording
+from temporallens.data.ninapro import NUM_CHANNELS, SubjectRecording, processed_path, save_processed
+from temporallens.data.splits import SplitManifest
 
 
 def recording(
@@ -55,3 +58,17 @@ def recordings(subjects: tuple[int, ...], **kwargs: object) -> dict[int, Subject
     for s in subjects:
         out[s] = recording(s, seed=1000 + s, **kwargs)  # type: ignore[arg-type]
     return out
+
+
+def write_development_recordings(directory: Path) -> Path:
+    """Processed-format doubles for the manifest's 32 development subjects, under ``directory``.
+
+    One rest and one gesture segment of 600 samples each, so the uncapped 400/100 index holds six
+    windows per subject: enough to exercise F2's builder end to end, and quick to write.
+    """
+    for subject in SplitManifest.load().training_subjects:
+        double = recording(
+            subject, gestures=1, repetitions=1, samples_per_segment=600, seed=1000 + subject
+        )
+        save_processed(double, processed_path(directory, subject))
+    return directory

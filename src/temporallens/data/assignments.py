@@ -12,24 +12,114 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import tempfile
+import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from temporallens.data.ninapro import SubjectRecording
+from temporallens.data.ninapro import SubjectRecording, load_processed, processed_path
 from temporallens.data.splits import SplitManifest
-from temporallens.data.windows import WindowIndex, segment_spans
-from temporallens.utils.randomness import assignment_rng, randomization_provenance
+from temporallens.data.windows import WindowIndex, concatenate, index_recording, segment_spans
+from temporallens.utils.randomness import (
+    ASSIGNMENT_PRNG,
+    CONTRACT_VERSION,
+    assignment_rng,
+    randomization_provenance,
+)
 
+F2_KIND = "f2_window_assignment_v1"
+G3_KIND = "g3_trial_schedule_v1"
 F2_SCOPE = "f2_random_window"
 F2_OUTER_PURPOSE = "outer_test_assignment"
 F2_INNER_PURPOSE = "inner_calibration_folds"
+WINDOW_SIZE = 400  # D24 windows; G3 also requires every eligible trial to hold one
+F2_STRIDE = 100
 G3_SCOPE = "g3_g4_personalization"
 G3_PURPOSE = "acquisition_schedule"
 G3_K_GRID = (0, 1, 2, 5, 10, 17, 20, 34)
 G3_SCHEDULE_COUNT = 5
+# D46: the Git-tracked trust anchor, repository-relative as the configs name it.
+ASSIGNMENT_REGISTRY = "configs/splits/assignment_registry.yaml"
+_RECORDING_DIGEST = "sha256_v1_emg_f4_label_i2_repetition_i2"
+
+_F2_EXECUTION = "evaluation.temperature_fit.execution"
+# Config leaves that must equal what this module executes. A runner calls check_*_config before
+# building or loading, so a config edited away from the versioned protocol fails instead of
+# being silently ignored by code that never read it.
+F2_CONFIG_POLICY: dict[str, Any] = {
+    "experiment.seed": 42,
+    "dataset.split": "random_window",
+    "dataset.split_manifest": "configs/splits/subject_independent_v1.yaml",
+    "dataset.subject_pool": "split_manifest.training_subjects",
+    "dataset.test_fraction": 0.2,
+    "dataset.window_size": WINDOW_SIZE,
+    "dataset.stride": F2_STRIDE,
+    "evaluation.temperature_fit.folds": 8,
+    f"{_F2_EXECUTION}.status": "ready",
+    f"{_F2_EXECUTION}.fold_assignment_algorithm": "d44_global_window_split_v1",
+    f"{_F2_EXECUTION}.source_pool_construction": "manifest_development_recordings_uncapped",
+    f"{_F2_EXECUTION}.source_recording_digest": _RECORDING_DIGEST,
+    f"{_F2_EXECUTION}.canonical_window_order": ["subject_id", "start_sample"],
+    f"{_F2_EXECUTION}.outer_test_count": "ceil_n_windows_divided_by_5",
+    f"{_F2_EXECUTION}.outer_membership": "prefix_of_one_global_permutation",
+    f"{_F2_EXECUTION}.inner_input_order": "recanonicalized_non_test_windows",
+    f"{_F2_EXECUTION}.inner_membership": "one_independent_permutation_then_numpy_array_split_8",
+    f"{_F2_EXECUTION}.stratification": "none",
+    f"{_F2_EXECUTION}.composition_triggered_redraw": "forbidden",
+    f"{_F2_EXECUTION}.seed_derivation": CONTRACT_VERSION,
+    f"{_F2_EXECUTION}.prng": ASSIGNMENT_PRNG,
+    f"{_F2_EXECUTION}.fold_index_base": 0,
+    f"{_F2_EXECUTION}.component_stream_keys": {
+        "scope": F2_SCOPE,
+        "outer": {"purpose": F2_OUTER_PURPOSE, "indices": {}},
+        "inner": {"purpose": F2_INNER_PURPOSE, "indices": {}},
+    },
+    f"{_F2_EXECUTION}.require_trusted_file_sha256": True,
+    f"{_F2_EXECUTION}.assignment_registry": ASSIGNMENT_REGISTRY,
+    f"{_F2_EXECUTION}.creation_verification": "regenerate_under_recorded_numpy_version",
+}
+_G3_SELECTION = "personalization.trial_selection"
+G3_CONFIG_POLICY: dict[str, Any] = {
+    "experiment.seed": 42,
+    "dataset.split_manifest": "configs/splits/subject_independent_v1.yaml",
+    "dataset.window_size": WINDOW_SIZE,
+    "personalization.calibration_trials": list(G3_K_GRID),
+    "personalization.k_unit": "complete_active_gesture_trial",
+    "personalization.schedules_per_subject": G3_SCHEDULE_COUNT,
+    f"{_G3_SELECTION}.schedule": "nested_class_aware_prefix",
+    f"{_G3_SELECTION}.first_pass": "one_trial_per_gesture",
+    f"{_G3_SELECTION}.second_pass": "other_eligible_repetition",
+    f"{_G3_SELECTION}.seed_derivation": CONTRACT_VERSION,
+    f"{_G3_SELECTION}.randomization_scope": G3_SCOPE,
+    f"{_G3_SELECTION}.randomization_purpose": G3_PURPOSE,
+    f"{_G3_SELECTION}.seed_indices": ["subject_id", "schedule_index"],
+    f"{_G3_SELECTION}.first_pass_repetition_assignment": (
+        "alternating_8_9_flip_by_subject_plus_schedule_parity"
+    ),
+    f"{_G3_SELECTION}.shared_across_strategies": True,
+    f"{_G3_SELECTION}.reproducibility.status": "ready",
+    f"{_G3_SELECTION}.reproducibility.prng": ASSIGNMENT_PRNG,
+    f"{_G3_SELECTION}.reproducibility.schedule_index_base": 0,
+    f"{_G3_SELECTION}.reproducibility.permutation_algorithm": (
+        "d45_three_sequential_numpy_permutations"
+    ),
+    f"{_G3_SELECTION}.reproducibility.permutation_call_order": [
+        "ascending_active_gestures",
+        "ascending_complement_rep_1_gestures",
+        "ascending_complement_rep_4_gestures",
+    ],
+    f"{_G3_SELECTION}.reproducibility.second_pass_order": (
+        "shuffled_complement_groups_interleaved_underrepresented_repetition_first"
+    ),
+    f"{_G3_SELECTION}.reproducibility.parity_to_starting_repetition": {"even": 1, "odd": 4},
+    f"{_G3_SELECTION}.reproducibility.require_trusted_file_sha256": True,
+    f"{_G3_SELECTION}.reproducibility.assignment_registry": ASSIGNMENT_REGISTRY,
+    f"{_G3_SELECTION}.reproducibility.creation_verification": (
+        "regenerate_under_recorded_numpy_version"
+    ),
+}
 
 
 def _json(value: Any) -> str:
@@ -42,6 +132,12 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()
 
 
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+    )
+
+
 def _integer(value: Any, low: int, high: int, field: str) -> None:
     if type(value) is not int or not low <= value <= high:
         raise ValueError(f"{field} must be an integer in [{low}, {high}]")
@@ -51,9 +147,43 @@ def _root(root_seed: int) -> None:
     _integer(root_seed, 42, 42, "D43 experiment root seed")
 
 
+def _policy_mismatches(config: Mapping[str, Any], policy: Mapping[str, Any]) -> list[str]:
+    mismatches = []
+    for path, expected in policy.items():
+        node: Any = config
+        for part in path.split("."):
+            if not isinstance(node, Mapping) or part not in node:
+                mismatches.append(f"{path}: missing (protocol requires {_json(expected)})")
+                break
+            node = node[part]
+        else:
+            # JSON comparison keeps True distinct from 1 and 0.2 exact, as YAML parsed it.
+            if _json(node) != _json(expected):
+                mismatches.append(f"{path}: {_json(node)} (protocol requires {_json(expected)})")
+    return mismatches
+
+
+def check_f2_config(config: Mapping[str, Any]) -> None:
+    """Refuse an F2 config whose assignment fields disagree with what this module executes.
+
+    The builder does not read these values; it implements one versioned protocol. Comparing
+    them is what turns a config edit into an error rather than a silent no-op.
+    """
+    mismatches = _policy_mismatches(config, F2_CONFIG_POLICY)
+    if mismatches:
+        raise ValueError("F2 config disagrees with D44/D46:\n  " + "\n  ".join(mismatches))
+
+
+def check_g3_config(config: Mapping[str, Any]) -> None:
+    """Refuse a G3/G4 config whose schedule fields disagree with what this module executes."""
+    mismatches = _policy_mismatches(config, G3_CONFIG_POLICY)
+    if mismatches:
+        raise ValueError("G3/G4 config disagrees with D45/D46:\n  " + "\n  ".join(mismatches))
+
+
 def _window_pool(index: WindowIndex, stride: int) -> tuple[dict[str, Any], list[list[int]]]:
-    _integer(stride, 100, 100, "D44 source stride")
-    _integer(index.window_size, 400, 400, "D44 window_size")
+    _integer(stride, F2_STRIDE, F2_STRIDE, "D44 source stride")
+    _integer(index.window_size, WINDOW_SIZE, WINDOW_SIZE, "D44 window_size")
     columns = (index.subject, index.start, index.label, index.repetition)
     if any(c.ndim != 1 or c.dtype.kind not in "iu" for c in columns):
         raise ValueError("window columns must be one-dimensional integer arrays")
@@ -80,10 +210,52 @@ def _window_pool(index: WindowIndex, stride: int) -> tuple[dict[str, Any], list[
         "exercise": "B",
         "manifest_hash": manifest.manifest_hash,
         "subject_ids": list(manifest.training_subjects),
-        "window_size": 400,
+        "window_size": WINDOW_SIZE,
         "stride": stride,
         "fields": ["subject_id", "start_sample", "restimulus", "rerepetition"],
     }
+    return identity, rows
+
+
+def _recording_sha256(recording: SubjectRecording) -> str:
+    # Every stream the index and a future fit consume, in a fixed dtype/shape-tagged encoding,
+    # so the digest does not depend on how the .npz archive happened to be compressed.
+    digest = hashlib.sha256()
+    for name, values, dtype in (
+        ("emg", recording.emg, "<f4"),
+        ("label", recording.label, "<i2"),
+        ("repetition", recording.repetition, "<i2"),
+    ):
+        array = np.ascontiguousarray(values, dtype=dtype)
+        digest.update(f"{name}:{dtype}:{list(array.shape)}\n".encode("ascii"))
+        digest.update(array.tobytes())
+    return digest.hexdigest()
+
+
+def _f2_source(data_dir: str | Path) -> tuple[dict[str, Any], list[list[int]]]:
+    manifest = SplitManifest.load()
+    indices, recordings = [], []
+    # One recording at a time: only its index and digest outlive the loop, never the signal.
+    for subject in manifest.training_subjects:
+        path = processed_path(data_dir, subject)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"F2 needs all 32 development subjects; {path} is missing. "
+                "Run scripts/prepare_dataset.py for the manifest's training subjects."
+            )
+        recording = load_processed(path)
+        indices.append(index_recording(recording, window_size=WINDOW_SIZE, stride=F2_STRIDE))
+        recordings.append(
+            {
+                "subject_id": subject,
+                "num_samples": recording.num_samples,
+                "sha256": _recording_sha256(recording),
+            }
+        )
+        del recording
+    identity, rows = _window_pool(concatenate(indices), F2_STRIDE)
+    identity["recording_digest"] = _RECORDING_DIGEST
+    identity["recordings"] = recordings
     return identity, rows
 
 
@@ -98,7 +270,7 @@ def _trial_pool(recording: SubjectRecording) -> tuple[dict[str, Any], list[list[
     )
     expected = [[g, r] for g in range(1, 18) for r in manifest.calibration_repetitions]
     if [row[:2] for row in rows] != expected or any(
-        stop - start < 400 for _, _, start, stop in rows
+        stop - start < WINDOW_SIZE for _, _, start, stop in rows
     ):
         raise ValueError(
             "G3 requires one complete windowable segment for each of 34 eligible trials"
@@ -119,14 +291,14 @@ def _trial_pool(recording: SubjectRecording) -> tuple[dict[str, Any], list[list[
     return identity, rows
 
 
-def window_pool_sha256(index: WindowIndex, *, stride: int) -> str:
-    """Fingerprint canonical F2 window metadata without drawing an assignment.
+def f2_source_pool_sha256(data_dir: str | Path) -> str:
+    """Fingerprint F2's current inputs without drawing an assignment.
 
-    Stride is explicit because WindowIndex cannot recover it from segment-aligned starts.
-    This identifies the logical window pool, not EMG values; future run provenance must
-    separately bind processed recording artifacts. Input row order does not affect it.
+    Reads the manifest's 32 development recordings from ``data_dir`` exactly as
+    build_f2_assignment does, so the result is the expected source digest for loading or
+    registering an assignment. Held-out subjects' files are never opened.
     """
-    identity, rows = _window_pool(index, stride)
+    identity, rows = _f2_source(data_dir)
     return _digest({"identity": identity, "ids": rows})
 
 
@@ -165,7 +337,7 @@ def _artifact(
 
 
 def _material(kind: str, assignment: dict[str, Any]) -> dict[str, Any]:
-    if kind == "f2_window_assignment_v1":
+    if kind == F2_KIND:
         return {
             "window_ids": [r[:2] for r in assignment["windows"]],
             "inner_fold": assignment["inner_fold"],
@@ -173,36 +345,51 @@ def _material(kind: str, assignment: dict[str, Any]) -> dict[str, Any]:
     return {"subject_id": assignment["subject_id"], "trials": assignment["trials"]}
 
 
-def build_f2_assignment(index: WindowIndex, *, stride: int, root_seed: int = 42) -> dict[str, Any]:
-    """Build D44's fixed outer 20% and eight inner random-window folds.
+def f2_fold_membership(n_windows: int, *, root_seed: int = 42) -> list[int]:
+    """D44's membership of ``n_windows`` canonically ordered windows: -1 outer test, 0–7 folds.
 
-    Canonical row IDs, not labels/repetitions, determine membership. The first ceil(N/5)
-    positions of one global permutation become test windows. Re-sort the remainder,
-    independently permute it, and split into eight chunks; earlier fold IDs receive any
-    remainder. Fold -1 denotes outer test, 0–7 the inner folds. No stratification,
-    grouping or composition-triggered redraw occurs. Rows remain canonically ordered;
-    assignment order is not a training-shuffle contract.
+    It depends only on the count and the two fixed D43 keys, never on labels, repetitions or
+    signal. The first ceil(N/5) positions of one global permutation become test windows; the
+    re-sorted remainder is independently permuted and split into eight chunks, earlier fold
+    IDs receiving any remainder. Creation-time verification calls this to re-derive a saved
+    assignment.
     """
     _root(root_seed)
-    identity, rows = _window_pool(index, stride)
-    n_test = (len(rows) + 4) // 5
-    outer = assignment_rng(root_seed, F2_SCOPE, F2_OUTER_PURPOSE, {}).permutation(len(rows))
+    if type(n_windows) is not int or n_windows < 0:
+        raise ValueError("n_windows must be a nonnegative integer")
+    n_test = (n_windows + 4) // 5
+    outer = assignment_rng(root_seed, F2_SCOPE, F2_OUTER_PURPOSE, {}).permutation(n_windows)
     non_test = np.sort(outer[n_test:])
     if non_test.size < 8:
         raise ValueError("F2 requires at least eight non-test windows")
     inner = assignment_rng(root_seed, F2_SCOPE, F2_INNER_PURPOSE, {}).permutation(non_test)
-    folds = np.full(len(rows), -1, dtype=np.int8)
+    folds = np.full(n_windows, -1, dtype=np.int8)
     for fold, members in enumerate(np.array_split(inner, 8)):
         folds[members] = fold
+    return folds.tolist()
+
+
+def build_f2_assignment(data_dir: str | Path, *, root_seed: int = 42) -> dict[str, Any]:
+    """Build D44's fixed outer 20% and eight inner random-window folds from F2's real inputs.
+
+    The 32 development subjects come from the manifest, and the uncapped 400/100 index is
+    built here, one recording at a time, so a caller cannot supply a subsampled or
+    differently windowed index. Each recording's content digest enters the source identity:
+    a changed signal changes provenance and the artifact's locator, never membership. Rows
+    remain canonically ordered; assignment order is not a training-shuffle contract.
+    """
+    _root(root_seed)
+    identity, rows = _f2_source(data_dir)
+    folds = f2_fold_membership(len(rows), root_seed=root_seed)
     return _artifact(
-        "f2_window_assignment_v1",
+        F2_KIND,
         identity,
         rows,
         {
             "windows": rows,
-            "inner_fold": folds.tolist(),
-            "outer_test_count": n_test,
-            "inner_fold_counts": np.bincount(folds[folds >= 0], minlength=8).tolist(),
+            "inner_fold": folds,
+            "outer_test_count": (len(rows) + 4) // 5,
+            "inner_fold_counts": [folds.count(i) for i in range(8)],
         },
         {
             "outer": randomization_provenance(root_seed, F2_SCOPE, F2_OUTER_PURPOSE, {}),
@@ -211,22 +398,19 @@ def build_f2_assignment(index: WindowIndex, *, stride: int, root_seed: int = 42)
     )
 
 
-def build_g3_schedule(
-    recording: SubjectRecording, schedule_index: int, *, root_seed: int = 42
-) -> dict[str, Any]:
-    """Build D45's 34-trial schedule, shared unchanged by G3/G4 and all strategies.
+def g3_trial_order(subject_id: int, schedule_index: int, *, root_seed: int = 42) -> list[list[int]]:
+    """D45's ordered 34 ``[gesture, rerepetition]`` trials for one subject and schedule.
 
     One local generator performs three permutations in order: ascending gesture IDs,
     ascending gestures needing repetition 1, ascending gestures needing repetition 4.
     First-pass repetitions alternate, with even subject+schedule parity starting at 1.
     The shuffled complementary groups interleave, starting with the underrepresented
-    repetition. Every k-prefix has repetition counts differing by at most one. This is
-    offline trial selection, not DB2 recording chronology or cumulative model training.
+    repetition. Every k-prefix has repetition counts differing by at most one. The order
+    depends on nothing in the recording; build_g3_schedule binds it to one.
     """
     _root(root_seed)
+    _integer(subject_id, 1, 40, "subject_id")
     _integer(schedule_index, 0, G3_SCHEDULE_COUNT - 1, "schedule_index")
-    identity, pool = _trial_pool(recording)
-    subject_id = recording.subject
     indices = {"subject_id": subject_id, "schedule_index": schedule_index}
     rng = assignment_rng(root_seed, G3_SCOPE, G3_PURPOSE, indices)
     order = rng.permutation(np.arange(1, 18, dtype=np.int64)).tolist()
@@ -240,14 +424,31 @@ def build_g3_schedule(
     for i in range(17):
         repetition = underrepresented if i % 2 == 0 else starting
         second.append([groups[repetition][i // 2], repetition])
+    return first + second
+
+
+def build_g3_schedule(
+    recording: SubjectRecording, schedule_index: int, *, root_seed: int = 42
+) -> dict[str, Any]:
+    """Build D45's 34-trial schedule, shared unchanged by G3/G4 and all strategies.
+
+    The order comes from g3_trial_order; this binds it to the recording's actual eligible
+    segments and calibration signal. This is offline trial selection, not DB2 recording
+    chronology or cumulative model training.
+    """
+    _root(root_seed)
+    _integer(schedule_index, 0, G3_SCHEDULE_COUNT - 1, "schedule_index")
+    identity, pool = _trial_pool(recording)
+    subject_id = recording.subject
+    indices = {"subject_id": subject_id, "schedule_index": schedule_index}
     return _artifact(
-        "g3_trial_schedule_v1",
+        G3_KIND,
         identity,
         pool,
         {
             "subject_id": subject_id,
             "schedule_index": schedule_index,
-            "trials": first + second,
+            "trials": g3_trial_order(subject_id, schedule_index, root_seed=root_seed),
             "source_trials": pool,
             "k_grid": list(G3_K_GRID),
         },
@@ -265,6 +466,24 @@ def _check_rng(record: Any, expected: dict[str, Any]) -> None:
     for field in ("key", "derived_seed", "assignment_prng"):
         if _json(record[field]) != _json(expected[field]):
             raise ValueError(f"RNG provenance mismatch: {field}")
+
+
+def _f2_recordings(identity: Any, manifest: SplitManifest) -> list[dict[str, Any]]:
+    recordings = identity.get("recordings") if isinstance(identity, dict) else None
+    if (
+        not isinstance(recordings, list)
+        or [r.get("subject_id") if isinstance(r, dict) else None for r in recordings]
+        != list(manifest.training_subjects)
+        or any(
+            set(r) != {"subject_id", "num_samples", "sha256"}
+            or type(r["num_samples"]) is not int
+            or r["num_samples"] < WINDOW_SIZE
+            or not _is_sha256(r["sha256"])
+            for r in recordings
+        )
+    ):
+        raise ValueError("invalid F2 source-recording ledger")
+    return recordings
 
 
 def _checked(artifact: Any) -> dict[str, Any]:
@@ -285,12 +504,13 @@ def _checked(artifact: Any) -> dict[str, Any]:
     payload = {k: v for k, v in artifact.items() if k != "artifact_sha256"}
     if artifact["artifact_sha256"] != _digest(payload):
         raise ValueError("artifact checksum mismatch")
-    if artifact["manifest_hash"] != SplitManifest.load().manifest_hash:
+    manifest = SplitManifest.load()
+    if artifact["manifest_hash"] != manifest.manifest_hash:
         raise ValueError("assignment manifest mismatch")
     assignment, rng = artifact["assignment"], artifact["rng"]
     if not isinstance(assignment, dict) or not isinstance(rng, dict):
         raise ValueError("assignment and RNG provenance must be mappings")
-    if artifact["kind"] == "f2_window_assignment_v1":
+    if artifact["kind"] == F2_KIND:
         if set(assignment) != {"windows", "inner_fold", "outer_test_count", "inner_fold_counts"}:
             raise ValueError("invalid F2 assignment fields")
         rows = assignment["windows"]
@@ -318,12 +538,18 @@ def _checked(artifact: Any) -> dict[str, Any]:
                 array[:, 1],
                 array[:, 2],
                 array[:, 3].astype(np.int16),
-                window_size=400,
+                window_size=WINDOW_SIZE,
             ),
-            stride=100,
+            stride=F2_STRIDE,
         )
         if pool != rows:
             raise ValueError("F2 artifact windows are not in canonical order")
+        recordings = _f2_recordings(artifact["source_pool_identity"], manifest)
+        lengths = {r["subject_id"]: r["num_samples"] for r in recordings}
+        if any(row[1] + WINDOW_SIZE > lengths[row[0]] for row in rows):
+            raise ValueError("F2 window extends past its recorded subject length")
+        identity["recording_digest"] = _RECORDING_DIGEST
+        identity["recordings"] = recordings
         folds = assignment["inner_fold"]
         if (
             not isinstance(folds, list)
@@ -344,14 +570,13 @@ def _checked(artifact: Any) -> dict[str, Any]:
             "outer": randomization_provenance(42, F2_SCOPE, F2_OUTER_PURPOSE, {}),
             "inner": randomization_provenance(42, F2_SCOPE, F2_INNER_PURPOSE, {}),
         }
-    elif artifact["kind"] == "g3_trial_schedule_v1":
+    elif artifact["kind"] == G3_KIND:
         if set(assignment) != {"subject_id", "schedule_index", "trials", "source_trials", "k_grid"}:
             raise ValueError("invalid G3 schedule fields")
         subject, schedule = assignment["subject_id"], assignment["schedule_index"]
         _integer(subject, 1, 40, "subject_id")
         _integer(schedule, 0, 4, "schedule_index")
         identity, pool = artifact["source_pool_identity"], assignment["source_trials"]
-        manifest = SplitManifest.load()
         expected_identity = {
             "schema_version": 1,
             "dataset": "ninapro_db2",
@@ -367,12 +592,7 @@ def _checked(artifact: Any) -> dict[str, Any]:
             or any(_json(identity[k]) != _json(v) for k, v in expected_identity.items())
         ):
             raise ValueError("invalid G3 source identity")
-        signal_digest = identity["calibration_signal_sha256"]
-        if (
-            not isinstance(signal_digest, str)
-            or len(signal_digest) != 64
-            or any(c not in "0123456789abcdef" for c in signal_digest)
-        ):
+        if not _is_sha256(identity["calibration_signal_sha256"]):
             raise ValueError("invalid calibration signal digest")
         if (
             not isinstance(pool, list)
@@ -382,7 +602,7 @@ def _checked(artifact: Any) -> dict[str, Any]:
                 or len(row) != 4
                 or any(type(v) is not int for v in row)
                 or row[2] < 0
-                or row[3] - row[2] < 400
+                or row[3] - row[2] < WINDOW_SIZE
                 for row in pool
             )
             or [row[:2] for row in pool] != [[g, r] for g in range(1, 18) for r in (1, 4)]
@@ -432,30 +652,25 @@ def _checked(artifact: Any) -> dict[str, Any]:
 def save_assignment(path: str | Path, artifact: dict[str, Any]) -> str:
     """Atomically create a write-once-through-this-helper JSON; return its file SHA-256.
 
-    Existing paths are never overwritten. The material assignment and logical provenance
-    envelope have separate checksums; this returned digest covers exact file bytes and
-    must be anchored in the creation/run registry. Filesystem permissions are not an
-    immutability guarantee; load_assignment requires that trusted digest explicitly.
+    Existing paths are never overwritten. The file takes the mode the user's umask gives any
+    new file. The returned digest covers exact file bytes; register_assignment anchors it in
+    the Git-tracked registry, and loading requires that recorded digest.
     """
     _checked(artifact)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     encoded = (_json(artifact) + "\n").encode("utf-8")
-    temporary: Path | None = None
+    # open(..., "x") creates exclusively with 0o666 minus the umask. tempfile would make an
+    # owner-only file, and the hard link below shares that mode with the final name.
+    temporary = destination.with_name(f".assignment-{uuid.uuid4().hex}.tmp")
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=destination.parent, prefix=".assignment-", delete=False
-        ) as f:
-            temporary = Path(f.name)
+        with open(temporary, "xb") as f:
             f.write(encoded)
             f.flush()
             os.fsync(f.fileno())
-        os.link(
-            temporary, destination
-        )  # Atomic exclusive creation, never replace an old assignment.
+        os.link(temporary, destination)  # Atomic exclusive creation, never replace an old one.
     finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+        temporary.unlink(missing_ok=True)
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -477,11 +692,10 @@ def load_assignment(
 ) -> dict[str, Any]:
     """Verify an assignment against the current source pool, without redrawing membership.
 
-    Compute the expected hash via window_pool_sha256 or trial_pool_sha256 from the
-    current inputs, not from the file being checked. The exact-file digest comes from a
-    trusted creation/run record, not a fresh hash of the file being loaded. G3 additionally
-    requires the requested schedule index; all five schedules share one source pool.
-    Original NumPy version is retained; duplicate keys/non-finite constants are refused.
+    Compute the expected source digest via f2_source_pool_sha256 or trial_pool_sha256 from
+    the current inputs, and take the exact-file digest from the assignment registry, never
+    from the file being loaded. G3 additionally requires the requested schedule index; all
+    five schedules share one source pool. Duplicate keys/non-finite constants are refused.
     """
 
     def invalid_constant(value: str) -> None:
@@ -495,7 +709,7 @@ def load_assignment(
     )
     if artifact["source_pool_sha256"] != expected_source_pool_sha256:
         raise ValueError("assignment does not belong to the current source pool")
-    if artifact["kind"] == "g3_trial_schedule_v1":
+    if artifact["kind"] == G3_KIND:
         _integer(expected_schedule_index, 0, 4, "expected_schedule_index")
         if artifact["assignment"]["schedule_index"] != expected_schedule_index:
             raise ValueError("assignment schedule identity mismatch")

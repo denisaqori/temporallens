@@ -111,6 +111,55 @@ def test_g3_g4_share_d43_acquisition_identity_and_realized_assignment_contract()
     assert streams[0] == streams[1]
 
 
+F2_CONFIG = "configs/experiment/foundation/baseline_cnn_random_split.yaml"
+G3_CONFIGS = tuple(
+    f"configs/experiment/generation/{name}.yaml"
+    for name in ("gen_personalization_efficiency", "gen_calibration_efficiency")
+)
+
+
+def test_assignment_configs_match_the_policy_the_builders_execute() -> None:
+    from temporallens.data.assignments import (
+        ASSIGNMENT_REGISTRY,
+        check_f2_config,
+        check_g3_config,
+    )
+
+    check_f2_config(_load(F2_CONFIG))
+    for relative_path in G3_CONFIGS:
+        check_g3_config(_load(relative_path))
+    assert (REPO_ROOT / ASSIGNMENT_REGISTRY).is_file()
+
+
+def _policy_cases() -> list[tuple[str, str]]:
+    from temporallens.data.assignments import F2_CONFIG_POLICY, G3_CONFIG_POLICY
+
+    return [(F2_CONFIG, path) for path in F2_CONFIG_POLICY] + [
+        (relative_path, path) for relative_path in G3_CONFIGS for path in G3_CONFIG_POLICY
+    ]
+
+
+@pytest.mark.parametrize(("relative_path", "leaf"), _policy_cases())
+def test_assignment_policy_refuses_every_edited_or_missing_leaf(
+    relative_path: str, leaf: str
+) -> None:
+    from temporallens.data.assignments import check_f2_config, check_g3_config
+
+    check = check_f2_config if relative_path == F2_CONFIG else check_g3_config
+    *parents, name = leaf.split(".")
+    for mutate in ("edit", "delete"):
+        config = _load(relative_path)
+        node = config
+        for part in parents:
+            node = node[part]
+        if mutate == "edit":
+            node[name] = "edited-by-test"
+        else:
+            del node[name]
+        with pytest.raises(ValueError, match=re.escape(leaf)):
+            check(config)
+
+
 def test_d43_assignments_require_pool_digest_material_assignment_and_rng_provenance() -> None:
     g1 = _load("configs/experiment/generation/gen_vae_train.yaml")
     f2 = _load("configs/experiment/foundation/baseline_cnn_random_split.yaml")

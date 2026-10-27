@@ -90,6 +90,10 @@ evaluation:
     execution:
       status: ready
       fold_assignment_algorithm: d44_global_window_split_v1
+      # D46: the builder reads the manifest's 32 processed recordings itself and indexes them
+      # uncapped at 400/100; their content digests are provenance, never membership inputs.
+      source_pool_construction: manifest_development_recordings_uncapped
+      source_recording_digest: sha256_v1_emg_f4_label_i2_repetition_i2
       canonical_window_order: [subject_id, start_sample]
       outer_test_count: ceil_n_windows_divided_by_5
       outer_membership: prefix_of_one_global_permutation
@@ -107,7 +111,8 @@ evaluation:
       assignment_artifact: data/processed/assignments/f2_random_window/v1/{source_pool_sha256}/assignment.json
       assignment_reuse: load_verified_existing_or_create_once
       require_trusted_file_sha256: true
-      trusted_file_digest_source: assignment_creation_record_or_frozen_run_registry
+      assignment_registry: configs/splits/assignment_registry.yaml  # D46 Git-tracked trust anchor
+      creation_verification: regenerate_under_recorded_numpy_version
       persist_before_fitting: true
       required_assignment_provenance: [source_pool_identity, source_pool_sha256, assignment_sha256]
       required_rng_provenance: [key, derived_seed, assignment_prng, numpy_version]

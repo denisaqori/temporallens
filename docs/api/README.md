@@ -79,6 +79,7 @@ A config's `protocol:` block governs whether its results may be **reported**, no
 | `evaluation.metrics`, `evaluation.save_predictions` | `evaluation.metrics`, `training.encoder` |
 | `tracking.*` | `utils.run_logger` |
 | `protocol.*` | `evaluation.robustness`; printed by `train_encoder.py` |
+| F2's `evaluation.temperature_fit.execution` assignment keys; G3/G4's `personalization.trial_selection.*` | checked against the executed protocol, not read as parameters, by `data.assignments` (`check_f2_config`, `check_g3_config`) |
 
 ---
 
@@ -118,16 +119,26 @@ Eight subjects are the project's final test set and are never used for developme
 **Connects to** every reportable config, through `dataset.split_manifest` · `utils.yaml_io` (reads the manifest strictly) · **Decisions** D13, D16
 
 ### `data.assignments`
+Builds the two randomized data assignments the protocol freezes before any fit: F2's window folds and G3/G4's acquisition schedules.
 
-Constructs the two approved randomized data assignments without implementing their training runners. F2 globally permutes the 32-subject window pool into a fixed `ceil(N/5)` outer test, re-canonicalizes the non-test membership and independently permutes it into eight nearly equal calibration folds. No labels or repetition values affect membership, and no favourable composition is obtained by redrawing. Canonical IDs make the output independent of the caller's row order; explicit stride metadata is needed because `WindowIndex` cannot infer it from offsets.
+A seed does not archive a split, because NumPy may change how a generator turns a seed into a permutation. So each builder emits the realized membership together with the inputs it was drawn from, and every later consumer loads that artifact instead of redrawing it. The membership is a pure function of fixed keys: `f2_fold_membership` depends only on the window count, `g3_trial_order` only on subject and schedule index. Labels, repetitions and signal therefore change an artifact's provenance, never who lands where, and those two functions are what registration re-runs to verify a saved artifact.
 
-G3/G4 share one 34-trial schedule per subject/index. The first pass covers all gestures once with alternating repetitions; separately shuffled complementary-repetition groups then interleave, preserving balance at every prefix without always repeating the earliest gestures first. The builder checks the actual recording for complete eligible segments, and its source fingerprint includes segment boundaries and calibration signal rather than assuming the expected pairs exist. `window_pool_sha256` and `trial_pool_sha256` fingerprint current inputs without random draws, so a persisted assignment can be checked without re-generating it.
+The builders read their real inputs rather than accepting a prepared index, so a frozen split cannot be the split of a debug subsample. `build_f2_assignment` opens the manifest's 32 development recordings one at a time, indexes them uncapped at 400/100 with the same indexer training uses, and hashes each recording's content into the source identity; held-out subjects' files are never opened (D41). `build_g3_schedule` refuses a recording unless each of its 34 eligible trials is one complete windowable segment.
 
-`save_assignment` creates an immutable JSON atomically and refuses an existing path. `load_assignment` checks schema, the frozen manifest, source binding, partition/schedule invariants, original RNG identities and checksums; it never redraws the assignment under today's NumPy version. The material assignment hash identifies selected IDs/memberships independently of labels or library-version provenance; the source hash identifies eligible inputs; the envelope hash protects logical provenance; the writer returns the exact-file hash for the run registry. The F2 source fingerprint covers window metadata, not EMG values, so a future F2 run must also register its processed-recording artifacts. These helpers do not lift the F2 trainer refusal or the remaining G3/G4 execution gates.
+`check_f2_config` and `check_g3_config` compare the config leaves describing these mechanics with what the module executes. The builders deliberately do not read those values — one versioned protocol, not a parameterized one — so without the check an edited config would be silently ignored. Artifacts are write-once and take the mode the user's umask gives any new file. What each of their four digests identifies is defined once, in the experiments README §3.5.
 
-The writer creates missing parent directories and refuses to overwrite an existing path. This is write-once helper behavior, not filesystem protection: the loader additionally requires the exact-file digest anchored by the creation/run record, the current source-pool digest, and G3's requested schedule index. A different schedule for the same subject shares the source hash and is not interchangeable. The metadata-only F2 builder trusts its explicit stride declaration; a future runner must prove full, uncapped index construction from the processed recordings rather than pass debug-subsampled or differently windowed indices under that declaration.
+**Connects to** `data.ninapro` (reads the processed recordings) · `data.windows` (indexes them) · `data.splits` (subject and repetition roles) · `utils.randomness` (keys) · `data.assignment_registry` (freezes and serves the artifacts) · **Decisions** D43–D46
 
-**Connects to** `data.windows` (stable window IDs), `data.ninapro` (actual calibration recordings), `data.splits` (frozen subject/repetition roles), `utils.randomness` (the one seed implementation) · **Decisions** D43–D45
+### `data.assignment_registry`
+The Git-tracked record that makes a saved assignment trustworthy.
+
+A checksum check is only as good as the place the expected checksum comes from: a digest kept beside the file can be rewritten along with it. The registry, `configs/splits/assignment_registry.yaml` beside the split manifest, holds each artifact's logical identity, source-pool digest, material digest, path and exact-file digest, and Git history is what vouches for those entries. The artifacts themselves stay under `data/` because they carry NinaPro labels.
+
+`register_assignment` is the one-time freeze. It loads the saved file against the digest `save_assignment` returned and the current source digest, re-derives the membership, refuses any difference and only then appends an entry. Re-registering the identical artifact is a no-op; a different artifact for an already frozen identity is refused, never substituted. Registration under a NumPy version other than the one that drew the artifact is refused rather than skipped, because skipping would admit exactly the artifacts the check exists to catch. `load_registered_assignment` serves later runs and never redraws, so a frozen assignment stays authoritative whatever NumPy does next.
+
+Entries key on the source digest, so changed inputs raise `UnregisteredAssignmentError` instead of resolving to the assignment frozen for the old inputs. A reportable run can only see committed entries because non-debug runs already refuse a dirty tree, so there is no separate Git check here. Registration assumes one writer: it is a freeze reviewed in a commit, not something concurrent runs do.
+
+**Connects to** `data.assignments` (verifies and re-derives its artifacts) · `utils.yaml_io` (reads the registry strictly) · `utils.run_logger` (the clean-tree rule that keeps uncommitted entries out of reportable runs) · **Decision** D46
 
 ### `data.dataset`
 A PyTorch `Dataset` over a window index.
@@ -284,19 +295,18 @@ A robustness evaluation pairs a perturbation (noise, channel dropout, amplitude 
 **Connects to** `scripts/evaluate.py` (calls it) · `configs/experiment/robustness_targets.yaml` · **Decision** D2
 
 ### `utils.randomness`
+Derives each protocol assignment's seed from what the assignment is, not from when it is drawn.
 
-Gives each randomized protocol object its own reproducible identity without a mutable global stream. `derive_seed` hashes one versioned canonical key; `assignment_rng` constructs a fresh explicit NumPy PCG64 generator; `randomization_provenance` records that key, seed, backend and NumPy version. Adding an unrelated diagnostic draw cannot change a fold or acquisition schedule. The helper does not seed or consume global NumPy/PyTorch state, and it does not change F1's accepted initialization or the paired bootstrap.
+Every randomized object gets a fresh PCG64 generator keyed by a versioned canonical key of scope, purpose and named indices. Adding an unrelated draw or reordering work therefore cannot change a fold or a schedule, and nothing global is seeded or consumed. Training keeps its native PyTorch RNG and F1's direct seed (D38); the bootstrap keeps D26's. The key format, and which identities an experiment may put in a key, are specified in the experiments README §3.5; this module is their one implementation. A seed is provenance, not an archive, which is why `data.assignments` persists the realized assignment beside `randomization_provenance`.
 
-Shared randomness follows the scientific pairing, not the config filename: G3/G4 acquisition keys are identical, replay-pair noise omits strategy, and the shared *k*=0 replay object omits subject/schedule. Each future runner must declare its component keys and sampling calls before execution, then persist the actual stable-ID assignment with its pool identity and SHA-256 alongside this provenance. This module supplies seed identity; `data.assignments` implements D44/D45's F2 splitter and G3/G4 scheduler. Seeds alone do not archive a higher-level NumPy assignment across versions. Remaining rotation/component and repeat-domain choices stay blocked in their configs.
-
-**Connects to** future F2, G1, G3/G4 and language runners · README §3.5 (canonical key and persistence contract) · **Decision** D43
+**Connects to** `data.assignments` (its only caller so far) · future G1, G3/G4 and language runners · **Decision** D43
 
 ### `utils.yaml_io`
 Strict YAML reading for every file whose contents decide what a run does.
 
 PyYAML's safe loader keeps the *last* value when a mapping repeats a key, silently. In a config that means `epochs: 2` near the top and `epochs: 500` further down trains for 500 epochs while a reader of the top sees 2, and nothing records that two values existed. `load_yaml` refuses a repeated or unhashable key and names its line. It started as the split manifest's private loader and is shared so that configs and the manifest follow one rule. YAML merge keys (`<<:`) are not supported, and no project file uses them.
 
-**Connects to** `data.splits` · `evaluation.robustness` · `scripts/train_encoder.py` · `scripts/evaluate.py`
+**Connects to** `data.splits` · `data.assignment_registry` · `evaluation.robustness` · `scripts/train_encoder.py` · `scripts/evaluate.py`
 
 ### `utils.device`
 Chooses the device a run uses.
