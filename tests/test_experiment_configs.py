@@ -2916,3 +2916,37 @@ def test_boundary_selections_are_kept_flagged_and_need_owner_acknowledgement() -
     assert "request an owner decision" not in spec
     assert "and request an owner decision" not in handoff
     assert "every D87/D88 boundary flag with its owner acknowledgement" in handoff
+
+
+def test_batch_prose_uses_the_selected_physical_layout() -> None:
+    """D78/D86 overrides the 4x8 reference, including tail and loss-normalization prose."""
+    spec = (REPO_ROOT / "docs/experiments/language-arm.md").read_text()
+    batch = spec.split("### Batch/accumulation boundaries and loss normalization (D73)")[1]
+    batch = batch.split("\n### ")[0]
+    assert "selected physical microbatch size and selected accumulation count" in batch
+    assert "smaller than the selected microbatch size" in batch
+    assert "Update after the selected accumulation count of microbatches" in batch
+    assert "Update after eight microbatches" not in batch
+    assert "retaining any final microbatch of one to three windows" not in batch
+    assert "divide by 8 again" not in batch
+    assert "eightfold-diluted tail" not in batch
+    handoff = (REPO_ROOT / "docs/project/F1_LANGUAGE_IMPLEMENTATION_HANDOFF.md").read_text()
+    assert "use the profiled physical split selected under D78/D86" in handoff
+    assert "extra /8" not in handoff
+
+
+def test_bootstrap_rationale_distinguishes_empirical_quantiles_from_approximation() -> None:
+    """D79's illustrative normal approximation is not the percentile-bootstrap algorithm."""
+    readme = (REPO_ROOT / "docs/experiments/README.md").read_text()
+    rationale = readme.split("**Why the bootstrap gate was retired (D79).**")[1].split("\n\n")[0]
+    assert "empirical quantiles of resampled means" in rationale
+    assert "a normal approximation" in rationale
+    assert "model-based approximations, not universal finite-sample properties" in rationale
+    assert "uses the plug-in SD and a normal quantile" not in rationale
+
+
+def test_handoff_does_not_reinstate_the_retired_reporting_boundary_stop() -> None:
+    """D87 keeps a boundary selection and requires acknowledgement, not the former stop."""
+    handoff = (REPO_ROOT / "docs/project/F1_LANGUAGE_IMPLEMENTATION_HANDOFF.md").read_text()
+    assert "reporting-boundary block" not in handoff
+    assert "D87's reporting-boundary flag and owner acknowledgement" in handoff
