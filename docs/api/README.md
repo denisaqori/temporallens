@@ -215,11 +215,11 @@ Checkpoint names carry their role:
 |---|---|---|
 | `refit.pt` | The model refit on all 32 development subjects | Every downstream consumer |
 | `folds/fold{k}/best.pt` | The best epoch within one cross-validation fold | Analysis only |
-| `development/fold{k}/fixed_budget.pt` | Fitted on a fold's 28 training subjects for the fixed budget | Development-time selection and calibration only |
+| `development/fold{k}/fixed_budget.pt` | Retained snapshot of the accepted fold trajectory at the common budget (D48) | Development-time selection and calibration only |
 
 The refit has no validation set, so it cannot be a "best". F0 writes none of these; it saves `encoder.pt` in its own run directory.
 
-**Connects to** `models.encoders.cnn1d` (describes, rebuilds) · `training.encoder` (saves) · the robustness registry (loads) · **Decisions** D7, D28, D31, D33; the contract is a hard constraint in AGENTS.md
+**Connects to** `models.encoders.cnn1d` (describes, rebuilds) · `training.encoder` (saves) · the robustness registry (loads) · **Decisions** D7, D28, D31, D33, D48; the contract is a hard constraint in AGENTS.md
 
 ### `models.llm.masking`
 Attention-mask helpers for the language-model input paths.

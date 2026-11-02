@@ -87,6 +87,20 @@ training:
     epoch_rule: ceiling_median_selected_fold_epochs
     initialization: fresh_from_experiment_seed
     early_stopping: false
+  # D48: reuse snapshots from the accepted selection trajectories, not each fold's best epoch.
+  # This does not change the median budget above, D19's scratch restart, or D47's CUDA rerun.
+  development_checkpoints:
+    source: accepted_f1_selection_trajectory_at_common_budget
+    training_budget: d18_d19_accepted_refit_budget
+    accepted_horizon_only: true
+    retain_epoch_snapshots_until_budget_freeze: true
+    snapshot_contents: all_model_parameters_and_buffers
+    per_fold_best_substitution: forbidden
+    training_prefix_horizon_dependence: forbidden
+    validation_changes_training_rng: forbidden
+    validation_updates_parameters_or_buffers: forbidden
+    missing_or_incompatible_snapshot: block_artifact_creation
+    required_source_provenance: [source_run_id, fold_index, source_epoch, accepted_horizon, source_checkpoint_sha256, manifest_hash, training_subject_ids, scoring_subject_ids, normalization_sha256, class_weights_sha256, config_digest, training_rng_provenance, device]
 evaluation:
   # D33 amends D23. Metrics below name families; reportable probability keys carry version suffixes.
   primary_classification_metric: macro_f1
@@ -107,8 +121,9 @@ evaluation:
     query_subjects: current_fold_validation_subjects
     query_repetitions: all_manifest_repetitions
     checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+    encoder_checkpoint_source: accepted_f1_selection_trajectory_at_common_budget
     training_budget: d18_d19_accepted_refit_budget
-    validation_selected_checkpoint_reuse: forbidden
+    per_fold_best_checkpoint_substitution: forbidden
     objective: ordinary_negative_log_likelihood
     class_weighting: none
     subject_weighting: equal
@@ -122,7 +137,7 @@ evaluation:
     final_test_fitting: forbidden
     development_metrics_role: calibration_fitting_diagnostic_only
     artifact: model_config.probability_calibration
-    required_provenance: [manifest_hash, fold_artifact_sha256, config_digests, query_logits_sha256, subject_ids, repetition_ids, fitting_weights, fit_diagnostics]
+    required_provenance: [manifest_hash, fold_artifact_sha256, source_trajectory_provenance, config_digests, query_logits_sha256, subject_ids, repetition_ids, fitting_weights, fit_diagnostics]
     execution:
       status: ready
       # D39: optimize beta=1/T, where weighted NLL is convex, in float64.

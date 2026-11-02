@@ -58,6 +58,7 @@ development_gate:
     contract_source_config: configs/experiment/generation/gen_personalization_efficiency.yaml
     contract_source_field: personalization.adaptation.objective.development_selection.artifact_resolution
     encoder_checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+    encoder_checkpoint_source: accepted_f1_selection_trajectory_at_common_budget
     generator_checkpoint_pattern: checkpoints/gen_vae_train/development/fold{fold_index}/fixed_budget.pt
     population_fit: current_fold_training_complement_28_subjects
     generator_parent_encoder_identity: exact_artifact_sha256

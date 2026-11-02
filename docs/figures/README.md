@@ -63,10 +63,11 @@ Sources: [G1 subject-embedding contract][g1-embedding] · [G1 config][g1-config]
 | Representation / transformation | Shape |
 |---------------------------------|-------|
 | EMG features entering the projector | `B × 256` |
+| Projector MLP (D71): linear → GELU → linear | `256 → 256 → 8D`, then reshape |
 | Projector output: eight soft-prefix vectors | `B × 8 × D` |
 | Prefix + prompt embeddings | `B × (L+8) × D` |
 | Last non-padding hidden state | `B × D` |
-| Classifier MLP | `D → 256 → 18` |
+| Classifier MLP (D71): linear → GELU → dropout 0.1 → linear | `D → 256 → 18` |
 
 With `D = 3072`, the eight soft-prefix vectors contain 24,576 scalars per example.
 
@@ -93,9 +94,9 @@ Sources: [Metric definitions][metrics-spec] · [metric implementation][metrics-s
 
 - `k ∈ {0,1,2,5,10,17,20,34}` counts **complete active gesture trials per subject**, not windows or repetitions per class. `N_k` is the resulting permitted window count, not a declared `97 × k` tensor size. Rest ownership is still Pending. The fixed support/evaluation repetitions in C are for held-out-subject personalization; G1's training-only support rotations are described in the [generative specification][generative-spec].
 
-- The generated representation is an **encoder-space feature**, not a 400-sample waveform, not the 32-dimensional VAE noise and not a language token. The decoder is already fitted when adaptation starts. The figure does not invent a VAE depth, class-conditioning encoding, reconstruction likelihood or projector hidden width that the protocol has not fixed.
+- The generated representation is an **encoder-space feature**, not a 400-sample waveform, not the 32-dimensional VAE noise and not a language token. The decoder is already fitted when adaptation starts. The figure does not invent a VAE depth, class-conditioning encoding, reconstruction likelihood that the protocol has not fixed. D71 separately fixes the language projector's hidden width at 256; it does not define a generator layer.
 
-- **D expands L2.** L3 uses the same input path / backbone architecture with random frozen weights. L4 uses engineered text instead of a learned soft prefix, so its sequence length is its own tokenized text length, not `L+8`. The three arms share the classifier-head **architecture**, not the same fitted head weights. The LLM vocabulary head is unused in the v1 discriminative readout. The head also applies dropout 0.1; the figure omits that label to keep its main dimensional transformation legible. Mask-derived pooling and position IDs remain required.
+- **D expands L2.** L3 uses the same input path / backbone architecture with random frozen weights. L4 uses engineered text instead of a learned soft prefix, so its sequence length is its own tokenized text length, not `L+8`. The three arms share the classifier-head **architecture**, not the same fitted head weights. The LLM vocabulary head is unused in the v1 discriminative readout. The head also applies dropout 0.1; the figure omits that label to keep its main dimensional transformation legible. Mask-derived pooling and position IDs remain required. D71 pins the two-linear-layer layouts shown above; D72 pins explicit BF16 transformer/FP32 trainable computation. These are specified architectures, not implemented modules, and the schematic still abstracts the internal activation/dropout steps.
 
 - **E shows the subject-independent reporting contract**, not F2's deliberately leaky random-window demonstration. For F1, a scalar temperature is fitted on fixed-budget development OOF predictions and stored in checkpoint metadata. G4 instead needs a frozen strategy × `k` temperature artifact. Raw and temperature-scaled ECE / Brier are separate outputs; scaling changes probabilities, not the predicted class. G4's within-subject repeat and headline aggregation choices remain Pending: the schematic `8 × Q` matrix does not settle them. F0 currently emits raw probabilities only.
 
