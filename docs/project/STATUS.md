@@ -116,6 +116,7 @@ Claim here **before** starting; commit and push the claim immediately (an unpush
 
 | Task | Owner | Branch |
 |---|---|---|
+| f1-harness | claude | `claude/f1-harness` |
 | generative-contract | codex | `codex/generative-contract` |
 
 ## Paused / mid-flight
