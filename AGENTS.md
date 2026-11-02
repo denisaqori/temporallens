@@ -92,7 +92,7 @@ Add the *why* while writing the code, not afterwards: the reasoning is in your h
 - **Leakage rules** in `docs/experiments/generative-arm.md` are non-negotiable; a result traceable to a violation is treated as no result.
 - **Never commit** data, checkpoints, secrets, or run outputs — `.gitignore` already excludes them.
 - `frozen` means `requires_grad=False` and `eval()` mode. F0/F1 train the encoder; downstream arm runs freeze that checkpoint. The language model is always frozen; the projector and head are not.
-- **Checkpoint contract:** every training checkpoint saves `{model_state, model_config}` so any consumer can rebuild the model from the checkpoint alone (no external `model_type`).
+- **Checkpoint contract:** every training checkpoint saves `{model_state, model_config}` so any consumer can rebuild the model from the checkpoint alone (no external `model_type`). Language-arm checkpoints reference their frozen parents (F1 encoder, pinned transformer revision, persisted L3 backbone) by path and SHA-256 instead of embedding them (D76).
 
 ## Working agreement — STATUS and DECISIONS
 

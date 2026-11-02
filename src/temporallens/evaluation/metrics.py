@@ -377,11 +377,12 @@ def paired_bootstrap_interval(
     resamples: int = DEFAULT_BOOTSTRAP_RESAMPLES,
     confidence: float = DEFAULT_CONFIDENCE,
 ) -> tuple[float, float]:
-    """Percentile bootstrap over subjects, for a paired cross-arm difference (D26).
+    """Descriptive percentile bootstrap over paired subject differences (D26/D79).
 
     Every arm is scored on the identical test subjects, so per-subject differences control the
     shared subject variation — it removes the additive subject-level component, not a
-    subject-by-arm interaction. A difference is reportable when this interval excludes zero.
+    subject-by-arm interaction. Whether this interval excludes zero does not determine
+    reportability (D79); it is not the paired-t interval declared for primary mean differences.
     """
     differences = np.asarray(per_subject_differences, dtype=np.float64)
     if not np.all(np.isfinite(differences)):

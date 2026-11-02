@@ -22,6 +22,13 @@
 # analysis, never for consumption; "best" means best-epoch-by-validation within a fold, which is
 # why the refit artifact carries a different name instead of overloading that word. Run-shaped G3
 # targets instead resolve their per-subject heads from the declared run directory.
+#
+# Language targets (D66/D76) have one refit per reporting seed, so they name a checkpoint_pattern
+# over reporting_seed_index within one explicit digest-verified accepted campaign (D85),
+# never a mutable latest pointer. Evaluate every seed's refit with its own
+# temperature, then average metrics within each subject before inference. Resolving that pattern
+# is not implemented, so artifact_resolution keeps them blocked even after their source protocol
+# becomes ready; a single-file lookup would silently score one seed or none.
 
 targets:
   # --- Foundation ---
@@ -35,17 +42,47 @@ targets:
   - name: l2_frozen_llm
     arm: language
     source_config: configs/experiment/language/adapter_llama3b_subject_split.yaml
-    checkpoint: checkpoints/adapter_llama3b_subject_split/refit.pt
+    checkpoint_pattern: checkpoints/language_campaigns/{campaign_id}/adapter_llama3b_subject_split/reporting/seed{reporting_seed_index}/refit.pt
+    accepted_campaign_manifest_pattern: checkpoints/language_campaigns/{campaign_id}/accepted_manifest.json
+    campaign_selection: explicit_accepted_manifest_path_and_sha256_no_latest
+    artifact_axes: [reporting_seed_index]
+    reporting_seed_indices_source: training.repeats.seed_indices
+    within_subject_repeat_aggregation: equal_weight_mean_over_seed_runs
+    artifact_resolution: pending_implementation
     temperature_source: model_config.probability_calibration
   - name: l3_random_transformer
     arm: language
     source_config: configs/experiment/language/adapter_random_transformer.yaml
-    checkpoint: checkpoints/adapter_random_transformer/refit.pt
+    checkpoint_pattern: checkpoints/language_campaigns/{campaign_id}/adapter_random_transformer/reporting/seed{reporting_seed_index}/refit.pt
+    accepted_campaign_manifest_pattern: checkpoints/language_campaigns/{campaign_id}/accepted_manifest.json
+    campaign_selection: explicit_accepted_manifest_path_and_sha256_no_latest
+    artifact_axes: [reporting_seed_index]
+    reporting_seed_indices_source: training.repeats.seed_indices
+    within_subject_repeat_aggregation: equal_weight_mean_over_seed_runs
+    artifact_resolution: pending_implementation
     temperature_source: model_config.probability_calibration
   - name: l4_text_summary
     arm: language
     source_config: configs/experiment/language/adapter_text_summary_only.yaml
-    checkpoint: checkpoints/adapter_text_summary_only/refit.pt
+    checkpoint_pattern: checkpoints/language_campaigns/{campaign_id}/adapter_text_summary_only/reporting/seed{reporting_seed_index}/refit.pt
+    accepted_campaign_manifest_pattern: checkpoints/language_campaigns/{campaign_id}/accepted_manifest.json
+    campaign_selection: explicit_accepted_manifest_path_and_sha256_no_latest
+    artifact_axes: [reporting_seed_index]
+    reporting_seed_indices_source: training.repeats.seed_indices
+    within_subject_repeat_aggregation: equal_weight_mean_over_seed_runs
+    artifact_resolution: pending_implementation
+    temperature_source: model_config.probability_calibration
+  # D77: whether the LLM route preserves robustness relative to a conventional decoder.
+  - name: l6_embedding_mlp_control
+    arm: language
+    source_config: configs/experiment/language/embedding_mlp_control.yaml
+    checkpoint_pattern: checkpoints/language_campaigns/{campaign_id}/embedding_mlp_control/reporting/seed{reporting_seed_index}/refit.pt
+    accepted_campaign_manifest_pattern: checkpoints/language_campaigns/{campaign_id}/accepted_manifest.json
+    campaign_selection: explicit_accepted_manifest_path_and_sha256_no_latest
+    artifact_axes: [reporting_seed_index]
+    reporting_seed_indices_source: training.repeats.seed_indices
+    within_subject_repeat_aggregation: equal_weight_mean_over_seed_runs
+    artifact_resolution: pending_implementation
     temperature_source: model_config.probability_calibration
 
   # --- Generative arm ---

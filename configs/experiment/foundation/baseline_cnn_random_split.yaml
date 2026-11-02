@@ -80,6 +80,7 @@ evaluation:
     class_weighting: none
     subject_weighting: equal
     repeat_weighting: equal_within_subject
+    repetition_zero_rest: excluded_from_temperature_fitting  # D81
     window_weighting: equal_within_repeat
     fit_scope: development_only
     freeze_before_final_test: true

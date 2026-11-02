@@ -6,7 +6,8 @@ properties (ECE under adaptive binning), the test states the property rather tha
 Decisions pinned here: D8 (per-class family, fold matrices averaged not summed), D21 (undefined
 class F1 counts as 0), D23 (adaptive bins, M=10, bins recomputed after scaling), D25
 (overconfidence error is the one-sided binned gap; mean-confidence-on-errors is NA with no
-errors), D26 (per-subject values, paired interval), D39 (unhalved Brier and confidence ties).
+errors), D26 (per-subject values, paired interval), D39 (unhalved Brier and confidence ties),
+D79 (the retained bootstrap helper is descriptive, never a reportability gate).
 """
 
 from __future__ import annotations
@@ -295,7 +296,7 @@ def test_paired_interval_is_seeded_and_reproducible() -> None:
 
 
 def test_a_consistent_difference_excludes_zero_and_a_noisy_one_does_not() -> None:
-    """D26's reportability rule: a difference counts when its paired interval excludes zero."""
+    """Check interval behavior, not a reportability or significance rule (D79)."""
     consistent = np.array([0.04, 0.05, 0.03, 0.06, 0.04, 0.05, 0.04, 0.05])
     lo, hi = paired_bootstrap_interval(consistent, seed=42)
     assert lo > 0
@@ -303,6 +304,14 @@ def test_a_consistent_difference_excludes_zero_and_a_noisy_one_does_not() -> Non
     noisy = np.array([0.05, -0.04, 0.03, -0.06, 0.04, -0.05, 0.02, -0.03])
     lo, hi = paired_bootstrap_interval(noisy, seed=42)
     assert lo < 0 < hi
+
+
+def test_paired_bootstrap_documentation_keeps_the_retired_gate_retired() -> None:
+    """D79 leaves this helper descriptive; a zero crossing is not a reporting gate."""
+    description = " ".join((paired_bootstrap_interval.__doc__ or "").split())
+    assert "Descriptive" in description
+    assert "does not determine reportability" in description
+    assert "A difference is reportable when" not in description
 
 
 def test_paired_interval_requires_matched_subjects() -> None:

@@ -110,10 +110,11 @@ Four strategies across complete real gesture-trial budgets, evaluated per held-o
 | Encoder + projection + **frozen LLM**                       | – | – | – |
 | Encoder + projection + **random-init transformer** (matched)| – | – | – |
 | Encoder + **text-summary-only** LLM                         | – | – | – |
+| Encoder + **conventional MLP head**, no LLM (control)       | – | – | – |
 
 Every held-out number comes from the cloud CUDA runs. Calibration reporting uses scaled ECE as the primary endpoint, with raw ECE and raw/scaled Brier alongside it. Macro-F1 measures decoding; raw ECE describes native confidence reliability; scaled ECE evaluates the model plus its frozen development-fitted calibrator; Brier scores the full probability vector. These outcomes can disagree, so no single one establishes an overall win. Definitions, limitations and interpretation examples are in the [shared metric protocol](docs/experiments/README.md#34-metrics). L2 versus L4 compares learned-latent and engineered-text pipelines; it does not isolate the projector's contribution.
 
-> The random-init-transformer and text-summary-only rows exist to answer the first question any reviewer will ask: is any LLM benefit due to *language pretraining*, or merely to having a large transformer / a hand-written prompt of numbers?
+> The random-init-transformer and text-summary-only rows exist to answer the first question any reviewer will ask: is any LLM benefit due to *language pretraining*, or merely to having a large transformer / a hand-written prompt of numbers? The no-LLM control answers the second: does the whole LLM route beat a conventional decoder of the same frozen embedding, given an equal chance to be tuned?
 
 ### Encoder development cross-validation _(pending — Phase 1)_
 

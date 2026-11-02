@@ -1,0 +1,646 @@
+# L6 - NO-LLM CONTROL. The frozen F1 encoder's 256-number embedding read by a conventional MLP
+# head, with L2's fold parents, window pool, loss, batch rules, optimizer, selection, reporting
+# seeds and temperature lineage, but no transformer and no soft prefix (D77).
+#
+# It answers the question L3 cannot. L2 vs L3 isolates language pretraining inside one transformer
+# architecture; L2 vs L6 asks whether the whole LLM route beats a credible conventional decoder of
+# the same frozen embedding. A frozen random transformer can damage the signal, so L2 > L3 alone
+# does not show the LLM adds anything over ordinary nonlinear re-heading.
+#
+# Not a weak foil: two predeclared heads (small and roughly L2-sized) are selected jointly with LR
+# in this arm's own five-point pilot, then frozen across reporting seeds. That wider search makes
+# the comparison fairer to the control; it does not guarantee a conservative one.
+# Spec: docs/experiments/language-arm.md, L6.
+protocol:
+  # Gates REPORTABILITY, not training. Producing a checkpoint is how the vertical slice proceeds;
+  # what is blocked is quoting numbers from it. The evaluator must reject any status other than
+  # `ready`, and pending values never get defaults.
+  # D84-D86 settle the owner contract; execution remains unimplemented.
+  status: blocked_pending_implementation
+  implementation_status: pending_implementation
+  blocked_on: [protocol.implementation_status]
+experiment:
+  name: embedding_mlp_control
+  seed: 42
+  mode: train
+tracking:
+  json_logging: true
+  wandb_mode: online
+dataset:
+  name: ninapro_db2
+  exercise: B
+  split_manifest: configs/splits/subject_independent_v1.yaml
+  window_size: 400
+  stride: 100
+  input_channels: 12
+  num_classes: 18
+  normalize: train_subject_covered_sample_stats
+encoder:
+  checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
+  freeze: true
+  embedding_dim: 256
+head:
+  # D77: the only trainable module. Both candidates read the frozen 256-number F1 embedding; the
+  # pilot selects one candidate jointly with LR and freezes it across reporting seeds.
+  type: mlp
+  input: frozen_f1_encoder_embedding
+  input_dim: 256
+  activation: gelu
+  bias: true
+  normalization: none
+  dropout: 0.1
+  dropout_position: after_each_hidden_activation
+  output_activation: none
+  num_classes: 18
+  architecture_candidates:
+    small:
+      architecture_id: 0
+      hidden_dims: [256]
+      trainable_parameters: 70418
+    wide:
+      architecture_id: 1
+      hidden_dims: [4096, 1536]
+      trainable_parameters: 7373330
+  selection_source: training.learning_rate_selection
+# D76: reportable CUDA artifact layout. Debug and preliminary runs never write these paths.
+artifacts:
+  status: ready
+  campaign:
+    root: checkpoints/language_campaigns/{campaign_id}/
+    definition: checkpoints/language_campaigns/{campaign_id}/campaign_definition.json
+    accepted_manifest: checkpoints/language_campaigns/{campaign_id}/accepted_manifest.json
+    selection: explicit_accepted_manifest_path_and_sha256_no_latest
+    identity_before_fitting: immutable_campaign_definition
+    accepted_manifest_timing: after_required_artifacts_freeze_before_final_test
+    child_references: parent_and_campaign_definition_digests_not_accepted_manifest_digest
+    finalized_artifacts: atomic_write_once_no_replace
+    existing_artifact: verify_complete_identity_and_digest_or_fail
+    repair_or_identity_change: new_campaign_preserve_previous
+    interruption_recovery: same_campaign_exact_saved_state_only
+    resume_snapshots: separate_from_finalized_artifacts
+    parent_locator_bases: [campaign_root, repository_root, explicit_immutable_external_artifact]
+    missing_parent: fail_without_automatic_download
+  reporting_refit: checkpoints/language_campaigns/{campaign_id}/embedding_mlp_control/reporting/seed{reporting_seed_index}/refit.pt
+  reporting_development: checkpoints/language_campaigns/{campaign_id}/embedding_mlp_control/reporting/seed{reporting_seed_index}/development/fold{fold_index}/fixed_budget.pt
+  fold_test_temperature: checkpoints/language_campaigns/{campaign_id}/embedding_mlp_control/reporting/seed{reporting_seed_index}/development/fold{fold_index}/fold_test_temperature.json
+  model_training_budget: selected_language_budget_per_arm_and_seed  # D67, distinct from F1's budget
+  pilot: checkpoints/language_campaigns/{campaign_id}/embedding_mlp_control/pilot/{candidate_id}/fold{fold_index}/
+  pilot_candidate_id: head_name_then_lr_formatted_as_python_.0e
+  pilot_role: selection_provenance_and_audit_only
+  model_state: trainable_modules_only
+  frozen_parents: referenced_by_path_and_sha256
+  parent_references: [f1_encoder_checkpoint]
+  normalization: copied_from_f1_parent_model_config
+  class_weights: recomputed_from_fit_training_windows_verified_against_parent_class_weights_sha256
+  class_weights_digest_encoding: d11_class_weights_v1_shape_dtype_little_endian_float32
+  template_identity: recorded_from_input_assembly_when_present
+  debug_or_preliminary_runs: never_write_these_paths
+training:
+  target: class_label
+  loss: class_weighted_cross_entropy
+  batch_size: 4  # D78: 4x8 reference layout until the profiled selection is recorded.
+  gradient_accumulation_steps: 8
+  epochs: 10  # D64: common maximum selection horizon, not the refit's selected budget.
+  learning_rate: 0.0001  # Unselected scaffold, never a fallback for the unexecuted LR-selection procedure.
+  learning_rate_selection:
+    status: ready  # D77: this arm's own joint head/LR pilot, independent of D65's shared expansion.
+    initial_grid: [0.00001, 0.00003, 0.0001, 0.0003, 0.001]
+    architecture_candidates_source: head.architecture_candidates
+    selection_scope: this_arm_head_and_learning_rate_jointly
+    fit_scope: development_only
+    reporting_seed_policy: freeze_selected_head_and_learning_rate
+    pilot:
+      status: ready
+      num_folds: 2
+      fold_policy: shared_fixed_development_folds
+      fold_indices: [0, 4]  # D57's folds, shared with L2-L4.
+      seed_count: 1
+      seed_index: 0
+      fit_count: 20  # 2 heads x 5 LRs x 2 folds x 1 pilot seed.
+      rng_scope_source: training.randomness.phase_scopes.pilot
+      component_stream_keys_source: training.randomness.component_stream_keys
+      reporting_stream_policy: separate_pilot_and_reporting_rng_streams
+      reporting_initialization: fresh_from_reporting_streams
+      reporting_trajectory_reuse: forbidden
+      horizon_source: training.selection.horizon
+    scoring:
+      status: ready
+      metric: macro_f1
+      class_labels_source: dataset.num_classes  # Fixed labels 0 through 17, including rest.
+      undefined_class_f1: 0.0
+      subject_reduction: equal_weight_mean_within_fold
+      fold_reduction: equal_weight_mean
+      candidate_score: peak_of_aggregated_curve
+      peak_time_tie_break_source: training.selection.peak_time_tie_break
+      checkpoint_evaluation_source: training.selection.checkpoint_evaluation
+    tie_break:
+      status: ready
+      comparison: exact_unrounded_candidate_score
+      tolerance: 0.0
+      order: [highest_score, smaller_head, preferred_learning_rate_within_head]
+      preferred_learning_rate: 0.0001
+      fallback: minimum_tied_learning_rate
+    grid_edge_handling:
+      status: ready
+      phase: development_pilot_only
+      expansion: none  # The full five-point grid is searched from the start.
+      shared_language_expansion: neither_triggers_nor_waits
+      endpoint_check: final_selected_head_and_learning_rate_after_tie_break
+      outer_endpoints: [0.00001, 0.001]
+      selected_outer_endpoint:  # D88 replaces D77's owner-decision block.
+        action: keep_selected_pair_and_flag
+        reported: [complete_pilot_score_profile, margin_over_adjacent_learning_rate_within_selected_head]
+        role: descriptive_never_threshold
+        acknowledgement_source: training.selection.boundary_flags
+      head_switch_to_avoid_endpoint: forbidden
+      selected_pair_freeze: after_pilot_selection_completes
+      pilot_peak_times: diagnostic_only
+      reporting_or_test_trigger: forbidden
+  weight_decay: 0.0001  # D52/D53: fixed coupled-L2 coefficient on trainable weight matrices only.
+  # D54–D73 settle optimizer, pilot and execution declarations; runtime remains unimplemented.
+  optimization:
+    status: ready  # D72/D73 settle numerical and batch declarations; the implementation gate remains closed.
+    optimizer: adam
+    weight_decay_mode: coupled_l2
+    betas: [0.9, 0.999]
+    epsilon: 0.00000001
+    amsgrad: false
+    scheduler: none
+    parameter_groups:
+      regularized_parameters: trainable_projector_and_head_weight_matrices
+      regularized_weight_decay_source: training.weight_decay
+      zero_decay_parameters: trainable_bias_and_normalization_parameters
+      zero_decay_weight_decay: 0.0
+      normalization_exclusion: module_type_before_tensor_shape
+      frozen_parameters: excluded_from_optimizer
+      membership: complete_and_disjoint_by_parameter_identity
+      unclassified_trainable_parameters: fail_before_training
+      provenance: parameter_names_shapes_and_group_coefficients
+  # D77 with D71/D72: the same numerical rules as L2-L4, without a transformer path.
+  numerical_execution:
+    status: ready
+    initialization:
+      trainable_modules:
+        weights_and_biases: uniform_minus_plus_inverse_sqrt_fan_in
+        dtype: float32
+        rng_source: training.randomness
+        rng_purpose: l6_head_init
+        sharing: identical_across_learning_rates_within_a_head
+        device_policy: resolve_and_record_before_pilot_fixed_for_paired_runs
+    precision:
+      frozen_encoder_and_preprocessing: preserve_matching_f1_fp32_inference_contract
+      transformer: none
+      trainable_parameters_forward_gradients_and_adam_moments: float32
+      logits_and_classification_loss: float32
+      temperature_fitting_source: evaluation.temperature_fit.execution
+      global_autocast: false
+      gradient_scaling: false
+    gradients:
+      clipping: none
+      norm_logging: accumulated_gradient_norm_before_update
+      expected_trainable_gradients: present_and_finite
+    failure:
+      finite_before_update: [inputs, encoder_embeddings, logits, loss, accumulated_trainable_gradients]
+      finite_after_update: [trainable_parameters, adam_state]
+      action: stop_affected_phase_pending_recorded_repair
+      pilot_candidate_failure: stop_pilot_not_score_or_discard_candidate
+      skipped_batches_or_updates: forbidden
+      dropped_or_replaced_reporting_seeds: forbidden
+      numerical_retries_without_recorded_repair: forbidden
+      silent_lr_dtype_batch_backend_or_seed_changes: forbidden
+      interrupted_run_resume: exact_saved_state_only
+    reproducibility:
+      deterministic_algorithms: true
+      warn_only: false
+      cudnn_benchmark: false
+      cudnn_deterministic: true
+      language_float32_matmul: ieee_float32_without_tf32
+      frozen_f1_inference_settings: preserve_and_verify_parent_contract
+      cuda_workspace_configuration: resolve_before_cuda_context_and_record
+      unsupported_hardware_or_operator: block_without_silent_fallback
+      provenance: hardware_software_precision_and_initialization_identities
+  batch_execution:
+    status: ready  # D73 settles the owner contract, not the runtime implementation.
+    microbatch_size_source: training.batch_size
+    accumulation_steps_source: training.gradient_accumulation_steps
+    drop_last: false
+    epoch_tail: update_using_actual_remaining_group
+    cross_epoch_gradient_carry: forbidden
+    loss_normalization:
+      objective: class_weighted_mean_over_actual_update_group
+      numerator: sum_target_class_weight_times_unweighted_cross_entropy
+      denominator: sum_target_class_weights_in_actual_update_group
+      denominator_timing: precompute_from_group_training_labels_before_backward
+      microbatch_reduction: weighted_sum_divided_by_shared_group_denominator
+      extra_division_by_accumulation_steps: forbidden
+      invalid_denominator: fail_phase
+      class_weights: matching_fold_or_refit_training_only_class_weights
+      regularization: once_inside_adam_per_completed_update
+    update_boundaries:
+      routine: declared_accumulation_count_or_epoch_end
+      gradient_reset: after_each_completed_update
+      optimizer_moments_across_epochs: preserve
+      validation_triggered_flush: forbidden
+      refit_budget_triggered_flush: forbidden
+    final_horizon_endpoint:
+      maximum: exact_complete_maximum_epochs_without_extra_training
+      refit_stop: first_natural_completed_update_reaching_nominal_budget_times_own_window_count
+      refit_partial_group_truncation: forbidden
+      exposure_overshoot: strictly_less_than_batch_size_times_accumulation_steps
+    required_provenance:
+      - nominal_epoch_budget
+      - actual_forward_backward_training_window_exposure
+      - cumulative_completed_optimizer_updates
+      - actual_window_and_microbatch_counts_per_update
+      - target_class_weight_denominator_per_update
+      - epoch_tail_handling
+      - prefetched_windows_excluded_from_training_exposure
+    physical_layout_selection:
+      status: ready  # D78: rule declared; the selected layout is a recorded preflight artifact.
+      nominal_update_windows: 32
+      candidate_layouts: [[4, 8], [8, 4], [16, 2], [32, 1]]  # [microbatch, accumulation]
+      reference_layout: [4, 8]
+      timing: after_input_assembly_fixed_and_before_pilot
+      hardware: intended_cuda_target_with_training_numerical_execution_settings
+      measured_path: [forward, backward_through_frozen_transformer_when_present, finite_checks, optimizer_updates, validation, checkpointing]
+      inputs: development_windows_without_validation_score_inspection
+      criterion: minimum_projected_total_campaign_gpu_time_among_common_feasible_layouts
+      numerical_check:
+        reference_layout: [4, 8]
+        comparison: per_trainable_tensor_l2_norm
+        acceptance: norm_difference_le_atol_plus_rtol_times_reference_norm
+        rtol: 0.01
+        atol: 0.000001
+        dropout: disabled
+        initial_state_update_groups_and_denominators: identical
+        zero_reference: absolute_tolerance_only
+        missing_or_nonfinite_gradients: block_preflight
+        no_passing_layout: block_without_post_measurement_tolerance_relaxation
+      projection:
+        ranking_scope: maximum_permitted_campaign
+        initial_and_expanded_pilot_costs: report_separately
+        selection_fits: full_ten_epoch_horizon
+        refits: conservative_preselection_upper_bound_not_training_permission
+        l6_pilot: include_both_heads
+        l6_reporting: slower_head_upper_bound_until_selection
+        one_time_cache_construction_and_storage_io: include
+        validation_and_checkpointing: include
+      measurement: warmed_repeated_complete_path_with_declared_dropout_enabled
+      record_peak_memory: true
+      profiling_rng: isolated_from_pilot_and_reporting_streams
+      l4_transformer_cache_build: one_unpadded_sequence_per_window
+      preserved: [update_groups, group_class_weight_denominator, natural_epoch_tails, completed_update_counts]
+      scope: common_across_l2_l3_l4_l6
+      after_pilot_start: frozen
+      compute_budget: measured_projection_owner_approved_before_pilot
+  num_workers: 4
+  device: cuda
+  save_checkpoint: true
+  # D70: approved stream identities, not an implemented RNG lifecycle.
+  randomness:
+    status: ready
+    seed_derivation: temporallens_rng_v1
+    derivation_function: temporallens.utils.randomness.derive_seed
+    root_seed_source: experiment.seed
+    backend: native_pytorch
+    seed_bridge: unsigned_64_bit_direct_to_pytorch
+    phase_scopes:
+      pilot: language_pilot
+      reporting: language_reporting
+    index_domains:
+      seed_index: phase_specific_zero_based_replicate
+      development_fit_indices: [0, 1, 2, 3, 4, 5, 6, 7]
+      refit_fit_index: 8
+      epoch_index_base: 0
+      arm_ids: {l2: 2, l3: 3, l4: 4, l6: 6}
+      l6_head_architecture_ids: {small: 0, wide: 1}
+    component_stream_keys:
+      data_order: [seed_index, fit_index, epoch_index]
+      head_init: [seed_index, fit_index]
+      projector_init: [seed_index, fit_index]
+      l3_backbone_init: [seed_index]
+      training_stochasticity: [seed_index, fit_index, arm_id]
+      loader_base_seed: [seed_index, fit_index, epoch_index]
+      validation_loader: [seed_index, fit_index, arm_id]
+      l6_head_init: [seed_index, fit_index, architecture_id]
+      l6_training_stochasticity: [seed_index, fit_index, architecture_id]
+    excluded_key_fields: [learning_rate, candidate_index, grid_size, search_round, horizon, selected_budget, config_digest]
+    initialization_sharing: cloned_values_in_independent_modules_without_shared_storage
+    optimizer_state: fresh_per_fit_and_candidate
+    construction_and_validation_consume_training_rng: forbidden
+    input_order:
+      canonical_ids: subject_then_start_sample
+      pool: identical_complete_eligible_window_ids_across_arms
+      arm_specific_filtering_resampling_or_length_bucketing: forbidden
+      transforms: deterministic
+    loader:
+      sampler_and_worker_generators: separate
+      in_order: true
+      persistent_workers: false
+      training_worker_reseeding: each_epoch_from_loader_base_seed
+      worker_seed_bridge: torch_initial_seed_modulo_2_pow_32_for_python_and_numpy
+      validation_generator: recreate_same_fit_arm_stream_each_pass
+    validation_rng: isolate_and_restore_cpu_and_relevant_device_states
+    revision_policy: resolve_immutable_model_tokenizer_and_config_revisions_before_pilot
+    required_provenance:
+      - exact_keys_derived_seeds_backend_device_and_library_versions
+      - canonical_window_pool_identity_and_per_epoch_order_digests
+      - initialization_and_frozen_backbone_state_digests
+      - actual_learning_rate_and_full_data_model_config_artifact_identities
+      - checkpoint_rng_states_and_data_order_cursor_for_resume
+  repeats:
+    status: ready  # D66/D70 settle repeat identity; the overall implementation gate remains closed.
+    seed_count: 3  # D66: reporting indices 0, 1, 2, separate from the pilot phase.
+    seed_indices: [0, 1, 2]
+    seed_derivation: temporallens_rng_v1
+    seed_index_base: 0
+    rng_scope_source: training.randomness.phase_scopes.reporting
+    component_stream_keys_source: training.randomness.component_stream_keys
+    pairing: seed_index
+    shared_seed_count_across_l2_l3_l4: true
+    record_component_rng_streams: true
+    within_subject_metric_reduction: equal_weight_mean_over_seed_runs
+    logit_averaging: forbidden
+    outcome_triggered_seed_extension: forbidden
+    selection_scope: per_arm_and_reporting_seed
+    population_encoder_retraining: forbidden
+    seed_spread: report_separately
+    inferential_unit_after_seed_reduction: subject
+  # D49-D73 settle the contract; actual cross-validation/refit execution is unimplemented.
+  selection:
+    status: ready  # D73: declaration settled; overall implementation gate remains closed.
+    common_budget_rule: peak_of_subject_equal_mean_cross_validation_curve
+    budget_unit: epochs
+    refit_budget_transfer: same_selected_epoch_budget
+    budget_reporting:
+      epochs: actual_training_pass_position
+      optimizer_steps: actual_cumulative_completed_updates
+      batch_and_accumulation_provenance: required
+    peak_time_tie_break:
+      status: ready  # D61: same time-tie convention for pilot diagnostics and language CV.
+      comparison: exact_unrounded_selection_curve_score
+      tolerance: 0.0
+      rule: earliest_eligible_checkpoint
+    checkpoint_evaluation:
+      status: ready  # D63: shared by pilot scoring and eight-fold language selection.
+      interval_epochs: 0.25
+      first_epoch_extra_checkpoints: [0.0625, 0.125]
+      smoothing: none
+      validation_windows: all_eligible_query_windows_per_subject
+      time_zero: diagnostic_only
+      selectable_checkpoints: positive_time_grid_only
+      update_boundary:
+        mapping: first_completed_update_reaching_nominal_training_exposure
+        mid_accumulation_validation: forbidden
+        checkpoint_triggered_accumulation_flush: forbidden
+        duplicate_update_boundaries: evaluate_once_record_all_nominal_targets
+      exposure_reporting:
+        - nominal_epoch_target
+        - actual_consumed_training_windows
+        - actual_epoch_position
+        - completed_optimizer_updates
+      refit_mapping: same_nominal_epoch_budget_on_refit_window_count
+    horizon:
+      status: ready  # D64: same maximum for every pilot candidate and reporting fit.
+      maximum_epochs_source: training.epochs
+      fit_scope: learning_rate_pilot_and_reporting_selection
+      automatic_extension: forbidden
+      pilot_peak_times: diagnostic_only
+      pilot_boundary:  # D87: early warning only; a pilot peak time never becomes a reporting budget.
+        curve: aggregated_pilot_curve_of_frozen_pilot_selection
+        trigger: earliest_peak_equals_maximum
+        action: flag_for_pre_reporting_owner_acknowledgement
+        late_curve_gain_source: training.selection.horizon.reporting_boundary.late_curve_gain
+      reporting_boundary:
+        curve: aggregated_reporting_selection_curve
+        trigger: selected_nominal_epoch_equals_maximum
+        scope: any_reporting_selection_curve
+        pipelines: [l2, l3, l4, l6]  # D77: four pipelines x three reporting seeds.
+        action: keep_selected_budget_and_flag  # D87 replaces D64's owner-decision block.
+        late_curve_gain:
+          definition: value_at_maximum_minus_best_eligible_value_through_comparison_epoch
+          comparison_epoch: 8.0
+          reported_for: every_reporting_curve
+          role: descriptive_never_threshold
+        acknowledgement_source: training.selection.boundary_flags
+    boundary_flags:  # D87/D88: boundary selections proceed, are reported and need owner acknowledgement.
+      status: ready
+      pre_reporting_review:
+        flags: [pilot_boundary, selected_outer_endpoint_learning_rate]
+        surfaced: when_pilot_selection_freezes
+        acknowledgement_required_before: reporting_fits
+      pre_final_test_review:
+        flags: [reporting_boundary]
+        surfaced: when_all_reporting_curves_are_aggregated
+        acknowledgement_required_before: accepted_manifest_finalization
+      acknowledgement_record: owner_interpretation_note_per_flag_in_campaign
+      acknowledgement_changes: nothing_inside_campaign
+      changing_horizon_grid_learning_rate_head_or_budget: new_decision_and_new_campaign
+      no_flags: no_acknowledgement_required
+    cross_validation_scheme: eight_fold_subject_independent_from_manifest
+    epoch_selection: per_arm_reporting_seed_peak_of_mean_curve
+    refit_rule: fresh_all32_at_same_selected_language_epoch_budget
+    reporting:
+      status: ready
+      scope: per_arm_and_reporting_seed
+      split_source: dataset.split_manifest
+      query_repetitions: all_manifest_repetitions
+      repetition_zero_rest: included_in_selection_scores  # D81: excluded only from temperature fitting.
+      trainable_initialization: fresh_per_fold_and_refit
+      population_encoder_retraining: forbidden
+      development_encoder:
+        source_config: configs/experiment/foundation/baseline_cnn_subject_split.yaml
+        checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
+        training_budget: d18_d19_accepted_refit_budget
+        encoder_checkpoint_source: accepted_f1_selection_trajectory_at_common_budget
+        required_device: cuda
+        consumption: encoder_and_normalization_class_weights_recomputed_and_verified
+      development_checkpoint_reuse:
+        source: accepted_language_selection_trajectory_at_selected_language_budget
+        snapshot_contents: all_trainable_parameters_and_model_buffers
+        frozen_parent_identity: required
+        training_prefix_horizon_and_validation_independence: required
+        validation_changes_training_rng_or_model_state: forbidden
+        source_run_fold_language_budget_and_snapshot_digest: required
+        missing_or_incompatible_snapshot: block_artifact_creation
+      refit:
+        subject_source: split_manifest.training_subjects
+        encoder_checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
+        required_population_device: cuda
+        normalization_and_class_weights: matching_all32_training_only
+        budget_source: training.selection.epoch_selection
+        trainable_and_optimizer_state: fresh
+      pre_refit_and_temperature_guard: all_reporting_budgets_frozen_and_boundary_flags_recorded
+evaluation:
+  primary_classification_metric: macro_f1
+  primary_calibration_metric: expected_calibration_error_temperature_scaled
+  # D69: matching per-arm/seed calibration source; execution remains gated.
+  ece:
+    bins: 10
+    binning: equal_mass
+    scope: top_label
+    temperature_scaling: true
+    temperature_source: model_config.probability_calibration
+    report: [raw, temperature_scaled]
+  brier:
+    report: [raw, temperature_scaled]
+  temperature_fit:
+    status: ready  # D73: declaration settled; overall implementation gate remains closed.
+    prediction_source: pooled_subject_out_of_fold_language_models_at_selected_budget_per_arm_seed
+    scope: per_arm_and_reporting_seed
+    checkpoint_source: training.selection.reporting.development_checkpoint_reuse
+    matching_refit_source: training.selection.reporting.refit
+    query_repetitions: all_manifest_repetitions
+    repetition_zero_rest: excluded_from_temperature_fitting  # D81
+    across_seed_pooling: forbidden
+    temperature_averaging: forbidden
+    scoring_own_fitting_predictions_as_validation: forbidden
+    required_provenance:
+      - arm_and_reporting_seed_index
+      - selected_language_budget
+      - language_checkpoint_digests
+      - population_checkpoint_digests
+      - frozen_backbone_identity
+      - query_subjects_and_recording_repetitions
+      - logits_digest
+      - config_and_manifest_digests
+    objective: ordinary_negative_log_likelihood
+    class_weighting: none
+    subject_weighting: equal
+    repeat_weighting: equal_within_subject
+    window_weighting: equal_within_repeat
+    fit_scope: development_only
+    final_test_fitting: forbidden
+    freeze_before_final_test: true
+    artifact: model_config.probability_calibration
+    execution:
+      status: ready
+      # D39: optimize beta=1/T, where weighted NLL is convex, in float64.
+      solver: scipy_minimize_scalar_bounded
+      parameter: inverse_temperature
+      dtype: float64
+      bounds: [0.01, 100.0]
+      tolerance: 0.00000001
+      max_iterations: 500
+      nll_evaluation: stable_logsumexp
+      fitting_weights: normalized_d33_weights
+      boundary_check: weighted_nll_derivative_at_bounds
+      nll_non_regression_reference: temperature_1
+      nll_non_regression_tolerance: 0.00000001
+      persist_solver_diagnostics: true
+      invalid_or_unresolved_boundary_fit: block_reportable_evaluation
+  calibration_execution:
+    validation_temperature_source: leave_one_subject_out_within_common_budget_outer_fold
+    validation_temperature_fit:
+      model_checkpoint: same_fold_arm_seed_common_language_budget_checkpoint
+      objective_and_weighting_source: evaluation.temperature_fit
+      numerical_execution_source: evaluation.temperature_fit.execution
+      stage: after_all_reporting_budgets_freeze_and_boundary_check
+      fit_subjects: other_three_outer_validation_subjects
+      score_subject: excluded_outer_validation_subject
+      rotation: each_of_four_outer_validation_subjects
+      fits_per_fold: 4
+      fold_summary_reduction: equal_weight_mean
+      retain_subject_seed_metrics: true
+      inference_reduction_source: training.repeats.within_subject_metric_reduction
+      bin_recomputation: separately_for_each_subject_and_probability_version
+      persist_model_fitting_scoring_subjects_and_temperature: true
+      model_retraining: forbidden
+      reuse_for_refit_temperature: forbidden
+      interpretation: conditional_development_diagnostic_not_nested_cv
+    # D39: unhalved multiclass Brier; nominal M=10, with confidence ties kept together.
+    brier_reduction: mean_windows_of_sum_over_classes
+    equal_mass_tie_handling:
+      quantile_method: linear
+      boundary_assignment: upper_bin_for_equal_cutpoint
+      tied_confidences: keep_together
+      duplicate_cutpoints: collapse
+      empty_bins: omit
+      effective_bin_count: report
+      bin_occupancies: report
+      label_information_in_boundaries: forbidden
+    raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
+  # D84: each immutable exact-B model gets a separate, digest-bound fold-test calibrator.
+  fold_test_analysis:
+    status: ready
+    fold_models: exact_language_budget_development_snapshots_per_arm_and_seed
+    roles: [d8_extended_analysis, d83_refit_versus_fold_diagnostic]
+    temperature_source: own_model_four_query_subject_temperature_artifact
+    temperature_artifact_source: artifacts.fold_test_temperature
+    temperature_fit:
+      model_checkpoint: same_fold_arm_seed_common_language_budget_checkpoint
+      fit_subjects: all_four_outer_validation_subjects
+      query_repetitions_source: evaluation.temperature_fit.query_repetitions
+      repetition_zero_rest_source: evaluation.temperature_fit.repetition_zero_rest
+      objective_and_weighting_source: evaluation.temperature_fit
+      numerical_execution_source: evaluation.temperature_fit.execution
+      stage: after_all_reporting_budgets_freeze_and_boundary_check
+      fits_per_fold: 1
+      final_test_fitting: forbidden
+      freeze_before_final_test: true
+      reuse_for_refit_temperature: forbidden
+      reuse_development_cross_fit_temperatures: forbidden
+      substitute_pooled_oof_temperature: forbidden
+      temperature_averaging: forbidden
+      mutate_source_checkpoint: forbidden
+      required_provenance: [campaign_definition_sha256, arm_and_reporting_seed_index, fold_index, selected_language_budget, model_checkpoint_sha256, population_checkpoint_sha256, frozen_backbone_identity, query_subjects_and_recording_repetitions, logits_digest, fitting_weights, config_and_manifest_digests, temperature_and_solver_diagnostics]
+    report_probability_versions: [raw, temperature_scaled]
+    reporting_role: diagnostic_not_primary
+  # D80: descriptive subgroup calibration under the same frozen temperature.
+  calibration_subgroups:
+    status: ready
+    grouping: true_label
+    subgroups: [rest_only, gesture_only]
+    probabilities: original_18_class_probabilities_and_predictions
+    temperature: same_frozen_population_temperature
+    rest_class_removal_or_renormalization: forbidden
+    subgroup_temperature_fitting: forbidden
+    bins: recomputed_within_each_subgroup_and_subject
+    pooled_ece_decomposition: not_a_weighted_average_of_subgroups
+    primary_family_membership: excluded
+  # D79: descriptive inference over predeclared primaries; no significance gate.
+  inference:
+    status: ready
+    unit: subject
+    seed_reduction_source: training.repeats.within_subject_metric_reduction
+    primary_family:
+      - {comparison: [l2, l3], metric: macro_f1}
+      - {comparison: [l2, l3], metric: expected_calibration_error_temperature_scaled}
+      - {comparison: [l2, l6], metric: macro_f1}
+      - {comparison: [l2, l6], metric: expected_calibration_error_temperature_scaled}
+    subject_metric: per_seed_subject_metric_then_equal_weight_seed_mean
+    scaled_ece_subject_metric: per_seed_matching_temperature_and_subject_specific_bins
+    statistic: mean_of_eight_paired_subject_differences
+    reported: [all_eight_subject_differences, mean_difference, pointwise_paired_t_95_interval, subjects_favoring_each_arm, exact_two_sided_mean_sign_flip_p, holm_adjusted_p_over_primary_family]
+    sign_flip_enumeration: all_sign_patterns
+    multiplicity: holm_within_primary_family
+    significance_gate: none
+    ece_floor_threshold: none
+    ece_bias_diagnostics: design_specific_context_only
+    assumptions: independent_subjects_with_sign_symmetric_differences_under_no_effect
+    exact_zero_differences: report_reduced_effective_sample
+    secondary_outcomes: descriptive
+    method_or_headline_switch_after_results: forbidden
+    null_reading: inconclusive_not_equivalence
+    window_pooling_or_logit_averaging: forbidden
+  uncertainty_resampling_unit: subject
+  metrics:
+    - accuracy
+    - macro_f1
+    - per_subject_accuracy
+    - per_class_precision
+    - per_class_recall
+    - confusion_matrix
+    - expected_calibration_error
+    - mean_confidence_when_wrong
+    - per_subject_expected_calibration_error
+    - per_subject_macro_f1
+    - per_subject_brier_score
+    - per_subject_overconfidence_error
+    - brier_score
+    - overconfidence_error
+    - rest_only_expected_calibration_error
+    - gesture_only_expected_calibration_error
+    - rest_only_brier_score
+    - gesture_only_brier_score
+  save_predictions: true

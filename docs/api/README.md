@@ -190,6 +190,7 @@ The layer stack is a frozen constant, `ARCHITECTURE`, not a configuration option
 | F1 | Trained | Trained |
 | L2, L3 (soft prefix) | Frozen; its embedding feeds the projector | Not used; the language arm has its own head on the transformer output |
 | L4 (engineered text) | **Not used at all** — the window becomes 72 engineered statistics, then text | Not used |
+| L6 (no-LLM control) | Frozen; its embedding feeds a conventional MLP head directly | Not used; L6 trains its own MLP head |
 | G1 generator | Frozen; the VAE models and generates encoder embeddings | Not used |
 | G2 quality gate | Frozen; the discriminator compares real and generated embeddings | Not used |
 | G3/G4 personalization | Frozen; real calibration windows go through it, synthetic data is already in embedding space | F1's head is the starting point: unchanged for `population_no_adaptation`, fine-tuned (head only) by the adapted strategies |
@@ -281,7 +282,7 @@ Each function scores one set of windows and returns a number or a per-class arra
 | `overconfidence_error` | The part of the calibration gap where confidence exceeds accuracy, weighted by confidence. Read it only beside ECE: a uniformly under-confident model scores a perfect 0 (D25) |
 | `mean_confidence_when_wrong` | Descriptive only; `None` rather than 0 when there are no errors (D25) |
 | `per_subject` | Applies a metric to each subject separately. A pooled number can look fine while one subject sits at chance (D26). Subject IDs must be integers: results are keyed by integer ID, so fractional IDs 1.1 and 1.9 would share a key and one subject's result would overwrite the other's |
-| `paired_bootstrap_interval` | A seeded percentile bootstrap over subjects, never windows, for comparisons on the same subjects. Resampling windows gave an interval 20 times too narrow on identical data, because the overlapping windows of one contraction are one event (D26) |
+| `paired_bootstrap_interval` | A seeded, descriptive percentile bootstrap over subjects, never windows, for comparisons on the same subjects. Resampling windows gave an interval 20 times too narrow on identical data, because the overlapping windows of one contraction are one event (D26). D79 retires the zero-exclusion reportability gate; this helper is not the paired-t interval declared for primary mean differences, whose reporting path remains unimplemented |
 
 **Connects to** `training.encoder` (calls it) · the future cross-validation and robustness evaluators
 

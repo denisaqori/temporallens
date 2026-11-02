@@ -89,6 +89,17 @@ training:
     early_stopping: false
   # D48: reuse snapshots from the accepted selection trajectories, not each fold's best epoch.
   # This does not change the median budget above, D19's scratch restart, or D47's CUDA rerun.
+  # D76/D85: the language consumer must verify weights against either kind of F1 parent.
+  checkpoint_metadata:
+    class_weights:
+      field: class_weights_sha256
+      checkpoints: [common_budget_development, all_32_refit]
+      encoding: d11_class_weights_v1_shape_dtype_little_endian_float32
+      class_order: ascending_labels_0_through_17
+      shape: [18]
+      source: actual_d11_float32_weights_from_complete_matching_training_window_pool
+      source_window_identity: recorded_separately_from_weight_digest
+      repetition_zero_filter: unchanged_by_d81
   development_checkpoints:
     source: accepted_f1_selection_trajectory_at_common_budget
     training_budget: d18_d19_accepted_refit_budget
@@ -120,6 +131,7 @@ evaluation:
     population_fit: fold_training_complement_28_subjects
     query_subjects: current_fold_validation_subjects
     query_repetitions: all_manifest_repetitions
+    repetition_zero_rest: excluded_from_temperature_fitting  # D81
     checkpoint_pattern: checkpoints/baseline_cnn_subject_split/development/fold{fold_index}/fixed_budget.pt
     encoder_checkpoint_source: accepted_f1_selection_trajectory_at_common_budget
     training_budget: d18_d19_accepted_refit_budget
@@ -175,6 +187,7 @@ evaluation:
       scoring_subject: excluded_outer_validation_subject_only
       fits_per_fold: 4
       weighting: d33_equal_subject_repeat_and_within_repeat_window_weights
+      repetition_zero_rest_source: evaluation.temperature_fit.repetition_zero_rest
       metric_aggregation: equal_weight_mean_of_four_subject_metrics
       bin_recomputation: separately_for_each_subject_and_probability_version
       checkpoint_selection_subject_reuse: true
@@ -186,6 +199,18 @@ evaluation:
     bootstrap_resamples: 10000
     bootstrap_confidence: 0.95
     raw_versus_scaled_result_keys: metric_family_plus_raw_or_temperature_scaled_suffix
+  # D80: descriptive subgroup calibration under the same frozen temperature.
+  calibration_subgroups:
+    status: ready
+    grouping: true_label
+    subgroups: [rest_only, gesture_only]
+    probabilities: original_18_class_probabilities_and_predictions
+    temperature: same_frozen_population_temperature
+    rest_class_removal_or_renormalization: forbidden
+    subgroup_temperature_fitting: forbidden
+    bins: recomputed_within_each_subgroup_and_subject
+    pooled_ece_decomposition: not_a_weighted_average_of_subgroups
+    primary_family_membership: excluded
   uncertainty_resampling_unit: subject
   metric_source: frozen_checkpoint_predictions
   requires_frozen_checkpoints:
@@ -206,4 +231,8 @@ evaluation:
     - per_subject_brier_score
     - per_subject_overconfidence_error
     - brier_score
+    - rest_only_expected_calibration_error
+    - gesture_only_expected_calibration_error
+    - rest_only_brier_score
+    - gesture_only_brier_score
   save_predictions: true

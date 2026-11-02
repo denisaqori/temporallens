@@ -34,6 +34,7 @@ REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS = (
     "configs/experiment/language/adapter_llama3b_subject_split.yaml",
     "configs/experiment/language/adapter_random_transformer.yaml",
     "configs/experiment/language/adapter_text_summary_only.yaml",
+    "configs/experiment/language/embedding_mlp_control.yaml",
 )
 
 DEBUG_CONFIGS = (
@@ -61,7 +62,27 @@ ECE_CONFIGS = (
     "configs/experiment/language/adapter_llama3b_subject_split.yaml",
     "configs/experiment/language/adapter_random_transformer.yaml",
     "configs/experiment/language/adapter_text_summary_only.yaml",
+    "configs/experiment/language/embedding_mlp_control.yaml",
 )
+
+LANGUAGE_LLM_ARM_CONFIGS = (
+    "configs/experiment/language/adapter_llama3b_subject_split.yaml",
+    "configs/experiment/language/adapter_random_transformer.yaml",
+    "configs/experiment/language/adapter_text_summary_only.yaml",
+)
+
+# L2-L4 plus D77's L6 control, which shares every non-transformer block with them verbatim.
+LANGUAGE_REPORTING_CONFIGS = (
+    *LANGUAGE_LLM_ARM_CONFIGS,
+    "configs/experiment/language/embedding_mlp_control.yaml",
+)
+
+# D84-D86 settle the owner contract, not the unimplemented execution lifecycle.
+LANGUAGE_PROTOCOL = {
+    "status": "blocked_pending_implementation",
+    "implementation_status": "pending_implementation",
+    "blocked_on": ["protocol.implementation_status"],
+}
 
 
 def _load(relative_path: str) -> dict[str, Any]:
@@ -244,7 +265,7 @@ def test_language_spec_pins_the_combined_soft_prefix_mask_contract() -> None:
         assert "combined_attention_mask" in text
         assert "position_ids" in text
         assert "mask.to(torch.int64).flip(-1).argmax(-1)" in text
-    assert "cat([prefix_mask, text_attention_mask], dim=-1)" in readme
+    assert "cat([bos_mask, prefix_mask, suffix_mask], dim=-1)" in readme  # D74 order
 
 
 @pytest.mark.parametrize(
@@ -675,9 +696,15 @@ def test_d23_ece_contract_is_present_wherever_ece_is_reported(relative_path: str
     assert execution["raw_versus_scaled_result_keys"] == (
         "metric_family_plus_raw_or_temperature_scaled_suffix"
     )
-    assert execution["bootstrap_seed"] == "experiment.seed"
-    assert execution["bootstrap_resamples"] == 10000
-    assert execution["bootstrap_confidence"] == 0.95
+    if relative_path in LANGUAGE_REPORTING_CONFIGS:
+        # D79: the language arm declares its own paired methods; no bootstrap claim gate remains.
+        for key in ("bootstrap_seed", "bootstrap_resamples", "bootstrap_confidence"):
+            assert key not in execution
+        assert evaluation["inference"]["significance_gate"] == "none"
+    else:
+        assert execution["bootstrap_seed"] == "experiment.seed"
+        assert execution["bootstrap_resamples"] == 10000
+        assert execution["bootstrap_confidence"] == 0.95
     assert execution["brier_reduction"] == "mean_windows_of_sum_over_classes"
     assert execution["equal_mass_tie_handling"] == {
         "quantile_method": "linear",
@@ -736,6 +763,7 @@ def test_f1_temperature_uses_fixed_budget_oof_models_without_median_estimator() 
         "scoring_subject": "excluded_outer_validation_subject_only",
         "fits_per_fold": 4,
         "weighting": "d33_equal_subject_repeat_and_within_repeat_window_weights",
+        "repetition_zero_rest_source": "evaluation.temperature_fit.repetition_zero_rest",
         "metric_aggregation": "equal_weight_mean_of_four_subject_metrics",
         "bin_recomputation": "separately_for_each_subject_and_probability_version",
         "checkpoint_selection_subject_reuse": True,
@@ -879,7 +907,7 @@ def test_g4_temperature_fitting_has_separate_stage_query_data_and_exact_aliases(
 def test_language_repeats_are_paired_and_reporting_remains_implementation_blocked() -> None:
     repeats = []
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         policy = config["training"]["repeats"]
@@ -903,15 +931,15 @@ def test_language_repeats_are_paired_and_reporting_remains_implementation_blocke
         assert config["evaluation"]["temperature_fit"]["status"] == "ready"
         assert "evaluation.temperature_fit" not in config["protocol"]["blocked_on"]
         assert "evaluation.ece.temperature_source" not in config["protocol"]["blocked_on"]
-    assert len(repeats) == 3
-    assert repeats[0] == repeats[1] == repeats[2]
+    assert len(repeats) == 4
+    assert all(policy == repeats[0] for policy in repeats)
 
 
 def test_language_rng_policy_is_shared_and_pilot_reporting_reference_one_table() -> None:
     """D70 settles declarative identities, not initialization or runner execution."""
     policies = []
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         policy = config["training"]["randomness"]
@@ -929,7 +957,8 @@ def test_language_rng_policy_is_shared_and_pilot_reporting_reference_one_table()
                 "development_fit_indices": list(range(8)),
                 "refit_fit_index": 8,
                 "epoch_index_base": 0,
-                "arm_ids": {"l2": 2, "l3": 3, "l4": 4},
+                "arm_ids": {"l2": 2, "l3": 3, "l4": 4, "l6": 6},
+                "l6_head_architecture_ids": {"small": 0, "wide": 1},
             },
             "component_stream_keys": {
                 "data_order": ["seed_index", "fit_index", "epoch_index"],
@@ -939,6 +968,8 @@ def test_language_rng_policy_is_shared_and_pilot_reporting_reference_one_table()
                 "training_stochasticity": ["seed_index", "fit_index", "arm_id"],
                 "loader_base_seed": ["seed_index", "fit_index", "epoch_index"],
                 "validation_loader": ["seed_index", "fit_index", "arm_id"],
+                "l6_head_init": ["seed_index", "fit_index", "architecture_id"],
+                "l6_training_stochasticity": ["seed_index", "fit_index", "architecture_id"],
             },
             "excluded_key_fields": [
                 "learning_rate",
@@ -993,9 +1024,9 @@ def test_language_rng_policy_is_shared_and_pilot_reporting_reference_one_table()
         ):
             assert gate not in config["protocol"]["blocked_on"]
         assert "training.randomness" not in config["protocol"]["blocked_on"]
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
-    assert len(policies) == 3
-    assert policies[0] == policies[1] == policies[2]
+        assert config["protocol"] == LANGUAGE_PROTOCOL
+    assert len(policies) == 4
+    assert all(policy == policies[0] for policy in policies)
 
 
 @pytest.mark.parametrize("phase", ["pilot", "reporting"])
@@ -1039,7 +1070,7 @@ def test_language_declared_keys_pair_only_the_approved_axes(phase: str) -> None:
     assert seed("data_order") != seed("loader_base_seed")
     assert len({seed("head_init", seed_index=index) for index in (0, 1, 2)}) == 3
     for purpose, names in policy["component_stream_keys"].items():
-        indices = {name: 0 if name != "arm_id" else 2 for name in names}
+        indices = {name: 2 if name == "arm_id" else 0 for name in names}
         assert derive_seed(42, "language_pilot", purpose, indices) != derive_seed(
             42, "language_reporting", purpose, indices
         )
@@ -1049,7 +1080,7 @@ def test_language_declared_keys_pair_only_the_approved_axes(phase: str) -> None:
 def test_language_approved_budget_choices_do_not_unblock_implementation() -> None:
     """D49/D50/D61 fix aggregation, exposure and peak ties, not the complete contract."""
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         selection = config["training"]["selection"]
@@ -1081,14 +1112,14 @@ def test_language_approved_budget_choices_do_not_unblock_implementation() -> Non
         assert selection["epoch_selection"] == "per_arm_reporting_seed_peak_of_mean_curve"
         assert selection["refit_rule"] == "fresh_all32_at_same_selected_language_epoch_budget"
         assert selection["status"] == "ready"
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.selection" not in config["protocol"]["blocked_on"]
 
 
 def test_language_approved_optimizer_and_batch_declarations_do_not_implement_them() -> None:
     """D51-D54/D72 settle optimization without implementing the agreed fitting procedure."""
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         training = config["training"]
@@ -1114,7 +1145,7 @@ def test_language_approved_optimizer_and_batch_declarations_do_not_implement_the
         }
         assert training["learning_rate"] == 0.0001
         assert training["weight_decay"] == 0.0001
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.optimization" not in config["protocol"]["blocked_on"]
         assert "training.batch_execution" not in config["protocol"]["blocked_on"]
 
@@ -1124,7 +1155,7 @@ def test_language_reportable_network_layouts_and_initialization_are_explicit() -
     heads = []
     projectors = []
     for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in path:
+        if path not in LANGUAGE_LLM_ARM_CONFIGS:
             continue
         config = _load(path)
         head = config["head"]
@@ -1189,7 +1220,7 @@ def test_language_numerical_execution_is_shared_without_unblocking_implementatio
     """D72 pins numerical declarations but does not claim a CUDA preflight or trainer."""
     policies = []
     for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in path:
+        if path not in LANGUAGE_LLM_ARM_CONFIGS:
             continue
         config = _load(path)
         policy = config["training"]["numerical_execution"]
@@ -1269,7 +1300,7 @@ def test_language_numerical_execution_is_shared_without_unblocking_implementatio
         }
         assert config["training"]["batch_execution"]["status"] == "ready"
         assert config["training"]["optimization"]["status"] == "ready"
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.batch_execution" not in config["protocol"]["blocked_on"]
         assert "training.numerical_execution" not in config["protocol"]["blocked_on"]
         assert "training.optimization" not in config["protocol"]["blocked_on"]
@@ -1287,7 +1318,7 @@ def test_language_batch_execution_has_one_shared_actual_group_contract() -> None
     """D73 settles batch arithmetic and weighting, not a production accumulation loop."""
     policies = []
     for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in path:
+        if path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(path)
         training = config["training"]
@@ -1337,22 +1368,78 @@ def test_language_batch_execution_has_one_shared_actual_group_contract() -> None
                 "epoch_tail_handling",
                 "prefetched_windows_excluded_from_training_exposure",
             ],
+            "physical_layout_selection": {
+                "status": "ready",
+                "nominal_update_windows": 32,
+                "candidate_layouts": [[4, 8], [8, 4], [16, 2], [32, 1]],
+                "reference_layout": [4, 8],
+                "timing": "after_input_assembly_fixed_and_before_pilot",
+                "hardware": "intended_cuda_target_with_training_numerical_execution_settings",
+                "measured_path": [
+                    "forward",
+                    "backward_through_frozen_transformer_when_present",
+                    "finite_checks",
+                    "optimizer_updates",
+                    "validation",
+                    "checkpointing",
+                ],
+                "inputs": "development_windows_without_validation_score_inspection",
+                "criterion": (
+                    "minimum_projected_total_campaign_gpu_time_among_common_feasible_layouts"
+                ),
+                "numerical_check": {
+                    "reference_layout": [4, 8],
+                    "comparison": "per_trainable_tensor_l2_norm",
+                    "acceptance": "norm_difference_le_atol_plus_rtol_times_reference_norm",
+                    "rtol": 0.01,
+                    "atol": 0.000001,
+                    "dropout": "disabled",
+                    "initial_state_update_groups_and_denominators": "identical",
+                    "zero_reference": "absolute_tolerance_only",
+                    "missing_or_nonfinite_gradients": "block_preflight",
+                    "no_passing_layout": "block_without_post_measurement_tolerance_relaxation",
+                },
+                "projection": {
+                    "ranking_scope": "maximum_permitted_campaign",
+                    "initial_and_expanded_pilot_costs": "report_separately",
+                    "selection_fits": "full_ten_epoch_horizon",
+                    "refits": "conservative_preselection_upper_bound_not_training_permission",
+                    "l6_pilot": "include_both_heads",
+                    "l6_reporting": "slower_head_upper_bound_until_selection",
+                    "one_time_cache_construction_and_storage_io": "include",
+                    "validation_and_checkpointing": "include",
+                },
+                "measurement": "warmed_repeated_complete_path_with_declared_dropout_enabled",
+                "record_peak_memory": True,
+                "profiling_rng": "isolated_from_pilot_and_reporting_streams",
+                "l4_transformer_cache_build": "one_unpadded_sequence_per_window",
+                "preserved": [
+                    "update_groups",
+                    "group_class_weight_denominator",
+                    "natural_epoch_tails",
+                    "completed_update_counts",
+                ],
+                "scope": "common_across_l2_l3_l4_l6",
+                "after_pilot_start": "frozen",
+                "compute_budget": "measured_projection_owner_approved_before_pilot",
+            },
         }
-    assert len(policies) == 3
-    assert policies[0] == policies[1] == policies[2]
+        layout = policy["physical_layout_selection"]
+        # D78: every candidate keeps D73's nominal update; only the physical split moves.
+        assert {micro * accumulation for micro, accumulation in layout["candidate_layouts"]} == {32}
+        assert layout["reference_layout"] == [
+            training["batch_size"],
+            training["gradient_accumulation_steps"],
+        ]
+    assert len(policies) == 4
+    assert all(policy == policies[0] for policy in policies)
 
 
-@pytest.mark.parametrize(
-    "path", [p for p in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS if "/language/" in p]
-)
-def test_language_decisions_are_settled_but_both_evaluation_gates_still_block(path: str) -> None:
-    """Decision completion must not make an unimplemented source dispatchable."""
+@pytest.mark.parametrize("path", LANGUAGE_REPORTING_CONFIGS)
+def test_language_approved_contract_keeps_the_implementation_gate_closed(path: str) -> None:
+    """Owner approval removes only the decision blocker, not execution safeguards."""
     config = _load(path)
-    assert config["protocol"] == {
-        "status": "blocked_pending_implementation",
-        "implementation_status": "pending_implementation",
-        "blocked_on": ["protocol.implementation_status"],
-    }
+    assert config["protocol"] == LANGUAGE_PROTOCOL
     assert pending_field_paths(config) == ["protocol.implementation_status"]
     blockers = [
         "protocol.status=blocked_pending_implementation",
@@ -1446,7 +1533,7 @@ def test_language_lr_grid_and_pilot_size_are_declared_without_implementing_them(
     """D73 completes the pilot declarations, not the unimplemented selection runner."""
     policies = []
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_LLM_ARM_CONFIGS:
             continue
         config = _load(relative_path)
         policy = config["training"]["learning_rate_selection"]
@@ -1496,6 +1583,7 @@ def test_language_lr_grid_and_pilot_size_are_declared_without_implementing_them(
                 "winner_source": "training.learning_rate_selection.tie_break",
                 "endpoint_check": "after_tie_break",
                 "expansion_scope": "shared_across_l2_l3_l4",
+                "excluded_arms": ["l6"],
                 "maximum_expansions": 1,
                 "additional_candidates": [1e-5, 1e-3],
                 "expanded_grid": "sorted_union_of_initial_grid_and_additional_candidates",
@@ -1503,13 +1591,14 @@ def test_language_lr_grid_and_pilot_size_are_declared_without_implementing_them(
                 "existing_pilot_results": "reuse_only_with_identical_protocol_and_artifact_identity",
                 "rerank": "all_arms_over_expanded_grid",
                 "repeated_endpoint": {
-                    "action": "block_pending_owner_decision",
-                    "block_before": [
-                        "reporting_fits",
-                        "all_32_refit",
-                        "temperature_fitting",
-                        "final_test_evaluation",
+                    "action": "keep_selected_endpoint_and_flag",
+                    "second_expansion": "forbidden",
+                    "reported": [
+                        "complete_pilot_score_profile",
+                        "margin_over_adjacent_learning_rate",
                     ],
+                    "role": "descriptive_never_threshold",
+                    "acknowledgement_source": "training.selection.boundary_flags",
                 },
                 "selected_lr_freeze": "after_shared_pilot_selection_completes",
                 "reporting_or_test_trigger": "forbidden",
@@ -1521,7 +1610,7 @@ def test_language_lr_grid_and_pilot_size_are_declared_without_implementing_them(
         assert config["experiment"]["seed"] == 42
         # D66's three reporting seeds do not change the one-seed pilot.
         assert config["training"]["repeats"]["seed_count"] == 3
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.learning_rate_selection" not in config["protocol"]["blocked_on"]
         assert "training.selection" not in config["protocol"]["blocked_on"]
         assert "training.repeats" not in config["protocol"]["blocked_on"]
@@ -1539,7 +1628,7 @@ def test_language_checkpoint_evaluation_is_shared_and_keeps_execution_gated() ->
     """D63 declares cadence/eligibility/mapping, not a runtime selector or horizon."""
     policies = []
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         selection = config["training"]["selection"]
@@ -1580,17 +1669,17 @@ def test_language_checkpoint_evaluation_is_shared_and_keeps_execution_gated() ->
         assert selection["status"] == "ready"
         assert config["training"]["optimization"]["status"] == "ready"
         assert config["training"]["batch_execution"]["status"] == "ready"
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.selection" not in config["protocol"]["blocked_on"]
-    assert len(policies) == 3
-    assert policies[0] == policies[1] == policies[2]
+    assert len(policies) == 4
+    assert all(policy == policies[0] for policy in policies)
 
 
 def test_language_ten_epoch_maximum_is_shared_without_unblocking_execution() -> None:
-    """D64 fixes the maximum and reporting-boundary guard, not the selected B."""
+    """D64 fixes the maximum; D87 turns its reporting boundary into an acknowledged flag."""
     policies = []
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         training = config["training"]
@@ -1603,16 +1692,29 @@ def test_language_ten_epoch_maximum_is_shared_without_unblocking_execution() -> 
             "fit_scope": "learning_rate_pilot_and_reporting_selection",
             "automatic_extension": "forbidden",
             "pilot_peak_times": "diagnostic_only",
+            "pilot_boundary": {
+                "curve": "aggregated_pilot_curve_of_frozen_pilot_selection",
+                "trigger": "earliest_peak_equals_maximum",
+                "action": "flag_for_pre_reporting_owner_acknowledgement",
+                "late_curve_gain_source": (
+                    "training.selection.horizon.reporting_boundary.late_curve_gain"
+                ),
+            },
             "reporting_boundary": {
                 "curve": "aggregated_reporting_selection_curve",
                 "trigger": "selected_nominal_epoch_equals_maximum",
                 "scope": "any_reporting_selection_curve",
-                "action": "block_pending_owner_decision",
-                "block_before": [
-                    "all_32_refit",
-                    "temperature_fitting",
-                    "final_test_evaluation",
-                ],
+                "pipelines": ["l2", "l3", "l4", "l6"],
+                "action": "keep_selected_budget_and_flag",
+                "late_curve_gain": {
+                    "definition": (
+                        "value_at_maximum_minus_best_eligible_value_through_comparison_epoch"
+                    ),
+                    "comparison_epoch": 8.0,
+                    "reported_for": "every_reporting_curve",
+                    "role": "descriptive_never_threshold",
+                },
+                "acknowledgement_source": "training.selection.boundary_flags",
             },
         }
         pilot = training["learning_rate_selection"]["pilot"]
@@ -1636,18 +1738,16 @@ def test_language_ten_epoch_maximum_is_shared_without_unblocking_execution() -> 
         assert selection["refit_rule"] == "fresh_all32_at_same_selected_language_epoch_budget"
         assert training["learning_rate_selection"]["grid_edge_handling"]["status"] == "ready"
         assert training["repeats"]["seed_count"] == 3
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.selection" not in config["protocol"]["blocked_on"]
         assert "training.learning_rate_selection" not in config["protocol"]["blocked_on"]
-    assert len(policies) == 3
-    assert policies[0] == policies[1] == policies[2]
+    assert len(policies) == 4
+    assert all(policy == policies[0] for policy in policies)
 
 
 def test_language_grid_expansion_references_ties_and_has_bounded_shared_fit_count() -> None:
     """D65 declares 18 or 30 pilot fits, not a runner or extra reporting repeats."""
-    language_configs = [
-        _load(path) for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS if "/language/" in path
-    ]
+    language_configs = [_load(path) for path in LANGUAGE_LLM_ARM_CONFIGS]
     assert len(language_configs) == 3
     for config in language_configs:
         policy = config["training"]["learning_rate_selection"]
@@ -1658,6 +1758,7 @@ def test_language_grid_expansion_references_ties_and_has_bounded_shared_fit_coun
         assert resolved is policy["tie_break"]
         assert resolved["comparison"] == "exact_unrounded_candidate_score"
         assert edge["endpoint_check"] == "after_tie_break"
+        assert edge["excluded_arms"] == ["l6"]  # D77: L6 never triggers this expansion.
         initial = policy["initial_grid"]
         additional = edge["additional_candidates"]
         assert set(initial).isdisjoint(additional)
@@ -1673,7 +1774,7 @@ def test_language_grid_expansion_references_ties_and_has_bounded_shared_fit_coun
         assert policy["status"] == "ready"
         assert pilot["status"] == "ready"
         assert config["training"]["repeats"]["seed_count"] == 3
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "training.learning_rate_selection" not in config["protocol"]["blocked_on"]
         assert "training.optimization" not in config["protocol"]["blocked_on"]
         assert "training.batch_execution" not in config["protocol"]["blocked_on"]
@@ -1681,9 +1782,7 @@ def test_language_grid_expansion_references_ties_and_has_bounded_shared_fit_coun
 
 def test_language_reporting_lineage_keeps_population_and_language_budgets_distinct() -> None:
     """D66/D67 repeat language fitting, not F1, and reuse common-B language snapshots."""
-    configs = [
-        _load(path) for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS if "/language/" in path
-    ]
+    configs = [_load(path) for path in LANGUAGE_REPORTING_CONFIGS]
     manifest = _load(MANIFEST_PATH)
     assert len(manifest["folds"]) == 8
     reporting_fits = 0
@@ -1700,15 +1799,16 @@ def test_language_reporting_lineage_keeps_population_and_language_budgets_distin
         assert reporting["scope"] == "per_arm_and_reporting_seed"
         assert reporting["split_source"] == "dataset.split_manifest"
         assert reporting["query_repetitions"] == "all_manifest_repetitions"
+        assert reporting["repetition_zero_rest"] == "included_in_selection_scores"
         assert reporting["trainable_initialization"] == "fresh_per_fold_and_refit"
         assert reporting["population_encoder_retraining"] == "forbidden"
         encoder = reporting["development_encoder"]
         assert encoder["training_budget"] == "d18_d19_accepted_refit_budget"
         assert encoder["required_device"] == "cuda"
         expected_consumption = (
-            "normalization_and_class_weights_only"
+            "normalization_only_class_weights_recomputed_and_verified"
             if "encoder" not in config
-            else "encoder_normalization_and_class_weights"
+            else "encoder_and_normalization_class_weights_recomputed_and_verified"
         )
         assert encoder["consumption"] == expected_consumption
         reuse = reporting["development_checkpoint_reuse"]
@@ -1724,12 +1824,14 @@ def test_language_reporting_lineage_keeps_population_and_language_budgets_distin
         assert reporting["refit"]["trainable_and_optimizer_state"] == "fresh"
         assert reporting["refit"]["required_population_device"] == "cuda"
         assert reporting["pre_refit_and_temperature_guard"] == (
-            "all_reporting_curves_pass_horizon_boundary_check"
+            "all_reporting_budgets_frozen_and_boundary_flags_recorded"
         )
         reporting_fits += repeats["seed_count"] * (len(manifest["folds"]) + 1)
-    assert reporting_fits == 81
-    assert reporting_fits + 18 == 99
-    assert reporting_fits + 30 == 111
+    # D77: four pipelines x three seeds x (eight folds + refit), plus L2-L4's 18/30 pilot fits
+    # and L6's own 20.
+    assert reporting_fits == 108
+    assert reporting_fits + 18 + 20 == 146
+    assert reporting_fits + 30 + 20 == 158
 
 
 def test_l3_reporting_backbone_is_fixed_within_seed_not_across_seeds_or_from_pilot() -> None:
@@ -1749,10 +1851,29 @@ def test_l3_reporting_backbone_is_fixed_within_seed_not_across_seeds_or_from_pil
         ],
         "pilot_artifact_reuse": "forbidden",
         "initialization_source": "training.numerical_execution.initialization.l3_backbone",
+        "persistence": {
+            "status": "ready",
+            "artifact_pattern": (
+                "checkpoints/language_campaigns/{campaign_id}/adapter_random_transformer/"
+                "{phase}/seed{seed_index}/backbone.pt"
+            ),
+            "phases": ["pilot", "reporting"],
+            "stored_dtype": "bfloat16",
+            "format": "model_state_and_model_config",
+            "consumers": "load_and_verify_sha256",
+            "regeneration_for_consumption": "forbidden",
+            "regeneration_role": "optional_audit_check_only",
+        },
     }
+    source = l3["artifacts"]["l3_backbone_source"].split(".")
+    resolved: Any = l3
+    for key in source:
+        resolved = resolved[key]
+    assert resolved == policy["persistence"]["artifact_pattern"]  # D75: one persisted state.
     for path in (
         "configs/experiment/language/adapter_llama3b_subject_split.yaml",
         "configs/experiment/language/adapter_text_summary_only.yaml",
+        "configs/experiment/language/embedding_mlp_control.yaml",
     ):
         assert "reporting_backbone" not in _load(path).get("baseline", {})
 
@@ -1760,7 +1881,7 @@ def test_l3_reporting_backbone_is_fixed_within_seed_not_across_seeds_or_from_pil
 def test_language_refit_temperatures_and_cross_fitted_diagnostics_have_separate_lineages() -> None:
     """D69 never scores pooled T on its fitting predictions as held-out validation."""
     for path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in path:
+        if path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(path)
         fit = config["evaluation"]["temperature_fit"]
@@ -1773,6 +1894,7 @@ def test_language_refit_temperatures_and_cross_fitted_diagnostics_have_separate_
         )
         assert fit["matching_refit_source"] == "training.selection.reporting.refit"
         assert fit["query_repetitions"] == "all_manifest_repetitions"
+        assert fit["repetition_zero_rest"] == "excluded_from_temperature_fitting"
         for key in (
             "across_seed_pooling",
             "temperature_averaging",
@@ -1807,7 +1929,7 @@ def test_language_refit_temperatures_and_cross_fitted_diagnostics_have_separate_
         assert diagnostic["reuse_for_refit_temperature"] == "forbidden"
         assert diagnostic["interpretation"] == "conditional_development_diagnostic_not_nested_cv"
         assert diagnostic["persist_model_fitting_scoring_subjects_and_temperature"] is True
-        assert config["protocol"]["status"] == "blocked_pending_implementation"
+        assert config["protocol"] == LANGUAGE_PROTOCOL
         assert "evaluation.temperature_fit" not in config["protocol"]["blocked_on"]
 
 
@@ -1818,7 +1940,7 @@ def test_language_pilot_folds_resolve_only_development_subjects() -> None:
     development = set(manifest["training_subjects"])
     held_out = set(manifest["test_subjects"])
     for relative_path in REPORTABLE_SUBJECT_INDEPENDENT_CONFIGS:
-        if "/language/" not in relative_path:
+        if relative_path not in LANGUAGE_REPORTING_CONFIGS:
             continue
         config = _load(relative_path)
         assert config["dataset"]["split_manifest"] == MANIFEST_PATH
@@ -2219,7 +2341,7 @@ def test_shared_f1_development_path_has_one_encoder_checkpoint_source() -> None:
 
     for config_path in sorted(REPO_ROOT.glob("configs/experiment/**/*.yaml")):
         inspect(yaml.safe_load(config_path.read_text()), str(config_path.relative_to(REPO_ROOT)))
-    assert len(consumers) == 7, consumers  # F1, G2-G4 and L2-L4 share this exact artifact.
+    assert len(consumers) == 8, consumers  # F1, G2-G4, L2-L4 and L6 share this exact artifact.
     assert all(source == expected for _, source in consumers), consumers
 
 
@@ -2258,3 +2380,539 @@ def test_no_explicit_subject_subset_contains_a_held_out_subject() -> None:
         if named & held_out:
             offenders.append(f"{config_path.relative_to(REPO_ROOT)}: {sorted(named & held_out)}")
     assert not offenders, f"debug subsets use final held-out subjects: {offenders}"
+
+
+# --- D74-D83: the final language-package review ---------------------------------------------
+
+L6_PATH = "configs/experiment/language/embedding_mlp_control.yaml"
+
+
+def _resolve(config: dict[str, Any], dotted: str) -> Any:
+    node: Any = config
+    for key in dotted.split("."):
+        node = node[key]
+    return node
+
+
+def test_transformer_arms_share_one_input_assembly() -> None:
+    """D74: the head reads the same literal suffix token in every transformer arm."""
+    assemblies = {path: _load(path)["input_assembly"] for path in LANGUAGE_LLM_ARM_CONFIGS}
+    arm_specific = {"content", "content_tokenization", "padding"}
+    common = [
+        {key: value for key, value in policy.items() if key not in arm_specific}
+        for policy in assemblies.values()
+    ]
+    assert all(policy == common[0] for policy in common)
+    shared = common[0]
+    assert shared["status"] == "ready"
+    assert shared["order"] == ["begin_of_text_token", "content", "suffix"]
+    assert shared["suffix_text"] == "\nGesture:"
+    assert shared["suffix_tokenization"] == (
+        "standalone_without_special_tokens_identical_ids_across_arms"
+    )
+    assert shared["readout_token"] == "last_suffix_token"
+    assert shared["pooled_state"] == "final_normalized_decoder_hidden_state"
+    assert shared["chat_template"] == "none"
+    assert shared["truncation"] == "forbidden"
+    l2, l3, l4 = assemblies.values()
+    assert l2 == l3
+    assert l2["padding"] == "none_equal_length_sequences"
+    assert l4["padding"] == "none_one_unpadded_sequence_per_window"
+    assert l4["content_tokenization"] == "standalone_without_special_tokens"
+    assert "input_assembly" not in _load(L6_PATH)  # L6 has no transformer input.
+    for path in LANGUAGE_LLM_ARM_CONFIGS:
+        assert _load(path)["head"]["pooling"] == "last_token"
+
+
+def test_language_artifacts_are_per_seed_with_digest_bound_parents() -> None:
+    """D76: one refit per reporting seed, trainable state only, parents bound by digest."""
+    expected_parents = {
+        "configs/experiment/language/adapter_llama3b_subject_split.yaml": [
+            "f1_encoder_checkpoint",
+            "pinned_transformer_revision",
+        ],
+        "configs/experiment/language/adapter_random_transformer.yaml": [
+            "f1_encoder_checkpoint",
+            "l3_backbone_artifact",
+        ],
+        "configs/experiment/language/adapter_text_summary_only.yaml": [
+            "f1_checkpoint_for_normalization",
+            "pinned_transformer_revision",
+        ],
+        L6_PATH: ["f1_encoder_checkpoint"],
+    }
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        config = _load(path)
+        artifacts = config["artifacts"]
+        root = "checkpoints/language_campaigns/{campaign_id}/" f"{config['experiment']['name']}/"
+        assert artifacts["status"] == "ready"
+        assert (
+            artifacts["reporting_refit"] == root + "reporting/seed{reporting_seed_index}/refit.pt"
+        )
+        assert artifacts["reporting_development"] == (
+            root
+            + "reporting/seed{reporting_seed_index}/development/fold{fold_index}/fixed_budget.pt"
+        )
+        assert artifacts["fold_test_temperature"] == (
+            root + "reporting/seed{reporting_seed_index}/development/fold{fold_index}/"
+            "fold_test_temperature.json"
+        )
+        assert artifacts["class_weights_digest_encoding"] == (
+            "d11_class_weights_v1_shape_dtype_little_endian_float32"
+        )
+        assert artifacts["model_training_budget"] == "selected_language_budget_per_arm_and_seed"
+        assert artifacts["pilot"] == root + "pilot/{candidate_id}/fold{fold_index}/"
+        assert artifacts["pilot_role"] == "selection_provenance_and_audit_only"
+        assert artifacts["model_state"] == "trainable_modules_only"
+        assert artifacts["frozen_parents"] == "referenced_by_path_and_sha256"
+        assert artifacts["parent_references"] == expected_parents[path]
+        assert artifacts["class_weights"] == (
+            "recomputed_from_fit_training_windows_verified_against_parent_class_weights_sha256"
+        )
+        assert artifacts["debug_or_preliminary_runs"] == "never_write_these_paths"
+    # D76 requires a future F1 digest, not a vector; today's F0 saver supplies neither.
+    # Development provenance declares it here; the handoff also requires it on the refit.
+    f1 = _load("configs/experiment/foundation/baseline_cnn_subject_split.yaml")
+    provenance = f1["training"]["development_checkpoints"]["required_source_provenance"]
+    assert "class_weights_sha256" in provenance
+
+
+def test_robustness_language_targets_resolve_every_seed_and_stay_blocked() -> None:
+    """D76: a single-file lookup would silently score one seed, so resolution stays gated."""
+    registry = _load("configs/experiment/robustness_targets.yaml")
+    targets = [target for target in registry["targets"] if target["arm"] == "language"]
+    assert {target["name"] for target in targets} == {
+        "l2_frozen_llm",
+        "l3_random_transformer",
+        "l4_text_summary",
+        "l6_embedding_mlp_control",
+    }
+    assert {target["source_config"] for target in targets} == set(LANGUAGE_REPORTING_CONFIGS)
+    for target in targets:
+        source = _load(target["source_config"])
+        assert "checkpoint" not in target
+        assert target["checkpoint_pattern"] == source["artifacts"]["reporting_refit"]
+        assert target["accepted_campaign_manifest_pattern"] == (
+            source["artifacts"]["campaign"]["accepted_manifest"]
+        )
+        assert target["campaign_selection"] == source["artifacts"]["campaign"]["selection"]
+        assert target["artifact_axes"] == ["reporting_seed_index"]
+        assert _resolve(source, target["reporting_seed_indices_source"]) == [0, 1, 2]
+        assert target["within_subject_repeat_aggregation"] == (
+            source["training"]["repeats"]["within_subject_metric_reduction"]
+        )
+        assert target["temperature_source"] == "model_config.probability_calibration"
+        assert pending_field_paths(target) == ["artifact_resolution"]
+
+
+def test_l6_control_shares_the_language_lineage_without_a_transformer() -> None:
+    """D77: everything but the transformer path and the pilot is L2's, verbatim."""
+    l2 = _load("configs/experiment/language/adapter_llama3b_subject_split.yaml")
+    l6 = _load(L6_PATH)
+    for absent in ("adapter", "llm", "baseline", "input_assembly"):
+        assert absent not in l6
+    for key in ("protocol", "dataset", "encoder", "evaluation"):
+        assert l6[key] == l2[key], key
+    for key in (
+        "target",
+        "loss",
+        "batch_size",
+        "gradient_accumulation_steps",
+        "epochs",
+        "learning_rate",
+        "weight_decay",
+        "optimization",
+        "batch_execution",
+        "randomness",
+        "repeats",
+        "selection",
+    ):
+        assert l6["training"][key] == l2["training"][key], key
+
+    head = l6["head"]
+    assert head["input_dim"] == l6["encoder"]["embedding_dim"] == 256
+    assert head["dropout"] == 0.1 and head["activation"] == "gelu" and head["bias"] is True
+    for candidate in head["architecture_candidates"].values():
+        widths = [head["input_dim"], *candidate["hidden_dims"], head["num_classes"]]
+        parameters = sum(a * b + b for a, b in zip(widths, widths[1:], strict=False))
+        assert parameters == candidate["trainable_parameters"]
+    candidates = head["architecture_candidates"]
+    assert candidates["small"]["trainable_parameters"] < candidates["wide"]["trainable_parameters"]
+    assert l6["training"]["randomness"]["index_domains"]["l6_head_architecture_ids"] == {
+        name: candidate["architecture_id"] for name, candidate in candidates.items()
+    }
+
+    policy = l6["training"]["learning_rate_selection"]
+    assert policy["initial_grid"] == [1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
+    pilot = policy["pilot"]
+    assert pilot["fold_indices"] == [0, 4] and pilot["seed_index"] == 0
+    assert pilot["fit_count"] == len(candidates) * len(policy["initial_grid"]) * 2 * 1 == 20
+    assert policy["scoring"] == l2["training"]["learning_rate_selection"]["scoring"]
+    assert policy["tie_break"]["order"] == [
+        "highest_score",
+        "smaller_head",
+        "preferred_learning_rate_within_head",
+    ]
+    edge = policy["grid_edge_handling"]
+    assert edge["expansion"] == "none"
+    assert edge["shared_language_expansion"] == "neither_triggers_nor_waits"
+    assert edge["outer_endpoints"] == [min(policy["initial_grid"]), max(policy["initial_grid"])]
+    assert edge["endpoint_check"] == "final_selected_head_and_learning_rate_after_tie_break"
+    assert edge["head_switch_to_avoid_endpoint"] == "forbidden"
+    assert edge["selected_outer_endpoint"] == {
+        "action": "keep_selected_pair_and_flag",
+        "reported": [
+            "complete_pilot_score_profile",
+            "margin_over_adjacent_learning_rate_within_selected_head",
+        ],
+        "role": "descriptive_never_threshold",
+        "acknowledgement_source": "training.selection.boundary_flags",
+    }
+
+    numerics = l6["training"]["numerical_execution"]
+    assert numerics["precision"]["transformer"] == "none"
+    assert numerics["initialization"]["trainable_modules"]["rng_purpose"] == "l6_head_init"
+    assert "attention_backend" not in numerics["reproducibility"]
+    horizon = l6["training"]["selection"]["horizon"]
+    assert "l6" in horizon["reporting_boundary"]["pipelines"]  # D64/D87's flag covers L6.
+
+    # 4 pipelines x 3 seeds x 9 fits, plus 18 (or 30) L2-L4 pilot fits and L6's 20.
+    reporting = 4 * l6["training"]["repeats"]["seed_count"] * (8 + 1)
+    assert reporting + 18 + pilot["fit_count"] == 146
+    assert reporting + 30 + pilot["fit_count"] == 158
+
+
+@pytest.mark.parametrize("phase", ["pilot", "reporting"])
+def test_l6_streams_are_head_specific_and_shared_across_learning_rates(phase: str) -> None:
+    """D77: identical starts across LRs within a head, distinct starts across heads."""
+    config = _load(L6_PATH)
+    policy = config["training"]["randomness"]
+    keys = policy["component_stream_keys"]
+    scope = policy["phase_scopes"][phase]
+
+    def seed(purpose: str, **values: int) -> int:
+        base = {
+            "seed_index": 0,
+            "fit_index": 0,
+            "epoch_index": 0,
+            "arm_id": 6,
+            "architecture_id": 0,
+        }
+        base.update(values)
+        return derive_seed(42, scope, purpose, {name: base[name] for name in keys[purpose]})
+
+    for purpose in ("l6_head_init", "l6_training_stochasticity"):
+        assert seed(purpose, architecture_id=0) != seed(purpose, architecture_id=1)
+        assert "learning_rate" not in keys[purpose]
+        assert len({seed(purpose, fit_index=fit) for fit in (0, 4, 8)}) == 3
+    assert seed("data_order") == seed("data_order", arm_id=2)  # shared window order
+    assert seed("validation_loader", arm_id=6) != seed("validation_loader", arm_id=2)
+
+
+def _sign_flip_p(differences: list[float]) -> Fraction:
+    """Inclusive two-sided exhaustive sign-flip p-value for the mean (D79)."""
+    observed = abs(sum(differences))
+    patterns = [
+        abs(sum(d if (mask >> i) & 1 else -d for i, d in enumerate(differences)))
+        for mask in range(2 ** len(differences))
+    ]
+    return Fraction(sum(value >= observed for value in patterns), len(patterns))
+
+
+def test_language_inference_names_four_primaries_and_reports_without_a_gate() -> None:
+    """D79: predeclared primaries, Holm numbers reported, and what n=8 can and cannot show."""
+    policies = [_load(path)["evaluation"]["inference"] for path in LANGUAGE_REPORTING_CONFIGS]
+    assert all(policy == policies[0] for policy in policies)
+    policy = policies[0]
+    assert policy["primary_family"] == [
+        {"comparison": ["l2", "l3"], "metric": "macro_f1"},
+        {"comparison": ["l2", "l3"], "metric": "expected_calibration_error_temperature_scaled"},
+        {"comparison": ["l2", "l6"], "metric": "macro_f1"},
+        {"comparison": ["l2", "l6"], "metric": "expected_calibration_error_temperature_scaled"},
+    ]
+    assert policy["significance_gate"] == "none"
+    assert policy["ece_floor_threshold"] == "none"
+    assert policy["multiplicity"] == "holm_within_primary_family"
+    assert policy["method_or_headline_switch_after_results"] == "forbidden"
+    assert policy["null_reading"] == "inconclusive_not_equivalence"
+    assert "holm_adjusted_p_over_primary_family" in policy["reported"]
+
+    family = len(policy["primary_family"])
+    unanimous = [0.3, 0.1, 0.2, 0.05, 0.4, 0.15, 0.25, 0.35]
+    one_small_dissenter = [-0.05, 0.1, 0.2, 0.3, 0.4, 0.15, 0.25, 0.35]
+    one_zero = [0.0, 0.1, 0.2, 0.3, 0.4, 0.15, 0.25, 0.35]
+    assert _sign_flip_p(unanimous) == Fraction(2, 256)
+    assert _sign_flip_p(one_small_dissenter) == Fraction(4, 256)
+    assert _sign_flip_p(one_zero) == Fraction(4, 256)
+    # Holm's first step over four needs p <= 0.05/4: only a unanimous comparison reaches it.
+    assert family * _sign_flip_p(unanimous) < Fraction(5, 100)
+    assert family * _sign_flip_p(one_small_dissenter) > Fraction(5, 100)
+    # A family of seven or more could never reach adjusted p < 0.05 at n = 8.
+    assert 7 * Fraction(2, 256) > Fraction(5, 100)
+
+
+def test_temperature_fits_exclude_repetition_zero_rest_but_selection_keeps_it() -> None:
+    """D81: a few dozen terminal-rest windows must never act as a seventh repetition."""
+    fitted = [
+        "configs/experiment/foundation/baseline_cnn_subject_split.yaml",
+        "configs/experiment/foundation/baseline_cnn_random_split.yaml",
+        *LANGUAGE_REPORTING_CONFIGS,
+    ]
+    for path in fitted:
+        fit = _load(path)["evaluation"]["temperature_fit"]
+        assert fit["repetition_zero_rest"] == "excluded_from_temperature_fitting", path
+    f1 = _load(fitted[0])
+    diagnostic = f1["evaluation"]["calibration_execution"]["validation_temperature_fit"]
+    assert _resolve(f1, diagnostic["repetition_zero_rest_source"]) == (
+        "excluded_from_temperature_fitting"
+    )
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        reporting = _load(path)["training"]["selection"]["reporting"]
+        assert reporting["repetition_zero_rest"] == "included_in_selection_scores"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["configs/experiment/foundation/baseline_cnn_subject_split.yaml", *LANGUAGE_REPORTING_CONFIGS],
+)
+def test_rest_and_gesture_calibration_is_descriptive_under_the_frozen_temperature(
+    path: str,
+) -> None:
+    """D80: localize a calibration effect without changing the probabilities being scored."""
+    evaluation = _load(path)["evaluation"]
+    assert evaluation["calibration_subgroups"] == {
+        "status": "ready",
+        "grouping": "true_label",
+        "subgroups": ["rest_only", "gesture_only"],
+        "probabilities": "original_18_class_probabilities_and_predictions",
+        "temperature": "same_frozen_population_temperature",
+        "rest_class_removal_or_renormalization": "forbidden",
+        "subgroup_temperature_fitting": "forbidden",
+        "bins": "recomputed_within_each_subgroup_and_subject",
+        "pooled_ece_decomposition": "not_a_weighted_average_of_subgroups",
+        "primary_family_membership": "excluded",
+    }
+    for family in (
+        "rest_only_expected_calibration_error",
+        "gesture_only_expected_calibration_error",
+        "rest_only_brier_score",
+        "gesture_only_brier_score",
+    ):
+        assert family in evaluation["metrics"]
+
+
+def test_l4_feature_rules_reproduce_the_documented_prompt_line() -> None:
+    """D82: each rule pins a token-visible choice, so check the rules against the example."""
+    l4 = _load("configs/experiment/language/adapter_text_summary_only.yaml")["baseline"]
+    definitions, prompt = l4["feature_definitions"], l4["prompt"]
+    assert definitions["standard_deviation"] == "population_ddof_0"
+    assert definitions["computation_dtype"] == "float64"
+    assert definitions["zero_crossings"] == "count_strict_sign_changes_product_below_zero"
+    assert definitions["zero_crossing_threshold"] == "none"
+
+    def render(value: float) -> str:
+        text = format(value, ".2f")
+        return "0.00" if text == "-0.00" else text
+
+    line = prompt["line_template"].format(
+        channel=1,
+        mean=render(-0.12),
+        sd=render(0.98),
+        min=render(-3.41),
+        max=render(3.02),
+        wl=render(41.7),
+        zc=88,
+    )
+    assert line == prompt["example"]
+    assert render(-0.001) == "0.00"
+    assert prompt["line_separator"] == "\n" and prompt["trailing_newline"] == "none"
+
+    window = torch.tensor([1.0, 0.0, -1.0, 2.0, -0.5, -0.5, 3.0], dtype=torch.float64)
+    crossings = int((window[:-1] * window[1:] < 0).sum())
+    assert crossings == 3  # 0 never completes a crossing: 1,0,-1 is not counted
+
+    # Population SD makes the RMS identity exact; sample SD is off by (N-1)/N.
+    signal = torch.linspace(-1.5, 2.5, 400, dtype=torch.float64) ** 3
+    rms = signal.pow(2).mean().sqrt()
+    mean = signal.mean()
+    population = signal.std(correction=0)
+    sample = signal.std(correction=1)
+    assert torch.isclose(rms, (mean**2 + population**2).sqrt(), rtol=0, atol=1e-12)
+    assert not torch.isclose(rms, (mean**2 + sample**2).sqrt(), rtol=0, atol=1e-6)
+    assert torch.isclose(rms**2, mean**2 + sample**2 * 399 / 400, rtol=0, atol=1e-12)
+
+
+def test_fold_test_temperature_is_model_specific_and_preserves_other_calibration_roles() -> None:
+    """D84 binds an all-four-query fit to one immutable model, never to test predictions."""
+    scalar_fold_fits = 0
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        config = _load(path)
+        analysis = config["evaluation"]["fold_test_analysis"]
+        assert analysis["status"] == "ready"
+        assert analysis["temperature_source"] == "own_model_four_query_subject_temperature_artifact"
+        assert analysis["temperature_artifact_source"] == "artifacts.fold_test_temperature"
+        assert analysis["fold_models"] == (
+            "exact_language_budget_development_snapshots_per_arm_and_seed"
+        )
+        assert analysis["reporting_role"] == "diagnostic_not_primary"
+        assert analysis["report_probability_versions"] == ["raw", "temperature_scaled"]
+        fit = analysis["temperature_fit"]
+        assert fit["fit_subjects"] == "all_four_outer_validation_subjects"
+        assert fit["model_checkpoint"] == "same_fold_arm_seed_common_language_budget_checkpoint"
+        assert fit["stage"] == "after_all_reporting_budgets_freeze_and_boundary_check"
+        assert fit["fits_per_fold"] == 1
+        refit_fit = config["evaluation"]["temperature_fit"]
+        assert _resolve(config, fit["query_repetitions_source"]) == "all_manifest_repetitions"
+        assert _resolve(config, fit["repetition_zero_rest_source"]) == (
+            "excluded_from_temperature_fitting"
+        )
+        assert _resolve(config, fit["objective_and_weighting_source"]) == refit_fit
+        assert _resolve(config, fit["numerical_execution_source"]) == refit_fit["execution"]
+        assert refit_fit["objective"] == "ordinary_negative_log_likelihood"
+        assert refit_fit["class_weighting"] == "none"
+        assert refit_fit["subject_weighting"] == "equal"
+        assert refit_fit["repeat_weighting"] == "equal_within_subject"
+        assert refit_fit["window_weighting"] == "equal_within_repeat"
+        assert fit["final_test_fitting"] == "forbidden"
+        assert fit["freeze_before_final_test"] is True
+        for forbidden in (
+            "reuse_for_refit_temperature",
+            "reuse_development_cross_fit_temperatures",
+            "substitute_pooled_oof_temperature",
+            "temperature_averaging",
+            "mutate_source_checkpoint",
+        ):
+            assert fit[forbidden] == "forbidden"
+        assert "model_checkpoint_sha256" in fit["required_provenance"]
+        assert "query_subjects_and_recording_repetitions" in fit["required_provenance"]
+        scalar_fold_fits += len(config["training"]["repeats"]["seed_indices"]) * 8
+        diagnostic = config["evaluation"]["calibration_execution"]["validation_temperature_fit"]
+        assert diagnostic["fits_per_fold"] == 4
+        assert diagnostic["fit_subjects"] == "other_three_outer_validation_subjects"
+    assert scalar_fold_fits == 96
+    refit_fits, cross_fitted_diagnostic_fits = 4 * 3, 4 * 3 * 8 * 4
+    assert refit_fits + cross_fitted_diagnostic_fits + scalar_fold_fits == 492
+    decisions = (REPO_ROOT / "docs/project/DECISIONS.md").read_text()
+    pending = decisions.split("## Pending")[1].split("## Resolved proposals")[0]
+    resolved = decisions.split("## Resolved proposals")[1]
+    assert "| **Language fold-test calibration**" not in pending
+    assert "| **Language fold-test calibration**" in resolved
+    assert "| D84 |" in decisions
+
+
+def test_retired_claim_gates_are_gone_from_the_shared_spec() -> None:
+    """D79/D83: the bootstrap gate, ECE floor veto and one-sided refit rule do not linger."""
+    readme = (REPO_ROOT / "docs/experiments/README.md").read_text()
+    assert "for ECE it must additionally exceed the estimator floor" not in readme
+    assert "A difference is reportable when its paired interval **excludes zero**" not in readme
+    assert "**the refit should land at or above the fold mean.**" not in readme
+    assert "this check never validates temperature transfer" in readme
+
+
+def test_language_handoff_includes_l6_in_the_global_guard() -> None:
+    """D77 extends D64's guard; historical three-arm wording must not exclude L6."""
+    handoff = (REPO_ROOT / "docs/project/F1_LANGUAGE_IMPLEMENTATION_HANDOFF.md").read_text()
+    assert "complete four-pipeline/three-seed reporting domain (L2/L3/L4/L6)" in handoff
+    assert "complete three-arm/three-seed reporting domain" not in handoff
+    assert "No extra language control is approved here." not in handoff
+
+
+def test_d81_preserves_existing_evaluation_populations() -> None:
+    """Excluding repetition zero from T fitting does not add windows to G4 evaluation."""
+    readme = (REPO_ROOT / "docs/experiments/README.md").read_text()
+    assert "G4 still scores query repetitions {2, 3, 5, 6} only" in readme
+    assert "stays in selection scores and every evaluation metric" not in readme
+
+
+def test_language_campaigns_are_shared_write_once_and_do_not_move_f1_parents() -> None:
+    """D85 isolates repairs while keeping every arm on one explicitly accepted campaign."""
+    campaigns = []
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        config = _load(path)
+        campaign = config["artifacts"]["campaign"]
+        campaigns.append(campaign)
+        assert campaign["root"] == "checkpoints/language_campaigns/{campaign_id}/"
+        assert campaign["definition"] == campaign["root"] + "campaign_definition.json"
+        assert campaign["accepted_manifest"] == campaign["root"] + "accepted_manifest.json"
+        assert campaign["selection"] == "explicit_accepted_manifest_path_and_sha256_no_latest"
+        assert campaign["accepted_manifest_timing"] == (
+            "after_required_artifacts_freeze_before_final_test"
+        )
+        assert campaign["child_references"] == (
+            "parent_and_campaign_definition_digests_not_accepted_manifest_digest"
+        )
+        assert campaign["finalized_artifacts"] == "atomic_write_once_no_replace"
+        assert campaign["existing_artifact"] == "verify_complete_identity_and_digest_or_fail"
+        assert campaign["repair_or_identity_change"] == "new_campaign_preserve_previous"
+        assert campaign["interruption_recovery"] == "same_campaign_exact_saved_state_only"
+        assert campaign["resume_snapshots"] == "separate_from_finalized_artifacts"
+        assert campaign["missing_parent"] == "fail_without_automatic_download"
+        # F1's paths do not move into the campaign; L4 has no encoder block but the same parent.
+        assert config["training"]["selection"]["reporting"]["refit"]["encoder_checkpoint"] == (
+            "checkpoints/baseline_cnn_subject_split/refit.pt"
+        )
+    assert all(campaign == campaigns[0] for campaign in campaigns)
+
+
+def test_f1_declares_class_weight_digest_for_both_language_parent_roles() -> None:
+    """D76/D85 requires the future producer contract, not just consumer declarations."""
+    f1 = _load("configs/experiment/foundation/baseline_cnn_subject_split.yaml")
+    metadata = f1["training"]["checkpoint_metadata"]["class_weights"]
+    assert metadata == {
+        "field": "class_weights_sha256",
+        "checkpoints": ["common_budget_development", "all_32_refit"],
+        "encoding": "d11_class_weights_v1_shape_dtype_little_endian_float32",
+        "class_order": "ascending_labels_0_through_17",
+        "shape": [18],
+        "source": "actual_d11_float32_weights_from_complete_matching_training_window_pool",
+        "source_window_identity": "recorded_separately_from_weight_digest",
+        "repetition_zero_filter": "unchanged_by_d81",
+    }
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        assert _load(path)["artifacts"]["class_weights_digest_encoding"] == metadata["encoding"]
+
+
+def test_boundary_selections_are_kept_flagged_and_need_owner_acknowledgement() -> None:
+    """D87/D88: no post-selection stop remains, and no flag can pass without the owner."""
+    expected = {
+        "status": "ready",
+        "pre_reporting_review": {
+            "flags": ["pilot_boundary", "selected_outer_endpoint_learning_rate"],
+            "surfaced": "when_pilot_selection_freezes",
+            "acknowledgement_required_before": "reporting_fits",
+        },
+        "pre_final_test_review": {
+            "flags": ["reporting_boundary"],
+            "surfaced": "when_all_reporting_curves_are_aggregated",
+            "acknowledgement_required_before": "accepted_manifest_finalization",
+        },
+        "acknowledgement_record": "owner_interpretation_note_per_flag_in_campaign",
+        "acknowledgement_changes": "nothing_inside_campaign",
+        "changing_horizon_grid_learning_rate_head_or_budget": "new_decision_and_new_campaign",
+        "no_flags": "no_acknowledgement_required",
+    }
+    for path in LANGUAGE_REPORTING_CONFIGS:
+        config = _load(path)
+        selection = config["training"]["selection"]
+        assert selection["boundary_flags"] == expected
+        horizon = selection["horizon"]
+        edge = config["training"]["learning_rate_selection"]["grid_edge_handling"]
+        endpoint = edge.get("repeated_endpoint", edge.get("selected_outer_endpoint"))
+        for block in (horizon["reporting_boundary"], endpoint):
+            assert _resolve(config, block["acknowledgement_source"]) is selection["boundary_flags"]
+            assert "block_before" not in block
+        gain = _resolve(config, horizon["pilot_boundary"]["late_curve_gain_source"])
+        assert gain is horizon["reporting_boundary"]["late_curve_gain"]
+        # Epoch 8 lies on D63's quarter-epoch grid, so the comparison window is well defined.
+        interval = selection["checkpoint_evaluation"]["interval_epochs"]
+        assert (gain["comparison_epoch"] / interval).is_integer()
+        assert 0 < gain["comparison_epoch"] < _resolve(config, horizon["maximum_epochs_source"])
+        assert "block_pending_owner_decision" not in (REPO_ROOT / path).read_text()
+
+    spec = (REPO_ROOT / "docs/experiments/language-arm.md").read_text()
+    handoff = (REPO_ROOT / "docs/project/F1_LANGUAGE_IMPLEMENTATION_HANDOFF.md").read_text()
+    assert "### Boundary selections and owner acknowledgement (D87/D88)" in spec
+    assert "stop for an owner decision before reporting fits" not in spec
+    assert "request an owner decision" not in spec
+    assert "and request an owner decision" not in handoff
+    assert "every D87/D88 boundary flag with its owner acknowledgement" in handoff
