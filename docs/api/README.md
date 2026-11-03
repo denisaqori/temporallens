@@ -14,11 +14,21 @@ What each part of the package is for, how the parts connect, and the reasoning b
 ```
 raw .mat ──prepare_dataset.py──▶ processed .npz, one file per subject
                                          │
-experiment config ──train_encoder.py──▶ EncoderRunConfig ──▶ train_encoder()
+experiment config ──train_encoder.py──▶ EncoderRunConfig ──▶ train_encoder()          (F0)
                     (consume or refuse)                            │
    load recordings → index windows → fit normalization and class weights on the training
    subjects → WindowDataset → build the model → train a fixed number of epochs → evaluate
    → metrics → run directory (run.json, metrics.jsonl, predictions, optional checkpoint)
+
+F1 config ──train_encoder.py──▶ SubjectCVConfig ──▶ run_subject_cross_validation()     (F1)
+   32 development subjects only → 8 fold trajectories (validated and snapshotted each epoch)
+   → D18 selection → common budget B → D19 escalation or block → best.pt / fixed_budget.pt
+   → pooled out-of-fold T → fresh all-32 refit for B epochs → refit.pt carrying T
+   (preliminary on every device; a reportable run is refused until the final-test stage exists)
+
+F1 artifact ──verify_f1_artifact(expectation, pool)──▶ model, statistics, T    (any consumer)
+   role, fold, B, horizon, subjects, lineage, digests checked against the consumer's own record
+   → class weights, window identity and normalization recomputed from the permitted pool
 ```
 
 Data moves one way. Nothing downstream reaches back to choose subjects, and everything fitted from data — normalization statistics, class weights — is fitted after the split, from the training subjects alone. That ordering is the main defence against leakage, and much of the code below exists to make it hard to break by accident.
@@ -31,6 +41,8 @@ make debug                    # F0: train on subjects 1–2, evaluate on held-ou
 ```
 
 Each run writes a directory under `results/runs/`: `run.json` (the configuration, the device actually used, the git commit, summary metrics), `metrics.jsonl` (training loss per epoch) and `predictions.npz` (probabilities, label and subject for every evaluated window). F0 checks that the path works end to end; it is never a measurement, and it says so when it runs.
+
+`make train-baseline` runs F1's development harness (`training.subject_cv`) from committed code. It needs all 32 development subjects prepared and never loads the eight final-test subjects. It is a preliminary run (D47) on every device, CUDA included, and writes under `checkpoints/preliminary/`. `--reportable` requests the canonical run the arms read, and is refused before any data loads: the one-shot final-test evaluation is a separate, CUDA-only stage that is not implemented, and it must be rehearsed on development stand-ins first.
 
 ### Where to start reading
 
@@ -62,7 +74,18 @@ Every config is read once, through `utils.yaml_io`, so a repeated key is an erro
 
 Two tests keep these honest: every `EncoderRunConfig` setting must have a config key (except `output_dir` — where runs are written is not a protocol choice), and a real training pass must produce exactly `PRODUCED_METRICS`.
 
-The script runs one train/held-out split, which is F0's protocol. A config describing another protocol is refused rather than approximated: `split: random_window` means the leakage demonstration (F2), and otherwise a `split_manifest` means cross-validation (F1). F2 names the manifest too — only to draw its windows from the development subjects — which is why the random-window check comes first. A single-split number computed from either config would carry the name of a protocol it did not follow.
+The F0 bridge runs one train/held-out split. A config describing another protocol is refused rather than approximated there: `split: random_window` means the leakage demonstration (F2), and a `split_manifest` means cross-validation (F1). F2 names the manifest too — only to draw its windows from the development subjects — which is why the random-window check comes first. A single-split number computed from either config would carry the name of a protocol it did not follow.
+
+An F1 config instead goes to `build_f1_config`, which applies the same rule with its own tables:
+
+| Declaration | Meaning |
+|---|---|
+| `F1_FIELD_PATHS` | Config key → `SubjectCVConfig` setting; the manifest path is loaded and verified separately |
+| `F1_CHECKED_PATHS` | The protocol constants the harness implements one way: D18's window and tie rule, D19's horizons, D38's optimizer, D33/D39's temperature recipe, D40's cross-fit, D48's snapshot rules and required provenance, D85's digest encoding. Each expected value is the code's own constant where one exists (`SELECTION_WINDOW_EPOCHS`, `ADAM_BETAS`, `INVERSE_TEMPERATURE_BOUNDS`, …), so the config and the code cannot drift apart unnoticed |
+| `F1_FINAL_TEST_PATHS` | Declarations for the CUDA-only held-out evaluation, which is not implemented and never run here. They are checked and recorded so a changed declaration is still refused, and the run summary states that the final test was not evaluated |
+| `F1_RECORDED_PATHS` | Run metadata: `protocol.*` and the tracking mode |
+
+The comparison is strict about types: YAML's `0` is not `false`, and an `amsgrad: 0` would otherwise pass as the declared `false`. `evaluation.temperature_fit.checkpoint_pattern` must equal the canonical path the harness writes, so a consumer config that names that path is naming this file. An F1 config whose `protocol.status` is not ready is refused outright rather than trained with a `NOT REPORTABLE` note, because its artifacts would sit where consumers look.
 
 A config's `protocol:` block governs whether its results may be **reported**, not whether it may train. A blocked config that trains prints `NOT REPORTABLE`. What the loader records, plus the config file's path and hash, goes into the run log as metadata.
 
@@ -79,6 +102,11 @@ A config's `protocol:` block governs whether its results may be **reported**, no
 | `evaluation.metrics`, `evaluation.save_predictions` | `evaluation.metrics`, `training.encoder` |
 | `tracking.*` | `utils.run_logger` |
 | `protocol.*` | `evaluation.robustness`; printed by `train_encoder.py` |
+| F1's `dataset.split_manifest` | `data.splits`, through `build_f1_config` |
+| F1's `training.epoch_selection.*`, `training.horizon_escalation.*`, `training.refit.*` | checked against `training.selection`'s constants; executed by `training.subject_cv` |
+| F1's `training.optimization.*`, `training.development_checkpoints.*`, `training.checkpoint_metadata.*` | checked; executed by `training.subject_cv` and `training.class_weights` |
+| F1's `evaluation.temperature_fit.*`, `evaluation.calibration_execution.*` (except the bootstrap keys) | checked against `evaluation.calibration`'s constants; executed by `training.subject_cv` |
+| F1's other `evaluation.*` keys | checked and recorded for the unimplemented CUDA-only final-test stage |
 | F2's `evaluation.temperature_fit.execution` assignment keys; G3/G4's `personalization.trial_selection.*` | checked against the executed protocol, not read as parameters, by `data.assignments` (`check_f2_config`, `check_g3_config`) |
 
 ---
@@ -143,7 +171,9 @@ Entries key on the source digest, so changed inputs raise `UnregisteredAssignmen
 ### `data.dataset`
 A PyTorch `Dataset` over a window index.
 
-It materialises one window per item, so memory stays at the size of the index, and it applies the normalization, which makes it the single place a window can reach a model. Each item is `(window, label, subject)`: the subject travels with every prediction because every metric is also computed per subject, and comparisons between experiments are paired by subject.
+It materialises windows on demand, so memory stays at the size of the index, and it applies the normalization, which makes it the single place a window can reach a model. Each item is `(window, label, subject)`: the subject travels with every prediction because every metric is also computed per subject, and comparisons between experiments are paired by subject.
+
+`__getitems__` lets the DataLoader fetch a whole batch in one call, cut with one vectorized gather per subject. It returns exactly the per-item windows (a test compares them bitwise). Measured on subjects 1–3 at batch 64, loading fell from 20 to 11 µs per window, about 9.7 s to 5.3 s for one 484,000-window F1 fold epoch. That is worth having but not the main cost: in a profile of a fold fit, convolution compute dominated.
 
 **Connects to** `data.windows`, `preprocessing.normalize` (uses) · `training.encoder` (builds it) · **Decision** D26
 
@@ -208,7 +238,9 @@ Saves and rebuilds models under the `{model_state, model_config}` contract.
 
 A checkpoint holds exactly two things: the weights, and a description complete enough to rebuild the model with no outside information. That is why a robustness target can be just a name and a file, with no model type alongside it. The normalization statistics are part of the description, and saving without them is refused: a consumer that normalized differently would get a working-looking but different model, and the downstream experiments would stop being comparable with the F1 reference. The fitted temperature belongs in the description for the same reason.
 
-Saving and loading share one `model_config` validator — the current `schema_version`, a model type, and valid normalization statistics for the channel count the model takes — so the writer cannot produce a file the loader refuses, such as 11-channel statistics for a 12-channel model. `load_checkpoint` also refuses any top-level key set other than the two and a `model_state` that is not named tensors, and reads with `weights_only=True`, so a file can never make unpickling run code. `rebuild_model` also refuses weights that do not fit the model the config describes, and a config whose architecture is missing or not a recorded mapping (see `models.encoders.cnn1d`). The schema version is bumped whenever `model_config` gains or changes a field a consumer relies on; in version 1, `probability_calibration` is optional until the F1 harness fixes its fields.
+Saving and loading share one `model_config` validator — the current `schema_version`, a model type, and valid normalization statistics for the channel count the model takes — and `save_checkpoint` reads every file back through `load_checkpoint` before returning, deleting one that fails. So the writer cannot produce a file the loader refuses, such as 11-channel statistics for a 12-channel model. The read-back exists because the validator alone missed a real case: `torch.__version__` is a `str` subclass that `weights_only` loading will not unpickle, and the first full F1 test run wrote such a value into provenance. `load_checkpoint` also refuses any top-level key set other than the two and a `model_state` that is not named tensors, and reads with `weights_only=True`, so a file can never make unpickling run code. `rebuild_model` also refuses weights that do not fit the model the config describes, and a config whose architecture is missing or not a recorded mapping (see `models.encoders.cnn1d`).
+
+F1's artifacts add two optional mappings to `model_config`: `probability_calibration` (the frozen temperature, its D39 fit diagnostics and fitting provenance, or a recorded `fit_failed` status for an analysis model) and `provenance` (D48's source trajectory, subjects, digests, device and lineage). They stay optional so F0's smoke checkpoint still loads, which is why the schema version is still 1: a consumer that relies on them checks they are present rather than misreading an old file. `exclusive=True` refuses to replace an existing file, because a frozen artifact may already have been verified by digest somewhere else; `checkpoint_sha256` is that digest.
 
 Checkpoint names carry their role:
 
@@ -218,9 +250,9 @@ Checkpoint names carry their role:
 | `folds/fold{k}/best.pt` | The best epoch within one cross-validation fold | Analysis only |
 | `development/fold{k}/fixed_budget.pt` | Retained snapshot of the accepted fold trajectory at the common budget (D48) | Development-time selection and calibration only |
 
-The refit has no validation set, so it cannot be a "best". F0 writes none of these; it saves `encoder.pt` in its own run directory.
+`refit_checkpoint_path`, `fold_checkpoint_path` and `development_checkpoint_path` build these names, so the harness that writes them and the configs that name them cannot disagree. The refit has no validation set, so it cannot be a "best". F0 writes none of these; it saves `encoder.pt` in its own run directory.
 
-**Connects to** `models.encoders.cnn1d` (describes, rebuilds) · `training.encoder` (saves) · the robustness registry (loads) · **Decisions** D7, D28, D31, D33, D48; the contract is a hard constraint in AGENTS.md
+**Connects to** `models.encoders.cnn1d` (describes, rebuilds) · `training.encoder`, `training.subject_cv` (save) · the robustness registry (loads) · **Decisions** D7, D28, D31, D33, D48, D85; the contract is a hard constraint in AGENTS.md
 
 ### `models.llm.masking`
 Attention-mask helpers for the language-model input paths.
@@ -238,7 +270,9 @@ Class weights for the loss, from the training split only.
 
 Rest is 50.2% of windows at stride 100, about 17.5 times the median gesture class, so a model that only ever predicted rest would score 50% accuracy. The imbalance is handled by weighting the loss by inverse class frequency (scaled so the weights average 1), never by resampling: windows already overlap 75%, and duplicating them would put near-identical copies in a batch. A class absent from the training split gets weight 0 — it has no frequency to invert, and 0 keeps the vector indexable by label without inventing a target the split cannot teach.
 
-**Connects to** `training.encoder` (calls it after the split) · **Decision** D11
+`class_weights_sha256` is the digest D85 makes both F1 development parents and the refit carry, so a language fit can recompute its own weights and verify them against the parent's. It hashes the float32 vector exactly as a trainer uses it — class order, little-endian, contiguous — behind a header naming the encoding `d11_class_weights_v1_shape_dtype_little_endian_float32`, its dtype and shape, the same pattern as `data.assignments`' recording digest. It refuses a float64 vector rather than casting it, since that would hash a value no trainer used. Equal weights do not prove equal fitting pools, so `training.subject_cv` records the training windows' identity in a separate digest.
+
+**Connects to** `training.encoder`, `training.subject_cv` (call it after the split) · the language consumers (verify against the digest) · **Decisions** D11, D76, D85
 
 ### `training.encoder`
 One encoder training run: a run configuration in, a recorded result out.
@@ -265,6 +299,56 @@ The logged training loss is the class-weighted objective over the whole epoch. P
 
 **Connects to** every module above · `scripts/train_encoder.py` (drives it) · **Decisions** D7, D11, D18/D19 (fixed epochs), D24, D38 (these optimizer mechanics are the F1 reference)
 
+### `training.selection`
+F1's epoch selection and horizon rule, as pure functions of validation scores.
+
+These are protocol constants, not knobs, so they are module constants (`SELECTION_WINDOW_EPOCHS = 10`, `INITIAL_HORIZON_EPOCHS = 30`, `ESCALATED_HORIZON_EPOCHS = 60`) and `build_f1_config` refuses a config that declares other values. Keeping them free of training makes every rule testable on a scripted curve.
+
+| Function | Rule |
+|---|---|
+| `fold_score` | The raw fold score is the unweighted mean of the four validation subjects' macro-F1, never a pooled-window score (D21) |
+| `smoothed_selection_scores`, `select_epoch` | The trailing 10-epoch mean; epochs 1–9 are ineligible; the earliest exact maximum wins (D18). Sums use `math.fsum`, so "exactly equal" means equal real sums rather than equal up to NumPy's addition order. The smoothed value is a selection diagnostic only; reportable metrics come from the selected checkpoint (D20) |
+| `common_budget` | `ceil((e(4) + e(5)) / 2)` over the eight sorted fold epochs, in integer arithmetic (D18) |
+| `decide_horizon` | Accept a budget below the horizon; escalate 30 to 60 once; block a budget equal to 60 (D19) |
+
+**Connects to** `training.subject_cv` (applies them) · `scripts/train_encoder.py` (checks the config against them) · **Decisions** D18–D21
+
+### `training.subject_cv`
+F1's development harness: eight subject folds, selection, D48's development artifacts, the temperatures and the all-32 refit.
+
+`run_subject_cross_validation` runs the protocol in order. It loads only the manifest's 32 development subjects, so a final-test subject cannot reach a fit or a selection; the test doubles are written for those 32 alone, which makes that a tested fact rather than a convention. For each fold, `fit_population_model` refits normalization and class weights on the fold's 28 training subjects through `fitting_statistics` — the one definition `training.f1_artifacts` also calls to recompute them at consumption — trains under D38, validates the four validation subjects after every epoch and snapshots every eligible epoch (10 onward) to disk with its SHA-256. After all eight folds, `training.selection` picks each fold's epoch and the common budget B; a budget at 30 discards the 30-epoch runs and reruns all eight from scratch at 60, and a second boundary hit raises `HorizonBlockedError` before any refit. Then, per fold, `best.pt` is the fold's own selected epoch and `fixed_budget.pt` its trajectory at B, each rebuilt from a snapshot whose digest is re-checked (`load_snapshot` refuses a missing or changed one rather than substituting another epoch). When a fold's own peak is B, the two files share a snapshot but keep distinct roles. Every artifact records the campaign's `common_budget`; `best.pt`'s `source_epoch` stays its individually selected epoch, never relabelled as B, so a consumer can tell the two apart without the run log.
+
+Temperatures come from three separate sources and never mix:
+
+| Temperature | Fitted on | Stored in |
+|---|---|---|
+| The refit's T | Pooled out-of-fold logits of the eight `fixed_budget.pt` models, repetitions 1–6 (D33/D39/D81) | `refit.pt`, with every key `evaluation.temperature_fit.required_provenance` lists |
+| Each fold's own T | That `best.pt` model's four validation subjects | That `best.pt`, for extended analysis only |
+| D40's diagnostic Ts | Three validation subjects at a time, scoring the fourth | The run log only, with the frozen `best.pt`'s digest and source snapshot as model identity, and per fit its scored and fitting subjects, fitting-logit digest and weights |
+
+The refit T is fitted before the refit trains, so a D39 failure stops the run without spending the refit; an analysis model's failed T is recorded as `fit_failed` for that model alone, with no T=1 fallback. The refit then trains a fresh model on all 32 subjects for exactly B epochs with statistics refitted on the 32.
+
+**Validation cannot change training (D48).** The training loader has its own generator; `predict` runs in eval mode under no-grad through a loader with its own generator, inside `preserved_rng`, which restores the CPU and device RNG states. A loader's iterator draws a base seed when created, so without its own generator a validation pass would advance the training stream. Two tests pin the consequence: a fit validated every epoch ends bitwise equal to an unvalidated one, and epoch 10 of an 11-epoch fit equals epoch 10 of a 12-epoch fit. Initialization is `torch.manual_seed(seed)` before each model build, and the training order generator takes the same seed; both are recorded as `training_rng_provenance`.
+
+**Scope, then lineage (D47).** A run's scope is requested, never inferred. An earlier version made a run canonical whenever it was on CUDA from a clean tree, but neither fact proves the procedure is complete: a CUDA run today would have written the paths the arms read with no final-test stage behind them. `execution_lineage` now maps a `preliminary` scope to the preliminary lineage on every device, and refuses a `reportable` scope while `REPORTABLE_EXECUTION_BLOCKERS` lists anything — today, that the final-test stage is unwritten and unrehearsed. Each blocker is removed only in the change that implements it; after that, the reportable scope still requires CUDA and a clean tree. The clean-tree guard stays a separate argument, so a preliminary run from committed code keeps it. `lineage_root` sends preliminary artifacts under `<root>/preliminary/`, so no preliminary run can write a path a reportable consumer reads; L1's local smoke test reads `checkpoints/preliminary/baseline_cnn_subject_split/refit.pt` for that reason, and a test derives that path from these functions. Every artifact records its device and lineage. Every frozen artifact is written once: the run refuses to start if any target path exists, and each save is exclusive.
+
+Snapshots are about 1.8 MB each for F1's model (443,538 parameters), so the 21 eligible epochs of eight 30-epoch folds hold about 300 MB on disk until B is known, about 730 MB at 60. They live in the run directory and are deleted once the artifacts are written. The final-test evaluation, D8's fold-model test analysis and D83's diagnostic are a separate CUDA-only stage, not implemented; the summary records `final_test_evaluated: false`.
+
+**Connects to** `data.splits`, `data.windows`, `data.dataset`, `preprocessing.normalize`, `training.class_weights` (reads) · `training.selection`, `evaluation.calibration`, `evaluation.metrics` (applies) · `models.checkpoint` (writes) · `utils.run_logger` (records) · `scripts/train_encoder.py` (drives it) · `training.f1_artifacts` (checks what it wrote, using its roles, lineage roots and `fitting_statistics`) · **Decisions** D6, D16, D18–D21, D33, D38–D40, D47, D48, D81, D85
+
+### `training.f1_artifacts`
+The consumption side of F1's artifact boundary: a consumer calls it before it reads an F1 parent's weights.
+
+Writing provenance enforces nothing; only a check at consumption does (handoff §6, items 2–3). Every development consumer — G2/G3/G4's fold encoders, the language arm's exact-B parents and refit — needs the same check, so it lives here once rather than as a partial copy in each runner. It is separate from `models.checkpoint` on purpose: the generic loader stays protocol-agnostic so F0's provenance-free smoke checkpoint still loads.
+
+**The expectation comes from the consumer, never from the file.** A self-consistent file proves nothing: `best.pt` copied over `fixed_budget.pt`, or a refit offered as a fold encoder, is internally consistent. An `F1Expectation` states the role, the fold, the accepted run's B and horizon (from the consumer's own record of that run), the lineage it requires, the manifest, and optionally the SHA-256 it references the parent by (D76); it refuses an impossible combination, such as a B at or above its horizon, before any file is read. `verify_f1_artifact` then compares the file with it — role, fold, `common_budget`, `best.pt`'s own selected epoch, horizon, training and scoring subjects, no final-test subject, lineage (a canonical parent must record CUDA and a clean tree), source run, file digest — and requires every provenance key for the role, a superset of what the F1 config declares. A common-budget development model must carry no temperature, the same rule D84 applies to language snapshots. All mismatches are reported together.
+
+**Recomputed, not trusted.** From the permitted fitting pool — the fold's 28 training subjects, or all 32 for the refit — it recomputes, through the trainer's own `fitting_statistics`, the D85 class-weight digest, the source-window identity and the normalization statistics. The window identity is separate because equal weights do not prove equal pools: on the synthetic test doubles every fold's class weights are identical, and only the window identity tells them apart. Normalization is compared within a relative 1e-6. The statistics are accumulated in float64 and stored as float32, so a recomputation on the same machine is bitwise equal, and a different summation order on another machine can flip at most one float32 rounding, about 1.2e-7. Measured on real subjects 1–3 (pool {1, 2} against {1, 3} and against {1, 2, 3}), swapping or adding one subject changed the most-affected channel's standard deviation by 24–61% and its mean, which sits near zero, by over 1000%, so the tolerance absorbs rounding and never a wrong pool. A tampered file with swapped-in statistics and a matching digest is caught by this recomputation, which is the case a digest check alone misses.
+
+`verify_f1_run` checks all seventeen artifacts of one run and the links between them: B is recomputed from the eight selected epochs by D18's rule rather than read from any file, all seventeen must share one source run, and the refit's temperature must name exactly that run's eight development models by digest and source snapshot, in fold order. It fits each fold's statistics once for both of that fold's artifacts.
+
+**Connects to** `training.subject_cv` (the roles, lineage roots and `fitting_statistics` it verifies against) · `models.checkpoint` (loads and rebuilds through it) · `training.class_weights` (the D85 digest) · `training.selection` (D18's budget rule) · future consumers: G2/G3/G4 and the language runners · **Decisions** D18, D19, D47, D48, D76, D84, D85
+
 ### `evaluation.metrics`
 The metric functions every experiment reports.
 
@@ -285,6 +369,15 @@ Each function scores one set of windows and returns a number or a per-class arra
 | `paired_bootstrap_interval` | A seeded, descriptive percentile bootstrap over subjects, never windows, for comparisons on the same subjects. Resampling windows gave an interval 20 times too narrow on identical data, because the overlapping windows of one contraction are one event (D26). D79 retires the zero-exclusion reportability gate; this helper is not the paired-t interval declared for primary mean differences, whose reporting path remains unimplemented |
 
 **Connects to** `training.encoder` (calls it) · the future cross-validation and robustness evaluators
+
+### `evaluation.calibration`
+Temperature scaling: how the one scalar T is fitted, and when a fit must fail.
+
+A temperature never changes an argmax, so it moves the calibration metrics and nothing else. `d33_fitting_weights` gives every fitting subject equal weight, every recording repetition equal weight within its subject and every window equal weight within its repetition, and gives repetition 0 (the terminal rest segment) weight 0 (D33, D81). `fit_temperature` minimizes the weighted NLL in beta = 1/T with SciPy's bounded scalar solver in float64, bounds [0.01, 100], `xatol` 1e-8 and 500 iterations (D39). The NLL is convex in beta, so the derivative at the bounds decides whether the optimum is interior: a non-negative derivative at the lower bound or a non-positive one at the upper raises `TemperatureFitError`, as do a solver that did not converge and a fit worse than T=1 by more than 1e-8. Nothing clips, widens the range or falls back to T=1. `TemperatureFit` carries every diagnostic D39 requires to be persisted. `cross_fitted_temperatures` is D40: for each subject, the T fitted on the others.
+
+The tests recover known temperatures from labels sampled at T = 0.5, 1 and 2.5, check the analytic derivative against a finite difference, and pin the failure cases: an all-confident-and-correct model runs to the upper bound, and identical logits give an unidentified fit.
+
+**Connects to** `training.subject_cv` (fits every F1 temperature) · `scripts/train_encoder.py` (checks the config's recipe against these constants) · **Decisions** D23, D33, D39, D40, D81
 
 ### `evaluation.robustness`
 Decides which robustness evaluations may run.
@@ -339,7 +432,7 @@ A commit alone is not enough: the first F0 run recorded a commit from before `tr
 | Script | What it does |
 |---|---|
 | `prepare_dataset.py` | Converts raw `.mat` recordings to processed `.npz`, one per subject — about 75 MB each, 3 GB for all 40. It opens an existing file before skipping it and rebuilds one it cannot read, so an interrupted run is never skipped forever. `--subjects` needs at least one value; omit the flag for all 40. `make prepare-debug-subjects` prepares the three F0 needs |
-| `train_encoder.py` | Turns a config into a run; see [Configuration](#configuration). `make debug` |
+| `train_encoder.py` | Turns a config into a run: F0's single split, or F1's development harness for a manifest config; see [Configuration](#configuration). `make debug`, `make train-baseline`. `--checkpoint-root` moves F1's artifacts for tests; it is not a protocol choice. `--reportable` requests F1's canonical scope explicitly and is refused today (see `training.subject_cv`); it is a flag rather than a config key because the same config describes both runs |
 | `evaluate.py` | Robustness driver: works out which perturbation × target pairs may run. A run that evaluates nothing exits non-zero, since a fully blocked suite exiting 0 reads as a pass in any script that runs it; `--allow-empty` accepts that for inspecting an incremental suite. The evaluation itself is not written yet |
 | `verify_environment.py` | `make verify`: interpreter, packages, MPS |
 | `worktree.sh` | The one tool every agent uses for parallel work (AGENTS.md) |
@@ -353,7 +446,8 @@ A commit alone is not enough: the first F0 run recorded a commit from before `tr
 - **`tests/_synthetic.py`** builds recordings shaped like DB2 — alternating rest and gesture segments — for the tests. They are test doubles written only to temporary directories, never data, and nothing computed from them is reportable.
 - **One unit-test file per module** (`test_normalize.py`, `test_models_cnn1d.py`, `test_checkpoint.py`, `test_metrics.py`, …). The metric tests compare against hand-computed values.
 - **`test_f0_pipeline.py`** is the integration test: a whole run on synthetic subjects. Its leakage section asserts the protocol directly — the held-out subject never reaches training, statistics and class weights come from the training subjects only, no window crosses a segment, and nothing is resampled.
-- **`test_train_encoder.py`** covers the config loader: mostly refusals, plus the two tests that keep its declarations in step with the run settings and the metrics.
+- **`test_train_encoder.py`** covers the config loader: mostly refusals, plus the tests that keep its declarations in step with the run settings and the metrics. For F1 it also asserts that every leaf of the real config sits in exactly one table, and that `main` sends an F1 config to the harness as a clean-tree run.
+- **`test_subject_cv.py`** runs the whole F1 harness on DB2-shaped doubles (`db2_like_recording`: rest carries its repetition, one terminal repetition-0 rest, two deliberately indistinguishable gestures so temperatures stay interior). A scripted wrapper replaces only the validation curves, so B is known in advance while training, snapshots, artifacts and temperatures run for real. A fake trainer drives D19's escalate-then-block path without training. The same file tests `training.f1_artifacts`, the one exception to one test file per module: the verifier's subject is that run's artifacts, and the eight-fold run takes about 17 s, so a second file would train it twice. Those tests feed it the right artifact, then each substitution — own-best, all-32, wrong fold, budget, horizon, lineage, digest, run — and files tampered after writing. `test_selection.py` and `test_calibration.py` check the pure rules on scripted inputs.
 - **`test_experiment_configs.py`, `test_evaluate.py`, `test_project_memory.py`** are structural: configs agree with the spec and with each other, robustness dispatch fails closed, and the project-memory tables stay well formed.
 - **`test_markdown_style.py`** parses every repository Markdown document and rejects manual prose wrapping before handoff, while preserving code, math, HTML, tables, nested lists and intentional breaks. This prevents source line widths from becoming arbitrary visible newlines in a viewer.
 

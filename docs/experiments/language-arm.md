@@ -287,7 +287,7 @@ D49–D88 settle the language owner contract: selection/exposure, optimizer/pilo
 
 **Easily missed.**
 - **This is not a result.** The explicit debug split uses subjects 1–3 for training and subject 4 for holdout, capped at `max_windows_per_subject: 100` for one epoch. Never report a number from this config.
-- It runs before the CUDA F1 exists, so, like any local debug run of a downstream arm, it freezes the preliminary MPS encoder (D47). Its `encoder.checkpoint` still names the canonical refit path and must be repointed when the F1 harness defines the preliminary location.
+- It runs before the CUDA F1 exists, so, like any local debug run of a downstream arm, it freezes the preliminary MPS encoder (D47). Its `encoder.checkpoint` names the preliminary refit the F1 harness writes, `checkpoints/preliminary/baseline_cnn_subject_split/refit.pt`, never the canonical parent; a regression test derives that path from the harness and fails if the config drifts back.
 - Llama weights are **gated**. `hf auth login` and accepting Meta's licence must happen first; this is an account action, not a code action.
 - Exercise D74's input assembly (begin-of-text, prefix, `"\nGesture:"` suffix, readout at the last suffix token), so the injection path proved here is the one the reportable arms use.
 - `torch_dtype: float16` on MPS: some ops silently fall back or lose precision. If loss is NaN, test in float32 before assuming the adapter is wrong.

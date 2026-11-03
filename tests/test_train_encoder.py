@@ -278,3 +278,136 @@ def test_the_clean_tree_refusal_comes_before_any_data_is_loaded(tmp_path, monkey
     config, _ = _script().load_run_config(DEBUG_CONFIG, tmp_path)
     with pytest.raises(run_logger.UncommittedCodeError):
         encoder.train_encoder(config, require_clean_tree=True)
+
+
+# --- F1: the cross-validation harness bridge -------------------------------------------------
+
+F1_CONFIG = REPO_ROOT / "configs/experiment/foundation/baseline_cnn_subject_split.yaml"
+
+
+@pytest.fixture
+def f1_config() -> dict:
+    return yaml.safe_load(F1_CONFIG.read_text())
+
+
+def test_the_real_f1_config_builds_the_harness_config() -> None:
+    script = _script()
+    config, recorded = script.build_f1_config(script.read_config(F1_CONFIG), F1_CONFIG)
+    assert config.name == "baseline_cnn_subject_split"
+    assert config.manifest.num_folds == 8 and len(config.manifest.training_subjects) == 32
+    assert (config.learning_rate, config.weight_decay, config.batch_size) == (3e-4, 1e-4, 64)
+    assert (config.window_size, config.stride, config.hidden_dim) == (400, 100, 128)
+    assert recorded["final_test_declarations"] == "checked_not_run"
+
+
+def test_every_f1_key_is_mapped_checked_declared_or_recorded() -> None:
+    """The F1 meta-test: each leaf of the real config belongs to exactly one table."""
+    script = _script()
+    leaves = set(script.leaf_paths(script.read_config(F1_CONFIG)))
+    tables = [
+        set(script.F1_FIELD_PATHS),
+        set(script.F1_CHECKED_PATHS),
+        set(script.F1_FINAL_TEST_PATHS),
+        set(script.F1_RECORDED_PATHS),
+        {mirror for _, mirror in script.F1_MIRRORED_PATHS},
+        {script.F1_MANIFEST_PATH, "evaluation.temperature_fit.checkpoint_pattern"},
+    ]
+    assert set().union(*tables) == leaves
+    assert sum(len(t) for t in tables) == len(leaves)  # no key in two tables
+
+
+def test_f1_field_paths_cover_every_harness_config_field() -> None:
+    from temporallens.training.subject_cv import SubjectCVConfig
+
+    fields = {f.name for f in dataclasses.fields(SubjectCVConfig)} - {"manifest"}
+    assert set(_script().F1_FIELD_PATHS.values()) == fields
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        (("training", "epoch_selection"), "smoothing_window_epochs", 5),
+        (("training", "optimization"), "betas", [0.9, 0.99]),
+        (("training", "optimization"), "amsgrad", 0),  # YAML 0 is not false
+        (("training", "horizon_escalation"), "next_fold_epochs", 90),
+        (("evaluation", "temperature_fit", "execution"), "bounds", [0.001, 1000.0]),
+        (("evaluation", "ece"), "bins", 15),  # a final-test declaration
+        (("training",), "epochs", 20),
+    ],
+)
+def test_a_changed_f1_protocol_value_is_refused(tmp_path, f1_config, section, key, value) -> None:
+    node = f1_config
+    for part in section:
+        node = node[part]
+    node[key] = value
+    with pytest.raises(_script().ConfigError, match=key):
+        _script().build_f1_config(f1_config, _write(tmp_path, f1_config))
+
+
+def test_an_unconsumed_f1_key_is_refused(tmp_path, f1_config) -> None:
+    f1_config["training"]["early_stopping"] = False
+    with pytest.raises(_script().ConfigError, match="does not consume"):
+        _script().build_f1_config(f1_config, _write(tmp_path, f1_config))
+
+
+def test_a_missing_f1_key_is_refused(tmp_path, f1_config) -> None:
+    del f1_config["training"]["epoch_selection"]["tie_break"]
+    with pytest.raises(_script().ConfigError, match="missing required keys"):
+        _script().build_f1_config(f1_config, _write(tmp_path, f1_config))
+
+
+def test_a_development_pattern_other_than_the_written_path_is_refused(tmp_path, f1_config) -> None:
+    f1_config["evaluation"]["temperature_fit"][
+        "checkpoint_pattern"
+    ] = "elsewhere/fold{fold_index}.pt"
+    with pytest.raises(_script().ConfigError, match="the path the harness writes"):
+        _script().build_f1_config(f1_config, _write(tmp_path, f1_config))
+
+
+def _f1_args(tmp_path: Path, *extra: str) -> list[str]:
+    return [
+        "--config",
+        str(F1_CONFIG),
+        "--output-dir",
+        str(tmp_path / "runs"),
+        "--checkpoint-root",
+        str(tmp_path / "checkpoints"),
+        *extra,
+    ]
+
+
+def test_main_routes_an_f1_config_to_the_harness_as_a_preliminary_run(
+    tmp_path, monkeypatch
+) -> None:
+    """The wiring only: F1 goes to the harness as preliminary, still requiring a clean tree."""
+    script = _script()
+    seen: dict = {}
+
+    class Done(Exception):
+        pass
+
+    def harness(config, **kwargs):
+        seen.update(config=config, **kwargs)
+        raise Done
+
+    monkeypatch.setattr(script, "run_subject_cross_validation", harness)
+    with pytest.raises(Done):
+        script.main(_f1_args(tmp_path))
+    assert seen["scope"] == "preliminary"  # never inferred from CUDA or a clean tree
+    assert seen["require_clean_tree"] is True
+    assert seen["checkpoint_base"] == tmp_path / "checkpoints"
+    assert seen["config"].name == "baseline_cnn_subject_split"
+    assert seen["metadata"]["config_file_sha256"]
+
+
+def test_main_refuses_a_reportable_f1_run_before_loading_data(tmp_path) -> None:
+    """--reportable reaches the real harness, which refuses before any run directory exists."""
+    with pytest.raises(SystemExit) as exit_info:
+        _script().main(_f1_args(tmp_path, "--reportable"))
+    assert exit_info.value.code == 2
+    assert not (tmp_path / "runs").exists() and not (tmp_path / "checkpoints").exists()
+
+
+def test_reportable_is_refused_for_an_f0_config(tmp_path) -> None:
+    with pytest.raises(SystemExit):
+        _script().main(["--config", str(DEBUG_CONFIG), "--reportable"])

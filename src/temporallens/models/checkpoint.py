@@ -17,12 +17,17 @@ arms, so if its statistics did not travel with the file each arm would normalize
 the F1 reference row would stop being comparable — the same argument D23 makes for the
 temperature. Saving without them is refused at write time rather than discovered downstream.
 
-D7 distinguishes the two filenames: :func:`refit_checkpoint_path` is the artifact every consumer
-reads, :func:`fold_checkpoint_path` is per-fold and for analysis only.
+D7 distinguishes the filenames: :func:`refit_checkpoint_path` is the artifact every consumer
+reads, :func:`fold_checkpoint_path` is per-fold and for analysis only, and
+:func:`development_checkpoint_path` is D48's common-budget fold model that development consumers
+read. F1 artifacts also carry ``probability_calibration`` (the frozen temperature and its fit,
+D33/D39) and ``provenance`` (where the weights came from, D48/D85) inside ``model_config``; both
+stay optional for F0's smoke checkpoint, so a consumer that relies on them checks they are present.
 """
 
 from __future__ import annotations
 
+import hashlib
 import pickle
 from collections.abc import Mapping
 from pathlib import Path
@@ -67,17 +72,41 @@ def fold_checkpoint_path(root: str | Path, experiment: str, *, fold: int) -> Pat
     return Path(root) / experiment / "folds" / f"fold{fold}" / "best.pt"
 
 
+def development_checkpoint_path(root: str | Path, experiment: str, *, fold: int) -> Path:
+    """``<root>/<experiment>/development/fold<k>/fixed_budget.pt`` — D48's common-budget model.
+
+    Not ``best``: it is the fold's trajectory read at the shared budget B, which may differ from
+    that fold's own peak.
+    """
+    return Path(root) / experiment / "development" / f"fold{fold}" / "fixed_budget.pt"
+
+
+def checkpoint_sha256(path: str | Path) -> str:
+    """SHA-256 of a file's bytes, the identity a consumer verifies before trusting it."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def save_checkpoint(
     path: str | Path,
     model: nn.Module,
     *,
     normalization: Mapping[str, Any],
+    probability_calibration: Mapping[str, Any] | None = None,
+    provenance: Mapping[str, Any] | None = None,
+    exclusive: bool = False,
 ) -> None:
     """Write ``{model_state, model_config}``, with the statistics folded into the config.
 
-    The assembled config passes the loader's own validation before anything is written, so this
-    cannot produce a file :func:`load_checkpoint` refuses — 11-channel statistics for a 12-channel
-    model, say.
+    The assembled config passes the loader's own validation before anything is written, and the
+    written file is read back through :func:`load_checkpoint` before this returns, so this cannot
+    produce a file the loader refuses — 11-channel statistics for a 12-channel model, say, or a
+    value such as ``torch.__version__`` that is a ``str`` subclass ``weights_only`` will not
+    unpickle. A file that fails the read-back is removed. ``exclusive`` refuses to replace an existing file: a frozen artifact that other
+    runs already verified by digest must never be silently overwritten.
     """
     if not normalization:
         raise CheckpointError(
@@ -95,11 +124,25 @@ def save_checkpoint(
     config = dict(describe())
     config["normalization"] = dict(normalization)
     config["schema_version"] = MODEL_CONFIG_SCHEMA_VERSION
+    if probability_calibration is not None:
+        config["probability_calibration"] = dict(probability_calibration)
+    if provenance is not None:
+        config["provenance"] = dict(provenance)
 
     destination = Path(path)
     _validate_model_config(config, f"refusing to save {destination}")
+    if exclusive and destination.exists():
+        raise CheckpointError(
+            f"refusing to replace {destination}: it is a frozen artifact, and a consumer may "
+            "already have verified its digest"
+        )
     destination.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"model_state": model.state_dict(), "model_config": config}, destination)
+    try:
+        load_checkpoint(destination)
+    except CheckpointError:
+        destination.unlink(missing_ok=True)
+        raise
 
 
 def load_checkpoint(path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -168,9 +211,9 @@ def _validate_model_config(config: dict[str, Any], source: str) -> None:
             f"{source}: normalization statistics cover {stats.mean.size} channels but the model "
             f"takes {channels}"
         )
-    calibration = config.get("probability_calibration")
-    if calibration is not None and not isinstance(calibration, Mapping):
-        raise CheckpointError(f"{source}: probability_calibration must be a mapping")
+    for optional in ("probability_calibration", "provenance"):
+        if config.get(optional) is not None and not isinstance(config[optional], Mapping):
+            raise CheckpointError(f"{source}: {optional} must be a mapping")
 
 
 def rebuild_model(path: str | Path) -> nn.Module:

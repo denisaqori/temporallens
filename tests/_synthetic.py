@@ -72,3 +72,48 @@ def write_development_recordings(directory: Path) -> Path:
         )
         save_processed(double, processed_path(directory, subject))
     return directory
+
+
+def db2_like_recording(
+    subject: int,
+    *,
+    gestures: int = 3,
+    repetitions: int = 2,
+    samples_per_segment: int = 600,
+    terminal_rest: int = 600,
+    separation: float = 1.5,
+    seed: int | None = None,
+) -> SubjectRecording:
+    """A recording with DB2's repetition structure and a learnable, imperfect class signal.
+
+    As in DB2's ``rerepetition``, each rest belongs to the repetition it follows, and the recording
+    ends with one repetition-0 rest segment (D81). Each class shifts its own channel by
+    ``separation``, except that the last two gestures share a channel, so no model can separate
+    them: that keeps every fitted temperature interior instead of running to D39's bound.
+    """
+    labels: list[int] = []
+    reps: list[int] = []
+    for repetition in range(1, repetitions + 1):
+        for gesture in range(1, gestures + 1):
+            labels += [gesture] * samples_per_segment + [0] * samples_per_segment
+            reps += [repetition] * (2 * samples_per_segment)
+    labels += [0] * terminal_rest
+    reps += [0] * terminal_rest
+    label = np.asarray(labels, dtype=np.int16)
+    repetition = np.asarray(reps, dtype=np.int16)
+
+    rng = np.random.default_rng(1000 + subject if seed is None else seed)
+    emg = rng.normal(0.0, 1.0, (label.size, NUM_CHANNELS)).astype(np.float32)
+    channel = np.minimum(label.astype(np.int64), gestures - 1)
+    emg[np.arange(label.size), channel] += np.float32(separation)
+    return SubjectRecording(subject=subject, emg=emg, label=label, repetition=repetition)
+
+
+def write_db2_like_development_set(directory: Path, **kwargs: object) -> Path:
+    """DB2-shaped doubles for the manifest's 32 development subjects only, never the test eight."""
+    for subject in SplitManifest.load().training_subjects:
+        save_processed(
+            db2_like_recording(subject, **kwargs),  # type: ignore[arg-type]
+            processed_path(directory, subject),
+        )
+    return directory

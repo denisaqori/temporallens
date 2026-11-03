@@ -444,3 +444,27 @@ def test_read_raw_mat_refuses_a_file_without_corrected_columns(tmp_path) -> None
     _write_raw_mat(path, corrected=False)
     with pytest.raises(NinaProFormatError, match="restimulus"):
         read_raw_mat(path, subject=1)
+
+
+def test_batched_fetching_returns_exactly_the_per_item_windows() -> None:
+    """``__getitems__`` is a speed path only: same windows, labels and subjects, bitwise."""
+    import torch
+    from _synthetic import recordings as synthetic_recordings
+    from torch.utils.data import DataLoader
+
+    from temporallens.data.dataset import WindowDataset
+    from temporallens.preprocessing.normalize import fit_channel_stats
+
+    pool = synthetic_recordings((1, 2))
+    index = concatenate([index_recording(r, window_size=400, stride=100) for r in pool.values()])
+    stats = fit_channel_stats(pool, index, fitted_on="test")
+    dataset = WindowDataset(index, pool, normalization=stats)
+    positions = [5, 0, len(dataset) - 1, 3]
+    batched = dataset.__getitems__(positions)
+    for (window, label, subject), position in zip(batched, positions, strict=True):
+        one_window, one_label, one_subject = dataset[position]
+        assert torch.equal(window, one_window)
+        assert int(label) == int(one_label) and int(subject) == int(one_subject)
+    loader = DataLoader(dataset, batch_size=7, shuffle=False)
+    windows, labels, _ = next(iter(loader))
+    assert torch.equal(windows[0], dataset[0][0]) and labels.dtype == torch.long

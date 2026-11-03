@@ -61,7 +61,7 @@ make debug                   # F0 smoke test, end to end, ~5 s on the Mac
 
 Interface-only — the scripts they call are not written yet (`train_adapter.py`, `make_report.py`; `evaluate.py` is a stub): `debug-adapter`, `smoke-1b`, `train-adapter-cloud`, `eval-noise`, `eval-robustness`, `report`. Do not present these as functional.
 
-`train-baseline` is a third case: the script exists and **refuses**, because F1 is 8-fold cross-validation with D18–D21 selection and a refit, and that harness is not written. Running F1's config as a single split would produce a number that looks like F1 and is not, so the loader will not do it.
+`train-baseline` runs F1's development harness (`training.subject_cv`): eight folds with D18–D21 selection and D19's escalation, D48's development artifacts, D33's temperature and the all-32 refit, from committed code and on the 32 development subjects only. It needs all 32 prepared. It is a **preliminary** run (D47) on every device, CUDA included, and writes under `checkpoints/preliminary/`, never the canonical paths the arms read. `--reportable` is refused until the CUDA-only final-test evaluation is written and rehearsed on development stand-ins, so no held-out number or canonical artifact can come from it yet.
 
 ## Authority and vocabulary
 

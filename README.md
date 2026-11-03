@@ -223,7 +223,7 @@ make test               # unit tests
 make lint               # formatting, lint, and type checks
 ```
 
-The `make debug`, `train-baseline`, `debug-adapter`, `smoke-1b`, `train-adapter-cloud`, `eval-noise`, `eval-robustness`, and `report` targets define the planned command-line interface. They are not operational yet: their training/report scripts have not been implemented and `evaluate.py` remains a contract stub. See [`docs/project/STATUS.md`](docs/project/STATUS.md) for the live implementation state.
+`make debug` runs F0's smoke test, and `make train-baseline` runs F1's development harness (cross-validation, selection, development artifacts, temperature and refit; preliminary on every device, and no final-test evaluation yet). The `debug-adapter`, `smoke-1b`, `train-adapter-cloud`, `eval-noise`, `eval-robustness`, and `report` targets define the planned command-line interface and are not operational yet: their training/report scripts have not been implemented and `evaluate.py` remains a contract stub. See [`docs/project/STATUS.md`](docs/project/STATUS.md) for the live implementation state.
 
 Long training runs on a rented GPU should be launched inside `tmux` so they survive disconnection; checkpoint frequently and sync artifacts back.
 

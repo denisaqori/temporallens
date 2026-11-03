@@ -6,7 +6,7 @@
 # Spec: docs/experiments/README.md, section 6 (Foundation). Epoch protocol: D18–D21.
 protocol:
   # D38-D40 resolve the protocol, not the missing 8-fold/refit training harness.
-  # scripts/train_encoder.py still refuses this manifest-based config rather than fake F1.
+  # scripts/train_encoder.py runs this through the F1 development harness; final test not written.
   status: ready
   blocked_on: []
 experiment:

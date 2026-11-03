@@ -8,6 +8,12 @@ keeps the resident cost at the signals plus one batch.
 
 Normalization is applied here rather than in the training loop, so there is exactly one place
 where a window can reach a model un-normalized.
+
+``__getitems__`` lets the DataLoader fetch a whole batch in one call, so the windows are cut with
+one vectorized gather per subject instead of one Python call each. It returns exactly what
+per-item fetching would (the normalization is elementwise, so batching does not change a value).
+Measured on subjects 1–3 at batch 64, loading fell from 20 to 11 µs per window, roughly 9.7 s to
+5.3 s for a 484,000-window F1 fold epoch; training compute, not loading, is the larger cost.
 """
 
 from __future__ import annotations
@@ -48,6 +54,16 @@ class WindowDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
 
     def __len__(self) -> int:
         return len(self.index)
+
+    def __getitems__(self, positions: list[int]) -> list[tuple[Tensor, Tensor, Tensor]]:
+        """The items at ``positions``, materialised and normalized as one batch."""
+        batch = self.index.take(np.asarray(positions, dtype=np.int64))
+        windows = torch.from_numpy(
+            apply_channel_stats(self.normalization, materialise(batch, self.recordings))
+        )
+        labels = torch.from_numpy(batch.label.astype(np.int64))
+        subjects = torch.from_numpy(batch.subject.astype(np.int64))
+        return list(zip(windows, labels, subjects, strict=True))
 
     def __getitem__(self, position: int) -> tuple[Tensor, Tensor, Tensor]:
         one = self.index.take(np.asarray([position], dtype=np.int64))

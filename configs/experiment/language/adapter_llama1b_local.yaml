@@ -29,7 +29,8 @@ dataset:
   # Debug holdout follows the same no-leakage rule as reportable subject splits.
   normalize: train_subject_covered_sample_stats
 encoder:
-  checkpoint: checkpoints/baseline_cnn_subject_split/refit.pt
+  # D47: the preliminary F1 refit, never the canonical parent; tests/test_subject_cv.py checks it.
+  checkpoint: checkpoints/preliminary/baseline_cnn_subject_split/refit.pt
   freeze: true
   embedding_dim: 256
 adapter:
